@@ -31,7 +31,8 @@ def is_already_known_online(tic_id: int) -> bool:
 with tab1:
     st.markdown("Scan raw NASA MAST data for unflagged exoplanetary transit signals.")
     
-    col1, col2, col3, col4 = st.columns(4)
+    # We added a 5th column here for the offset
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         ra_deg = st.number_input("RA (Degrees)", value=124.53, step=0.01)
     with col2:
@@ -39,7 +40,9 @@ with tab1:
     with col3:
         radius_deg = st.slider("Search Radius", 0.01, 1.0, 0.10, step=0.01)
     with col4:
-        max_stars = st.slider("Max Stars to Scan", 5, 50, 20, step=5)
+        max_stars = st.slider("Batch Size", 5, 50, 50, step=5)
+    with col5:
+        start_index = st.number_input("Start at Star #", value=0, step=50)
         
     if st.button("Initialize Scan", type="primary"):
         st.divider()
@@ -51,24 +54,27 @@ with tab1:
                 mask = ((tic_table["Tmag"] >= 13.5) & (tic_table["Tmag"] <= 15.4) & 
                         (tic_table["rad"] > 0.2) & (tic_table["rad"] < 1.5))
                 candidates = tic_table[mask]
-                
-            st.success(f"Found {len(candidates)} faint dwarf stars. Processing top {max_stars}...")
+            
+            # Slice the master list based on the user's Start Index
+            total_stars = len(candidates)
+            batch_candidates = candidates[start_index : start_index + max_stars]
+            
+            st.success(f"Found {total_stars} total stars in this sector. Processing batch of {len(batch_candidates)} (Stars {start_index} to {start_index + len(batch_candidates)})...")
             
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            # --- THE NEW LIVE LOG UI ---
             st.markdown("### 📡 Live Scan Log")
             log_box = st.container(height=300)
             
             checked_count = 0
-            for row in candidates[:max_stars]:
+            for row in batch_candidates:
                 tic_id = int(row["ID"])
                 star_rad = float(row["rad"])
                 checked_count += 1
-                progress_bar.progress(checked_count / max_stars)
+                progress_bar.progress(checked_count / len(batch_candidates))
                 
-                status_text.text(f"[{checked_count}/{max_stars}] Actively querying TIC {tic_id}...")
+                status_text.text(f"[{checked_count}/{len(batch_candidates)}] Actively querying TIC {tic_id}...")
                 
                 if is_already_known_online(tic_id):
                     log_box.write(f"⚠️ **TIC {tic_id}**: Already known on Zooniverse, skipping.")
