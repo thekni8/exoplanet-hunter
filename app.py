@@ -33,9 +33,9 @@ with tab1:
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        ra_deg = st.number_input("RA (Degrees)", value=124.456, step=0.01)
+        ra_deg = st.number_input("RA (Degrees)", value=124.53, step=0.01)
     with col2:
-        dec_deg = st.number_input("Dec (Degrees)", value=-67.568, step=0.01)
+        dec_deg = st.number_input("Dec (Degrees)", value=-67.57, step=0.01)
     with col3:
         radius_deg = st.slider("Search Radius", 0.01, 1.0, 0.10, step=0.01)
     with col4:
@@ -57,6 +57,10 @@ with tab1:
             progress_bar = st.progress(0)
             status_text = st.empty()
             
+            # --- THE NEW LIVE LOG UI ---
+            st.markdown("### 📡 Live Scan Log")
+            log_box = st.container(height=300)
+            
             checked_count = 0
             for row in candidates[:max_stars]:
                 tic_id = int(row["ID"])
@@ -64,16 +68,17 @@ with tab1:
                 checked_count += 1
                 progress_bar.progress(checked_count / max_stars)
                 
-                status_text.text(f"[{checked_count}/{max_stars}] Querying TIC {tic_id}...")
+                status_text.text(f"[{checked_count}/{max_stars}] Actively querying TIC {tic_id}...")
                 
                 if is_already_known_online(tic_id):
-                    st.write(f"⚠️ **TIC {tic_id}**: Already known on Zooniverse, skipping.")
+                    log_box.write(f"⚠️ **TIC {tic_id}**: Already known on Zooniverse, skipping.")
                     continue
                 
                 try:
                     time.sleep(1)
                     search = lk.search_lightcurve(f"TIC {tic_id}")
                     if len(search) == 0:
+                        log_box.write(f"⏩ **TIC {tic_id}**: No light curves available. Skipping.")
                         continue
                         
                     for preferred_author in ["TESS-SPOC", "QLP", "SPOC", "TGLC"]:
@@ -83,10 +88,12 @@ with tab1:
                             break
                             
                     if len(search) < 2:
+                        log_box.write(f"⏩ **TIC {tic_id}**: Not enough data sectors. Skipping.")
                         continue
 
                     lc_collection = search.download_all()
                     if not lc_collection:
+                        log_box.write(f"❌ **TIC {tic_id}**: Download failed. Skipping.")
                         continue
                         
                     lc = lc_collection.stitch().remove_nans().remove_outliers(sigma=5.0)
@@ -106,6 +113,7 @@ with tab1:
                         dur_hr = float(res.duration[best].value) * 24.0
                         planet_re = np.sqrt(max(0.0, float(res.depth[best]))) * star_rad * 109.1
 
+                        log_box.success(f"🎯 **TIC {tic_id}**: SIGNAL FOUND!")
                         st.error(f"🎯 **NEW UNFLAGGED SIGNAL: TIC {tic_id}** | Period: {P:.4f} days | Size: ~{planet_re:.1f} Earth Radii")
 
                         phase_hr = (((t - T0 + 0.5 * P) % P) - 0.5 * P) * 24.0
@@ -125,9 +133,11 @@ with tab1:
                         ax.legend()
                         ax.grid(alpha=0.2)
                         st.pyplot(fig)
+                    else:
+                        log_box.write(f"✅ **TIC {tic_id}**: Scanned successfully. No signals.")
                         
                 except Exception as e:
-                    # Silently skip zombie connections and timeouts to keep the UI clean
+                    log_box.write(f"⚠️ **TIC {tic_id}**: Failed processing (Timeout/Error).")
                     continue
                     
             status_text.text("Scan complete!")
