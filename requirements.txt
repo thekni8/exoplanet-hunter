@@ -1,0 +1,8 @@
+streamlit
+lightkurve
+astroquery
+astropy
+numpy
+matplotlib
+requests
+fsspec[http]==2025.12.0
