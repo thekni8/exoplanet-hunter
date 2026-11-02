@@ -28,7 +28,9 @@ Endpoints:
                               detrend_window, min_period, max_period,
                               pipelines?}
   POST /api/sweep            {ra, dec, cone, limit, mag/rad filters,
-                              bls_points, sector_cap}
+                              bls_points, sector_cap, scanner?}
+  POST /api/oddeven          {tic, period, sector_cap?} — Stage 4: v1's
+                              odd/even eclipsing-binary fake-check
   POST /api/qa               run Dev's 3 QA benchmarks (1-2 sectors, 10k grid)
   GET  /api/jobs/{id}        status / progress / error / result summary
   GET  /api/jobs/{id}/result full result JSON
@@ -101,7 +103,7 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS jobs (
                 id           TEXT PRIMARY KEY,
-                type         TEXT NOT NULL,          -- analyze | sweep | qa
+                type         TEXT NOT NULL,          -- analyze | sweep | qa | oddeven
                 params_json  TEXT NOT NULL,
                 target       TEXT,                   -- human summary for history
                 status       TEXT NOT NULL,          -- queued|running|done|failed
@@ -238,6 +240,16 @@ def _run_sweep(job_id, p):
     then analyze_target_json per target, sequentially, ALWAYS finishing
     the full target list. Per-target errors are recorded in progress and
     the sweep continues (hunter's original behaviour).
+
+    Stage 4 — scanner mode (p["scanner"] true) applies Gemini v1's
+    recipe on top of the same machinery: the catalog screen is forced
+    to v1's faint-dwarf filter (Tmag 13.5-15.4, radius 0.2-1.5 R_sun,
+    ignoring the request's filter values), and every candidate is run
+    through hunter.is_already_known_online (Zooniverse) BEFORE any
+    download; known stars are skipped and counted in the summary's
+    "skipped_known". Discoveries logging is unchanged (hits only,
+    SDE >= 8.5) — the SDE >= 11 "unflagged signal" bar is presentation
+    only, applied by the Scanner UI.
     """
     import astropy.units as u
     from astropy.coordinates import SkyCoord
@@ -249,25 +261,41 @@ def _run_sweep(job_id, p):
     bls_points = p.get("bls_points", 10000)
     sector_cap = p.get("sector_cap", 2)
     detrend_window = p.get("detrend_window", 101)
+    scanner = bool(p.get("scanner", False))
+    if scanner:
+        min_mag, max_mag = 13.5, 15.4      # v1 scanner screen
+        min_rad, max_rad = 0.2, 1.5
+    else:
+        min_mag, max_mag = p.get("min_mag", 11.5), p.get("max_mag", 15.0)
+        min_rad, max_rad = p.get("min_rad", 0.5), p.get("max_rad", 1.8)
 
     def cb(msg):
         append_progress(job_id, msg)
 
+    if scanner:
+        cb("Scanner mode: hunting NEW, unflagged signals (v1 recipe — "
+           "faint-dwarf screen, already-known stars skipped via Zooniverse).")
     cb(f"Querying TIC catalog around RA {ra}, Dec {dec} (radius {cone}°)...")
     coord = SkyCoord(ra=ra * u.deg, dec=dec * u.deg)
     tic_catalog = Catalogs.query_region(coord, radius=cone * u.deg, catalog="TIC")
     mask = (
-        (tic_catalog["Tmag"] >= p.get("min_mag", 11.5)) & (tic_catalog["Tmag"] <= p.get("max_mag", 15.0)) &
-        (tic_catalog["rad"] >= p.get("min_rad", 0.5)) & (tic_catalog["rad"] <= p.get("max_rad", 1.8))
+        (tic_catalog["Tmag"] >= min_mag) & (tic_catalog["Tmag"] <= max_mag) &
+        (tic_catalog["rad"] >= min_rad) & (tic_catalog["rad"] <= max_rad)
     )
     targets = tic_catalog[mask][:limit]
     total = len(targets)
     cb(f"Screened {total} target(s); starting sweep (no cap beyond requested limit={limit}).")
 
     analyzed, hits, errors = [], [], []
+    skipped_known = 0
     for i, row in enumerate(targets, start=1):
         tic_id = str(row["ID"])
         star_rad = float(row["rad"])
+        if scanner and hunter.is_already_known_online(tic_id):
+            skipped_known += 1
+            cb(f"Target {i} of {total}: TIC {tic_id} — already known on "
+               f"Zooniverse, skipping (skipped {skipped_known} so far).")
+            continue
         cb(f"Target {i} of {total}: TIC {tic_id} (R* = {star_rad:.2f} R_sun, Tmag = {float(row['Tmag']):.1f})")
         try:
             result = hunter.analyze_target_json(
@@ -291,13 +319,43 @@ def _run_sweep(job_id, p):
 
     summary = {"ra": ra, "dec": dec, "cone": cone, "targets_total": total,
                "targets_analyzed": len(analyzed), "hits": hits,
-               "errors": errors}
+               "errors": errors,
+               # Stage 4 (additive): scanner provenance + Zooniverse skips.
+               "scanner": scanner, "skipped_known": skipped_known}
     best = max(hits, key=lambda h: h["sde"], default=None)
     update_job(job_id, status="done", finished_at=_now(),
                result_json=json.dumps(summary),
                period=(best["period_days"] if best else None),
                sde=(best["sde"] if best else None))
-    cb(f"Sweep complete: {len(hits)} hit(s) with SDE >= {HIT_SDE} out of {total} target(s).")
+    done_msg = (f"Sweep complete: {len(hits)} hit(s) with SDE >= {HIT_SDE} "
+                f"out of {total} target(s).")
+    if scanner:
+        done_msg += f" Skipped {skipped_known} already-known star(s)."
+    cb(done_msg)
+
+
+def _run_oddeven(job_id, p):
+    """Odd/Even fake-check job (Stage 4): hunter.odd_even_test_json
+    through the same queue. The full payload (metrics + folded arrays)
+    is stored like an analyze result so /result returns the chart data;
+    the metrics dict is the job summary. No discovery is recorded — this
+    judges an existing candidate, it doesn't discover one.
+    """
+    result = hunter.odd_even_test_json(
+        p["tic"],
+        p["period"],
+        sector_cap=p.get("sector_cap"),
+        progress_callback=lambda msg: append_progress(job_id, msg),
+    )
+    metrics = result["metrics"]
+
+    result_path = RESULTS_DIR / f"{job_id}.json"
+    result_path.write_text(json.dumps(result))
+
+    update_job(job_id, status="done", finished_at=_now(),
+               result_json=json.dumps(metrics), result_path=str(result_path),
+               period=metrics["period_fit_days"])
+    append_progress(job_id, "Done.")
 
 
 def _run_qa(job_id, p):
@@ -328,7 +386,8 @@ def _run_qa(job_id, p):
     cb("QA complete.")
 
 
-_RUNNERS = {"analyze": _run_analyze, "sweep": _run_sweep, "qa": _run_qa}
+_RUNNERS = {"analyze": _run_analyze, "sweep": _run_sweep, "qa": _run_qa,
+            "oddeven": _run_oddeven}
 
 
 def _worker_loop():
@@ -400,6 +459,15 @@ class SweepRequest(BaseModel):
     bls_points: int = 10000
     sector_cap: Optional[int] = 2
     detrend_window: int = 101
+    # Stage 4: v1 Scanner recipe (faint-dwarf screen + Zooniverse
+    # already-known skipping). Filters above are ignored when true.
+    scanner: bool = False
+
+
+class OddEvenRequest(BaseModel):
+    tic: str
+    period: float
+    sector_cap: Optional[int] = None
 
 
 class QaRequest(BaseModel):
@@ -432,6 +500,13 @@ def post_sweep(req: SweepRequest):
 @app.post("/api/qa")
 def post_qa(req: Optional[QaRequest] = None):
     return _submit("qa", {}, "QA benchmarks")
+
+
+@app.post("/api/oddeven")
+def post_oddeven(req: OddEvenRequest):
+    params = req.dict()
+    return _submit("oddeven", params,
+                   f"Odd/Even TIC {req.tic} @ {req.period} d")
 
 
 @app.get("/api/jobs/{job_id}")

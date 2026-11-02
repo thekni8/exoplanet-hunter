@@ -41,6 +41,22 @@ original; they do not change any of the behaviour above):
       ``--json-out PATH``, which writes that JSON dict to a file; without
       it, CLI output is identical to the original.
 
+Stage 4 additions (Pingu — ports of Gemini's v1 app features; see
+GEMINI_V1_ANALYSIS.md). They do not change any behaviour above:
+  (d) ``is_already_known_online(tic_id)``: v1's Zooniverse (Planet
+      Hunters TESS) already-discussed check. FAIL-OPEN: any error,
+      timeout or unexpected response returns False (treat as unknown).
+  (e) ``sweep_sky`` gains ``check_known=False``. When True, each
+      screened star is checked with (d) BEFORE any download; known
+      stars are skipped and counted via progress messages. Default
+      False = original behaviour, unchanged.
+  (f) ``odd_even_test(...)`` / ``odd_even_test_json(...)``: v1's QA
+      Validation Lab odd/even eclipsing-binary check. Folds the light
+      curve at 2x the candidate period and compares the depths of the
+      two dips (equal depths -> planet-like; unequal -> likely an
+      eclipsing binary at twice the period). Renders NO PNG and logs
+      NOTHING to discoveries.csv — it is a check, not a discovery.
+
 CLI (original flags):
     python hunter.py --tic 25155310 --radius 1.30 --sectors 2 --grid 8000
     python hunter.py --sweep --ra 83.82 --dec -5.39 --cone 0.15 --limit 50
@@ -62,6 +78,7 @@ from datetime import datetime
 import astropy.units as u
 import lightkurve as lk
 import matplotlib
+import requests
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -382,16 +399,283 @@ def analyze_target_json(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
 
 
 # ---------------------------------------------------------------------------
+# Stage 4 (d): Zooniverse already-known check (ported from Gemini's v1 app)
+# ---------------------------------------------------------------------------
+
+ZOONIVERSE_SEARCH_URL = (
+    "https://talk.zooniverse.org/searches"
+    "?section=project-5733&query={tic}&types[]=comments&types[]=discussions"
+)
+
+
+def is_already_known_online(tic_id):
+    """True if this TIC is already discussed on Planet Hunters TESS
+    (Zooniverse Talk, project-5733) — v1's pre-download skip check.
+
+    FAIL-OPEN by design: any network error, timeout, non-200 status or
+    malformed response returns False (treat the star as not known), so a
+    flaky connection can never silently shrink a sweep.
+    """
+    try:
+        r = requests.get(
+            ZOONIVERSE_SEARCH_URL.format(tic=str(tic_id).strip()),
+            headers={"Accept": "application/vnd.api+json; version=1"},
+            timeout=5,
+        )
+        if r.status_code == 200 and len(r.json().get("searches", [])) > 0:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 (f): Odd/Even eclipsing-binary check (v1's QA Validation Lab)
+# ---------------------------------------------------------------------------
+
+def _fetch_flattened(tic_id, max_sectors=None, progress_callback=None,
+                     detrend_window=101):
+    """Front half of Dev's analyze pipeline (search -> download -> stitch
+    -> flatten), shared by odd_even_test. Unlike _run_pipeline this
+    renders NO PNG and logs NOTHING — the odd/even test is a check on an
+    existing candidate, not a discovery run.
+    Returns (t, f, n_sectors, total_points).
+    """
+    _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
+
+    search = lk.search_lightcurve(f"TIC {tic_id}", author=["SPOC", "TESS-SPOC", "QLP"])
+    if len(search) == 0:
+        search = lk.search_lightcurve(f"TIC {tic_id}")
+    if len(search) == 0:
+        raise RuntimeError(f"No mission data found for TIC {tic_id}.")
+
+    sectors_to_fetch = search if max_sectors is None else search[:max_sectors]
+    _emit(progress_callback,
+          f"Downloading {len(sectors_to_fetch)} of {len(search)} sector(s) for TIC {tic_id}...")
+
+    lc_collection = sectors_to_fetch.download_all()
+    if not lc_collection or len(lc_collection) == 0:
+        raise RuntimeError(f"Failed to download light curve data products for TIC {tic_id}.")
+    n_sectors = len(lc_collection)
+
+    lc_raw = (lc_collection.stitch(corrector_func=lambda x: x.normalize())
+              .remove_nans().remove_outliers(sigma=5.0))
+    total_points = int(len(lc_raw))
+    lc_flat = lc_raw.flatten(window_length=detrend_window)
+    t = np.asarray(lc_flat.time.value, dtype=float)
+    f = np.asarray(lc_flat.flux.value, dtype=float)
+
+    del lc_collection, lc_raw, lc_flat
+    gc.collect()
+    return t, f, n_sectors, total_points
+
+
+# Depths within this relative difference are judged "the same dip".
+ODD_EVEN_MATCH_TOLERANCE = 0.25
+
+
+def odd_even_test(tic_id, period_days, sector_cap=None, progress_callback=None,
+                  detrend_window=101):
+    """Odd/Even fake-check (v1's QA Validation Lab, rebuilt on our engine).
+
+    If a "planet" signal is really an eclipsing binary, its true period
+    is TWICE the candidate period, and alternate transits are the two
+    different eclipses (primary/secondary) — usually with clearly
+    different depths. Folding at 2x the period separates them: genuine
+    planet transits land in BOTH dip positions with the SAME depth.
+
+    Method:
+      * Download/stitch/flatten exactly like analyze_target
+        (detrend_window default 101).
+      * The fold needs a true transit epoch. A catalog period can be
+        ~0.25% off the best-fit period, which over a multi-year
+        baseline smears the fold by a full period — so first refine
+        period/epoch/duration with a small focused BLS scan (+/-2%
+        around the supplied period, 401 grid points, the pipeline's
+        standard duration set). The fold uses the refined period.
+      * Folded coordinate s in [-P, +P): transit families land at
+        s = -P/2 ("odd" dips) and s = +P/2 ("even" dips) — v1's plot
+        geometry.
+      * Each dip's depth = 1 - median(flux) within +/- half_window of
+        its center, where half_window = 0.04 * P clipped to
+        [0.02 d, 0.25 * P] — wide enough to average down noise, narrow
+        enough not to swallow the other dip or mostly baseline.
+      * Verdict: relative depth difference |odd - even| / max(odd, even)
+        <= 0.25 -> "planet-like"; beyond -> "likely-eclipsing-binary";
+        no positive dip measured at either position -> "inconclusive".
+
+    Returns a dict of scalars + numpy arrays (see
+    odd_even_test_json for the JSON-serializable mirror).
+    """
+    tic_id = str(tic_id).strip()
+    period_days = float(period_days)
+    if not math.isfinite(period_days) or period_days <= 0:
+        raise ValueError(f"period_days must be a positive number, got {period_days!r}.")
+
+    _emit(progress_callback,
+          f"Odd/Even test: TIC {tic_id} at candidate period {period_days:.4f} d "
+          f"(folds at {2.0 * period_days:.4f} d)...")
+    t, f, n_sectors, total_points = _fetch_flattened(
+        tic_id, max_sectors=sector_cap, progress_callback=progress_callback,
+        detrend_window=detrend_window)
+
+    _emit(progress_callback, "Refining period/epoch with a focused BLS scan...")
+    grid = np.linspace(period_days * 0.98, period_days * 1.02, 401) * u.day
+    durations = np.linspace(0.03, 0.25, 14) * u.day
+    bls = BoxLeastSquares(t * u.day, f)
+    res = bls.power(grid, durations)
+    best_idx = int(np.argmax(res.power))
+    fit_period = float(res.period[best_idx].value)
+    t0 = float(res.transit_time[best_idx].value)
+    duration = float(res.duration[best_idx].value)
+    del bls, res
+    _emit(progress_callback,
+          f"Refined period {fit_period:.5f} d (supplied {period_days:.5f} d); "
+          f"folding at {2.0 * fit_period:.5f} d...")
+
+    # Fold at 2x the refined period; coordinate s in [-P, +P) with the
+    # two transit families centered at -P/2 (odd) and +P/2 (even).
+    s = ((t - t0 + 0.5 * fit_period) % (2.0 * fit_period)) - fit_period
+
+    half_window = float(min(max(0.04 * fit_period, 0.02), 0.25 * fit_period))
+    centers = {"odd": -0.5 * fit_period, "even": 0.5 * fit_period}
+    depths = {}
+    for name, center in centers.items():
+        in_dip = np.abs(s - center) <= half_window
+        depths[name] = float(1.0 - np.median(f[in_dip])) if in_dip.any() else 0.0
+
+    depth_odd, depth_even = depths["odd"], depths["even"]
+    depth_max = max(depth_odd, depth_even)
+    if depth_max <= 0.0:
+        depth_ratio, depth_rel_diff = 1.0, 0.0
+        verdict = "inconclusive"
+        verdict_text = (
+            "No dip could be measured at either expected position, so this "
+            "check can't judge the signal either way.")
+    else:
+        depth_ratio = float(min(depth_odd, depth_even) / depth_max)
+        depth_rel_diff = float(abs(depth_odd - depth_even) / depth_max)
+        if depth_rel_diff <= ODD_EVEN_MATCH_TOLERANCE:
+            verdict = "planet-like"
+            verdict_text = (
+                f"The two dips match — odd transits dip {depth_odd * 100:.3f}% and "
+                f"even transits dip {depth_even * 100:.3f}%, within "
+                f"{depth_rel_diff * 100:.0f}% of each other. That is what a real "
+                f"planet crossing the same star every {fit_period:.2f} days "
+                f"should look like.")
+        else:
+            verdict = "likely-eclipsing-binary"
+            verdict_text = (
+                f"The two dips are different sizes — odd transits dip "
+                f"{depth_odd * 100:.3f}% but even transits dip "
+                f"{depth_even * 100:.3f}% ({depth_rel_diff * 100:.0f}% apart). "
+                f"That is the classic sign of an eclipsing binary whose real "
+                f"period is twice the candidate period.")
+
+    _emit(progress_callback,
+          f"Odd depth {depth_odd * 100:.4f}% · Even depth {depth_even * 100:.4f}% "
+          f"→ verdict: {verdict}")
+
+    # Binned medians over the folded axis (60 bins) — v1's clean overlay line.
+    edges = np.linspace(-fit_period, fit_period, 60 + 1)
+    bin_idx = np.clip(np.digitize(s, edges) - 1, 0, 59)
+    binned_t, binned_f = [], []
+    for b in range(60):
+        mask = bin_idx == b
+        if not mask.any():
+            continue
+        binned_t.append(float(np.mean(s[mask])))
+        binned_f.append(float(np.median(f[mask])))
+
+    order = np.argsort(s)
+    return {
+        "TIC": tic_id,
+        "Period_Given_Days": period_days,
+        "Period_Fit_Days": fit_period,
+        "Fold_Period_Days": 2.0 * fit_period,
+        "Duration_Days": duration,
+        "T0": t0,
+        "Sectors_Analyzed": int(n_sectors),
+        "Total_Points": int(total_points),
+        "Half_Window_Days": half_window,
+        "Center_Odd_Days": centers["odd"],
+        "Center_Even_Days": centers["even"],
+        "Depth_Odd": depth_odd,
+        "Depth_Even": depth_even,
+        "Depth_Ratio": depth_ratio,
+        "Depth_Rel_Diff": depth_rel_diff,
+        "Verdict": verdict,
+        "Verdict_Text": verdict_text,
+        # arrays
+        "folded_time_days": np.asarray(s[order], dtype=float),
+        "folded_flux": np.asarray(f[order], dtype=float),
+        "binned_time_days": np.asarray(binned_t, dtype=float),
+        "binned_flux": np.asarray(binned_f, dtype=float),
+    }
+
+
+def odd_even_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
+    """Serialize an odd_even_test result to a JSON-safe dict."""
+    fold_t, fold_f = _downsample_pair(full["folded_time_days"], full["folded_flux"], max_points)
+    return {
+        "metrics": {
+            "tic_id": full["TIC"],
+            "period_given_days": full["Period_Given_Days"],
+            "period_fit_days": full["Period_Fit_Days"],
+            "fold_period_days": full["Fold_Period_Days"],
+            "duration_days": full["Duration_Days"],
+            "t0_days": full["T0"],
+            "sectors_analyzed": full["Sectors_Analyzed"],
+            "total_points": full["Total_Points"],
+            "half_window_days": full["Half_Window_Days"],
+            "depth_odd": full["Depth_Odd"],
+            "depth_even": full["Depth_Even"],
+            "depth_odd_percent": full["Depth_Odd"] * 100.0,
+            "depth_even_percent": full["Depth_Even"] * 100.0,
+            "depth_ratio": full["Depth_Ratio"],
+            "depth_rel_diff": full["Depth_Rel_Diff"],
+            "verdict": full["Verdict"],
+            "verdict_text": full["Verdict_Text"],
+        },
+        "folded": {
+            "range_days": full["Period_Fit_Days"],  # axis spans -P .. +P
+            "center_odd_days": full["Center_Odd_Days"],
+            "center_even_days": full["Center_Even_Days"],
+            "points": {"time_days": fold_t, "flux": fold_f},
+            "binned": {
+                "time_days": [float(v) for v in full["binned_time_days"]],
+                "flux": [float(v) for v in full["binned_flux"]],
+            },
+        },
+    }
+
+
+def odd_even_test_json(tic_id, period_days, sector_cap=None, progress_callback=None,
+                       detrend_window=101, max_points=DEFAULT_MAX_POINTS):
+    """JSON mirror of odd_even_test (same pattern as analyze_target_json):
+    metrics + downsampled folded arrays for the API/frontend layer."""
+    full = odd_even_test(tic_id, period_days, sector_cap=sector_cap,
+                         progress_callback=progress_callback,
+                         detrend_window=detrend_window)
+    return odd_even_result_to_json_dict(full, max_points=max_points)
+
+
+# ---------------------------------------------------------------------------
 # Sky sweeper
 # ---------------------------------------------------------------------------
 
 def sweep_sky(ra, dec, radius=0.15, limit=50, min_mag=11.5, max_mag=15.0,
               min_r=0.5, max_r=1.8, bls_points=10000, sector_cap=2,
-              progress_callback=None):
+              progress_callback=None, check_known=False):
     """Cone-search the TIC catalog and analyze each screened star.
 
     Returns the list of hits with SDE >= 8.0. Per-target errors are
     printed (not silently swallowed) and the sweep continues.
+
+    Stage 4: ``check_known=True`` runs v1's Zooniverse already-known
+    check on each screened star BEFORE any download; known stars are
+    skipped and counted in the progress stream (and in the closing
+    summary line). Default False = original behaviour.
     """
     _emit(progress_callback, f"Querying TIC catalog around RA {ra}, Dec {dec} (radius {radius}°)...")
     coord = SkyCoord(ra=ra * u.deg, dec=dec * u.deg)
@@ -405,9 +689,16 @@ def sweep_sky(ra, dec, radius=0.15, limit=50, min_mag=11.5, max_mag=15.0,
     _emit(progress_callback, f"Screened {len(screened_targets)} target(s); starting sweep...")
 
     hits = []
+    skipped_known = 0
     for row in screened_targets:
         tic_id = str(row["ID"])
         star_rad = float(row["rad"])
+        if check_known and is_already_known_online(tic_id):
+            skipped_known += 1
+            _emit(progress_callback,
+                  f"Skipping TIC {tic_id} — already known on Zooniverse "
+                  f"(skipped {skipped_known} so far).")
+            continue
         try:
             result = analyze_target(tic_id, star_radius=star_rad,
                                     bls_points=bls_points, max_sectors=sector_cap,
@@ -428,7 +719,10 @@ def sweep_sky(ra, dec, radius=0.15, limit=50, min_mag=11.5, max_mag=15.0,
             # Printed, not swallowed — the sweep continues with the next star.
             print(f"Error analyzing TIC {tic_id}: {e}", flush=True)
 
-    _emit(progress_callback, f"Sweep complete: {len(hits)} hit(s) with SDE >= 8.0.")
+    summary_line = f"Sweep complete: {len(hits)} hit(s) with SDE >= 8.0."
+    if check_known:
+        summary_line += f" Skipped {skipped_known} already-known star(s)."
+    _emit(progress_callback, summary_line)
     return hits
 
 

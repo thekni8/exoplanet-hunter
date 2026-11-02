@@ -41,7 +41,12 @@ live at a public forwarded-port link ONLY while a Codespace session is running.
   by default) — the CODE is safe in the repo; only the machine is disposable.
 
 ## Status
-- Stages 1–3 built, tested and pushed (2026-11-02). First launch attempt the
+- Stages 1–4 built, tested and pushed (2026-11-02). **Stage 4 (same day):**
+  the home screen is now the v1-style **Scanner** (pre-filled sky point, one
+  "Initialize Scan" button, Zooniverse already-known skip, 🎯 hits at
+  SDE ≥ 11, one-click "Is it a fake?" odd/even eclipsing-binary check per
+  hit); Observatory / Sweeper / QA / History live under "Advanced tools".
+  First launch attempt the
   same day hung on the "Setting up your codespace" screen; the fix (minimal
   devcontainer, installs moved into `run.sh`) was pushed the same morning.
   If a Codespace ever hangs at "Setting up" again: Stop it from
