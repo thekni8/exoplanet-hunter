@@ -161,6 +161,86 @@ export function BlsChart({ bls, peakPeriod, sde, height = 190 }) {
   );
 }
 
+// Stage 4: odd/even fake-check chart (v1's QA Validation Lab plot).
+// Folded at 2x the candidate period, so real planet transits appear as
+// TWO equal dips at -P/2 (odd transits) and +P/2 (even transits); an
+// eclipsing binary shows two dips of clearly different depths.
+// Rendered from the REAL folded arrays of an /api/oddeven job result.
+export function OddEvenChart({ folded, height = 240 }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || !folded || !folded.points?.time_days?.length) return;
+    const { ctx, width } = setup(canvas, height);
+    const P = folded.range_days || 1;
+    const pts = folded.points;
+    const binned = folded.binned;
+    // Plot brightness drop in percent, like v1: (flux - 1) * 100.
+    const toPct = (v) => (v - 1) * 100;
+    let yLo = Infinity, yHi = -Infinity;
+    const scan = (arr) => {
+      for (let i = 0; i < arr.length; i++) {
+        const v = toPct(arr[i]);
+        if (v < yLo) yLo = v;
+        if (v > yHi) yHi = v;
+      }
+    };
+    if (binned?.flux?.length) scan(binned.flux); else scan(pts.flux);
+    if (!Number.isFinite(yLo)) { yLo = -0.1; yHi = 0.1; }
+    const padY = Math.max((yHi - yLo) * 0.25, 0.01);
+    yLo -= padY; yHi = Math.max(yHi + padY, padY * 0.5);
+    const { toX, toY } = axes(ctx, width, height, PAD, -P, P, yLo, yHi,
+      (v) => v.toFixed(1) + 'd', (v) => v.toFixed(2) + '%');
+    // zero line (star's normal brightness)
+    ctx.strokeStyle = '#52525b';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(PAD.l, toY(0)); ctx.lineTo(width - PAD.r, toY(0)); ctx.stroke();
+    ctx.setLineDash([]);
+    // cadence scatter
+    ctx.fillStyle = 'rgba(161,161,170,0.35)';
+    for (let i = 0; i < pts.time_days.length; i++) {
+      ctx.fillRect(toX(pts.time_days[i]), toY(toPct(pts.flux[i])), 1.4, 1.4);
+    }
+    // binned medians as a connected line + dots (v1's "averaged dip")
+    if (binned?.flux?.length) {
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      binned.flux.forEach((fv, i) => {
+        const x = toX(binned.time_days[i]), y = toY(toPct(fv));
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.fillStyle = '#f43f5e';
+      binned.flux.forEach((fv, i) => {
+        ctx.fillRect(toX(binned.time_days[i]) - 1.5, toY(toPct(fv)) - 1.5, 3, 3);
+      });
+    }
+    // dip-center markers
+    const centers = [
+      { v: folded.center_odd_days, color: '#ef4444', label: 'Odd dips' },
+      { v: folded.center_even_days, color: '#60a5fa', label: 'Even dips' },
+    ];
+    ctx.font = 'bold 10px monospace';
+    centers.forEach(({ v, color, label }) => {
+      if (v == null) return;
+      const x = toX(v);
+      ctx.strokeStyle = color;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, height - PAD.b); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color;
+      ctx.fillText(label, Math.min(Math.max(x - 24, PAD.l), width - 90), PAD.t + 10);
+    });
+  }, [folded, height]);
+  return (
+    <ChartShell title="Odd / Even Dip Comparison — folded at twice the period"
+      right={<span className="flex gap-3 text-[10px]"><span>■ Cadence</span><span className="text-rose-400">— Binned median</span></span>}>
+      <canvas ref={ref} style={{ width: '100%', height }} />
+    </ChartShell>
+  );
+}
+
 export function PhaseChart({ phaseFolded, height = 220 }) {
   const ref = useRef(null);
   useEffect(() => {

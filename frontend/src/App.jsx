@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Activity, BarChart2, Compass, CheckCircle2, History } from 'lucide-react';
+import { Activity, BarChart2, Compass, CheckCircle2, History, Radar } from 'lucide-react';
+import Scanner from './views/Scanner.jsx';
 import Observatory from './views/Observatory.jsx';
 import Sweeper from './views/Sweeper.jsx';
 import QaBenchmarks from './views/QaBenchmarks.jsx';
@@ -8,7 +9,9 @@ import HistoryView from './views/HistoryView.jsx';
 const PIPELINES = ['SPOC', 'TESS-SPOC', 'QLP'];
 
 export default function App() {
-  const [view, setView] = useState('observatory');
+  // Stage 4: the Scanner (v1's simple front door) is the home view;
+  // the workstation views live under "Advanced tools".
+  const [view, setView] = useState('scanner');
 
   // Global settings (sidebar). These are sent with every analyze run —
   // see the honesty note under the pipeline checkboxes.
@@ -33,12 +36,23 @@ export default function App() {
     setView('observatory');
   }, []);
 
-  const nav = [
+  const advancedNav = [
     { id: 'observatory', label: 'Diagnostic Observatory', icon: BarChart2 },
     { id: 'sweeper', label: 'Sky Sweeper', icon: Compass },
     { id: 'benchmarks', label: 'QA Benchmarks', icon: CheckCircle2 },
     { id: 'history', label: 'History & Discoveries', icon: History },
   ];
+
+  const navBtn = (tab) => (
+    <button key={tab.id} onClick={() => setView(tab.id)}
+      className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-sm transition-colors ${
+        view === tab.id
+          ? 'bg-blue-900/30 text-blue-400 border border-blue-800/50'
+          : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200 border border-transparent'
+      }`}>
+      <tab.icon className="h-4 w-4" /> {tab.label}
+    </button>
+  );
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-300 font-sans overflow-hidden">
@@ -52,17 +66,11 @@ export default function App() {
         </div>
 
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          <div className="text-[10px] font-bold uppercase text-zinc-500 mb-2 mt-1 px-2 tracking-wider">Navigation</div>
-          {nav.map((tab) => (
-            <button key={tab.id} onClick={() => setView(tab.id)}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-sm transition-colors ${
-                view === tab.id
-                  ? 'bg-blue-900/30 text-blue-400 border border-blue-800/50'
-                  : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200 border border-transparent'
-              }`}>
-              <tab.icon className="h-4 w-4" /> {tab.label}
-            </button>
-          ))}
+          <div className="text-[10px] font-bold uppercase text-zinc-500 mb-2 mt-1 px-2 tracking-wider">Start here</div>
+          {navBtn({ id: 'scanner', label: 'Deep Space Scanner', icon: Radar })}
+
+          <div className="text-[10px] font-bold uppercase text-zinc-500 mb-2 mt-4 px-2 tracking-wider border-t border-zinc-800 pt-3">Advanced tools</div>
+          {advancedNav.map(navBtn)}
 
           <div className="border-t border-zinc-800 my-4 pt-4">
             <div className="text-[10px] font-bold uppercase text-zinc-500 mb-3 px-2 tracking-wider">Global Settings</div>
@@ -111,6 +119,7 @@ export default function App() {
       </aside>
 
       <main className="flex-1 flex flex-col h-full overflow-y-auto bg-zinc-950">
+        {view === 'scanner' && <Scanner settings={settings} onOpenTarget={openTarget} />}
         {view === 'observatory' && <Observatory settings={settings} seed={obsSeed} />}
         {view === 'sweeper' && <Sweeper settings={settings} onOpenTarget={openTarget} />}
         {view === 'benchmarks' && <QaBenchmarks onOpenTarget={openTarget} />}
