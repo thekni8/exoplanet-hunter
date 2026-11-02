@@ -31,7 +31,10 @@ Endpoints:
                               bls_points, sector_cap, scanner?}
   POST /api/oddeven          {tic, period, sector_cap?} — Stage 4: v1's
                               odd/even eclipsing-binary fake-check
-  POST /api/qa               run Dev's 3 QA benchmarks (1-2 sectors, 10k grid)
+  POST /api/qa               run Dev's 3 QA benchmarks (1-2 sectors, 10k grid);
+                              optional {"custom": {tic, expected_period_days,
+                              label?}} runs ONE user-supplied target as its
+                              own QA job, judged by the same < 0.05 d rule
   GET  /api/jobs/{id}        status / progress / error / result summary
   GET  /api/jobs/{id}/result full result JSON
   GET  /api/jobs/{id}/plate  diagnostic PNG (analyze jobs)
@@ -358,9 +361,56 @@ def _run_oddeven(job_id, p):
     append_progress(job_id, "Done.")
 
 
+def _qa_custom_entry(custom, cb):
+    """One user-supplied QA target, judged by EXACTLY the benchmark
+    rule from hunter.run_qa: same 10,000-point BLS grid, PASS iff
+    |recovered - expected| < 0.05 d. Sector cap 2 (the top of the
+    benchmarks' 1-2 range); host radius 1.0 — radius only scales the
+    derived planet size, never the period verdict. Entry shape is
+    identical to a benchmark entry (see _run_qa), plus "custom": true.
+    """
+    tic = custom["tic"]
+    expected = float(custom["expected_period_days"])
+    name = custom.get("label") or f"TIC {tic}"
+    cb(f"\nQA: {name} (TIC {tic}) — expected {expected} d (custom target)")
+    entry = {"name": name, "tic_id": tic,
+             "expected_period_days": expected,
+             "recovered_period_days": None, "diff_days": None,
+             "status": "DRIFT", "custom": True}
+    try:
+        result = hunter.analyze_target(
+            tic, star_radius=1.0, bls_points=10000, max_sectors=2,
+            progress_callback=cb)
+        diff = abs(result["Period"] - expected)
+        passed = diff < 0.05
+        entry.update(recovered_period_days=result["Period"],
+                     diff_days=diff,
+                     status=("PASS" if passed else "DRIFT"),
+                     sde=result["SDE"],
+                     planet_radius_re=result["Radius_Re"])
+        cb(f"QA {name}: recovered {result['Period']:.5f} d "
+           f"(Δ {diff:.5f} d) — {'PASS' if passed else 'FAIL'}")
+    except Exception as e:
+        entry["error"] = str(e)
+        cb(f"QA {name} (TIC {tic}) error: {e}")
+    return entry
+
+
 def _run_qa(job_id, p):
     def cb(msg):
         append_progress(job_id, msg)
+
+    if p.get("custom"):
+        # A custom target is its own QA job: one entry, same shape.
+        benchmarks = [_qa_custom_entry(p["custom"], cb)]
+        summary = {"benchmarks": benchmarks,
+                   "passed": sum(1 for b in benchmarks if b["status"] == "PASS"),
+                   "total": len(benchmarks),
+                   "custom": True}
+        update_job(job_id, status="done", finished_at=_now(),
+                   result_json=json.dumps(summary))
+        cb("QA complete.")
+        return
 
     results = hunter.run_qa(progress_callback=cb)
     benchmarks = []
@@ -470,8 +520,17 @@ class OddEvenRequest(BaseModel):
     sector_cap: Optional[int] = None
 
 
+class QaCustomTarget(BaseModel):
+    tic: str
+    expected_period_days: float
+    label: Optional[str] = None
+
+
 class QaRequest(BaseModel):
-    pass  # QA uses Dev's fixed benchmark settings (1-2 sectors, grid 10000)
+    # No body / no "custom" = QA uses Dev's fixed benchmark settings
+    # (1-2 sectors, grid 10000). With "custom", exactly one
+    # user-supplied target is QA'd under the same rule.
+    custom: Optional[QaCustomTarget] = None
 
 
 def _submit(job_type, params, target):
@@ -499,6 +558,23 @@ def post_sweep(req: SweepRequest):
 
 @app.post("/api/qa")
 def post_qa(req: Optional[QaRequest] = None):
+    if req is not None and req.custom is not None:
+        c = req.custom
+        tic = str(c.tic).strip()
+        if not tic.isdigit() or int(tic) <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail="custom.tic must be a positive integer TIC ID")
+        period = c.expected_period_days
+        if period is None or not (0.1 <= period <= 100.0):
+            raise HTTPException(
+                status_code=422,
+                detail="custom.expected_period_days must be between "
+                       "0.1 and 100 days")
+        params = {"custom": {"tic": tic,
+                             "expected_period_days": float(period),
+                             "label": (c.label.strip() if c.label else None)}}
+        return _submit("qa", params, f"QA custom TIC {tic}")
     return _submit("qa", {}, "QA benchmarks")
 
 
