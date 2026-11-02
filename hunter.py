@@ -57,6 +57,24 @@ GEMINI_V1_ANALYSIS.md). They do not change any behaviour above:
       eclipsing binary at twice the period). Renders NO PNG and logs
       NOTHING to discoveries.csv — it is a check, not a discovery.
 
+Stage 5 additions (Pingu — self-healing downloads; see
+SELFHEAL_REPORT.md). They change nothing on the happy path:
+  (g) ``_with_download_self_heal`` wraps the network steps (MAST
+      search in the analyze pipeline and the odd/even fetch, sweep
+      TIC-catalog query): connection-class failures retry with backoff
+      (5 s, 15 s; max 3 attempts for that class), and a corrupt cached
+      .fits named by a LightkurveError is deleted and re-downloaded
+      (Dev's cache rule: "keep hits, purge junk/corrupt"). Total
+      attempts capped at 4; non-transient errors (e.g. "No mission
+      data found") still fail immediately with the original error.
+      Downloads themselves are PER-PRODUCT (``_download_products``):
+      one bad product can no longer kill the rest — after its own
+      purge + single re-download it is SKIPPED and the analysis
+      proceeds on the remaining sectors. (Some products are broken at
+      the source: TIC 308851365's sector-1 HLSP file re-downloads to
+      the same truncated bytes on two machines, so skipping is the
+      only cure.) The job fails only if ZERO products download.
+
 CLI (original flags):
     python hunter.py --tic 25155310 --radius 1.30 --sectors 2 --grid 8000
     python hunter.py --sweep --ra 83.82 --dec -5.39 --cone 0.15 --limit 50
@@ -70,9 +88,12 @@ import gc
 import json
 import math
 import os
+import re
 import shutil
+import socket
 import sys
 import time
+import urllib.error
 from datetime import datetime
 
 import astropy.units as u
@@ -106,6 +127,242 @@ def _emit(progress_callback, message):
         print(message, flush=True)
     else:
         progress_callback(str(message))
+
+
+# ---------------------------------------------------------------------------
+# Self-healing downloads (Stage 5)
+#
+# Built from two real production failures on TIC 308851365 (2026-11-03):
+#   1. requests ConnectionError ("Remote end closed connection without
+#      response") mid-download killed the whole job.
+#   2. The interrupted download left a truncated .fits in the lightkurve
+#      cache; every later run then died with LightkurveError "... This
+#      file may be corrupt due to an interrupted download. Please remove
+#      it from your disk and try again." — permanently, until a human
+#      deleted the file by hand.
+# Per Dev's cache rule ("keep hits, purge junk/corrupt"), the wrapper
+# below retries transient connection failures with backoff and deletes
+# ONLY the corrupt file(s) an error names, then re-downloads them.
+# ---------------------------------------------------------------------------
+
+# Total attempts for one search+download step, corrupt purges included.
+_DOWNLOAD_MAX_ATTEMPTS = 4
+# Connection-class failures: at most 3 attempts (initial + 2 retries),
+# waiting 5 s then 15 s between them.
+_CONNECTION_MAX_ATTEMPTS = 3
+_CONNECTION_BACKOFF_SECONDS = (5, 15)
+
+# Class names (matched against every exception in the chain) that mark a
+# transient connection failure — MAST or the network dropped us.
+_CONNECTION_CLASS_NAMES = frozenset({
+    "ConnectionError",        # requests + builtin
+    "ConnectTimeout", "ReadTimeout", "Timeout",   # requests timeouts
+    "RemoteDisconnected",     # http.client
+    "URLError",               # urllib
+    "NewConnectionError", "MaxRetryError", "ProtocolError",  # urllib3
+    "IncompleteRead", "ChunkedEncodingError",
+    "ConnectionResetError", "ConnectionAbortedError", "BrokenPipeError",
+    "TimeoutError", "SocketTimeout", "SSLEOFError",
+})
+
+# Lowercase message fragments that mark a transient connection failure.
+_CONNECTION_MESSAGE_MARKERS = (
+    "remote end closed connection",
+    "remote disconnected",
+    "remotedisconnected",
+    "connection aborted",
+    "connection reset",
+    "connection refused",
+    "max retries exceeded",
+    "eof occurred in violation of protocol",
+    "timed out",
+    "read timed out",
+    "connect timeout",
+    "broken pipe",
+)
+
+_FITS_PATH_RE = re.compile(r"[^\s'\"]+?\.fits\b")
+
+
+def _exception_chain(exc):
+    """Yield exc plus everything reachable via __cause__ / __context__
+    and exception-valued args (requests/urllib3 nest the real failure
+    several layers deep)."""
+    seen = set()
+    stack = [exc]
+    while stack:
+        item = stack.pop()
+        if item is None or id(item) in seen:
+            continue
+        seen.add(id(item))
+        yield item
+        stack.append(getattr(item, "__cause__", None))
+        stack.append(getattr(item, "__context__", None))
+        for arg in getattr(item, "args", ()) or ():
+            if isinstance(arg, BaseException):
+                stack.append(arg)
+
+
+def _is_connection_error(exc):
+    """True if exc (or anything in its chain) is a transient
+    connection-class failure worth retrying."""
+    conn_types = (requests.exceptions.ConnectionError,
+                  requests.exceptions.Timeout,
+                  urllib.error.URLError,
+                  ConnectionError, TimeoutError, socket.timeout)
+    for item in _exception_chain(exc):
+        if isinstance(item, conn_types):
+            return True
+        if type(item).__name__ in _CONNECTION_CLASS_NAMES:
+            return True
+        msg = str(item).lower()
+        if any(marker in msg for marker in _CONNECTION_MESSAGE_MARKERS):
+            return True
+    return False
+
+
+def _corrupt_cache_paths(exc):
+    """If exc looks like a corrupt cached download, return the .fits
+    path(s) it names; otherwise return an empty list.
+
+    Matches the real failure shape (verified against live errors): a
+    LightkurveError whose message says the file "may be corrupt" and
+    names it, or any chain message mentioning corruption together with
+    a .fits path.
+    """
+    paths = []
+    corrupt = False
+    for item in _exception_chain(exc):
+        msg = str(item)
+        found = _FITS_PATH_RE.findall(msg)
+        for path in found:
+            if path not in paths:
+                paths.append(path)
+        low = msg.lower()
+        if "may be corrupt" in low:
+            corrupt = True
+        elif "corrupt" in low and found:
+            corrupt = True
+        elif type(item).__name__ == "LightkurveError" and found:
+            corrupt = True
+    return paths if corrupt else []
+
+
+def _purge_corrupt_files(paths):
+    """Delete the given cached files; return how many were removed."""
+    removed = 0
+    for path in paths:
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+                removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def _with_download_self_heal(step, progress_callback=None,
+                             max_attempts=None, corrupt_max_retries=None):
+    """Run ``step()`` (a network callable) with bounded retries.
+
+    * Connection-class failure -> backoff (5 s, then 15 s) and retry;
+      at most _CONNECTION_MAX_ATTEMPTS attempts for that class.
+    * Corrupt cached file -> the named .fits file(s) are deleted and
+      the step retries so lightkurve re-downloads just those.
+    * Total attempts are capped at _DOWNLOAD_MAX_ATTEMPTS unless
+      ``max_attempts`` overrides it; a corrupt purge therefore cannot
+      loop forever, and purges share the same overall budget.
+      ``corrupt_max_retries`` optionally caps how many purge+retry
+      cycles are allowed (the per-product downloader uses 1: purge and
+      re-download ONCE, then give up on that product).
+    * Anything else — e.g. RuntimeError("No mission data found ...") —
+      propagates immediately, and after the final failed attempt the
+      ORIGINAL error is re-raised unchanged.
+    """
+    if max_attempts is None:
+        max_attempts = _DOWNLOAD_MAX_ATTEMPTS
+    attempts = 0
+    connection_failures = 0
+    corrupt_retries = 0
+    while True:
+        attempts += 1
+        try:
+            return step()
+        except Exception as e:
+            corrupt_paths = _corrupt_cache_paths(e)
+            if (corrupt_paths and attempts < max_attempts
+                    and (corrupt_max_retries is None
+                         or corrupt_retries < corrupt_max_retries)):
+                if _purge_corrupt_files(corrupt_paths):
+                    corrupt_retries += 1
+                    _emit(progress_callback,
+                          "Removed a corrupt downloaded file and re-downloading…")
+                    continue
+            if (_is_connection_error(e)
+                    and connection_failures < _CONNECTION_MAX_ATTEMPTS - 1
+                    and attempts < max_attempts):
+                wait = _CONNECTION_BACKOFF_SECONDS[connection_failures]
+                connection_failures += 1
+                _emit(progress_callback,
+                      f"Connection dropped — retrying "
+                      f"(attempt {connection_failures + 1} of "
+                      f"{_CONNECTION_MAX_ATTEMPTS})…")
+                time.sleep(wait)
+                continue
+            raise
+
+
+def _download_products(sectors_to_fetch, tic_id, progress_callback=None):
+    """Download search results ONE product at a time (Stage 5b).
+
+    A single download_all() lets one bad product kill every sector —
+    and some products are bad at the source: TIC 308851365's sector-1
+    HLSP (t16) file re-downloads to the exact same truncated bytes on
+    two different machines, so purge+re-download can never heal it.
+    Here each product gets the self-heal treatment (connection retries;
+    corrupt -> purge + ONE re-download); a product that still fails is
+    SKIPPED with a progress line and the rest carry on. Raises the last
+    error only if ZERO products could be downloaded.
+    """
+    total = len(sectors_to_fetch)
+    collected = []
+    skipped = 0
+    last_error = None
+    for i in range(total):
+        row = sectors_to_fetch[i]
+        try:
+            item = _with_download_self_heal(
+                lambda row=row: row.download(), progress_callback,
+                corrupt_max_retries=1)
+        except Exception as e:
+            last_error = e
+            skipped += 1
+            _emit(progress_callback,
+                  "Sector/product file unreadable — skipping it and "
+                  "continuing with the rest")
+            continue
+        if item is None:
+            skipped += 1
+            last_error = RuntimeError(
+                f"Failed to download light curve data products for TIC {tic_id}.")
+            _emit(progress_callback,
+                  "Sector/product file unreadable — skipping it and "
+                  "continuing with the rest")
+            continue
+        if isinstance(item, lk.LightCurveCollection):
+            collected.extend(list(item))
+        else:
+            collected.append(item)
+    if not collected:
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError(
+            f"Failed to download light curve data products for TIC {tic_id}.")
+    if skipped:
+        _emit(progress_callback,
+              f"Continuing with {len(collected)} of {total} product(s) "
+              f"— {skipped} skipped.")
+    return lk.LightCurveCollection(collected)
 
 
 # ---------------------------------------------------------------------------
@@ -168,21 +425,22 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     per call — i.e. for every analyzed target, as in the original.
     """
     tic_id = str(tic_id).strip()
-    _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
 
-    search = lk.search_lightcurve(f"TIC {tic_id}", author=["SPOC", "TESS-SPOC", "QLP"])
-    if len(search) == 0:
-        search = lk.search_lightcurve(f"TIC {tic_id}")
-    if len(search) == 0:
-        raise RuntimeError(f"No mission data found for TIC {tic_id}.")
+    def _search():
+        _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
 
+        search = lk.search_lightcurve(f"TIC {tic_id}", author=["SPOC", "TESS-SPOC", "QLP"])
+        if len(search) == 0:
+            search = lk.search_lightcurve(f"TIC {tic_id}")
+        if len(search) == 0:
+            raise RuntimeError(f"No mission data found for TIC {tic_id}.")
+        return search
+
+    search = _with_download_self_heal(_search, progress_callback)
     sectors_to_fetch = search if max_sectors is None else search[:max_sectors]
     _emit(progress_callback,
           f"Downloading {len(sectors_to_fetch)} of {len(search)} sector(s) for TIC {tic_id}...")
-
-    lc_collection = sectors_to_fetch.download_all()
-    if not lc_collection or len(lc_collection) == 0:
-        raise RuntimeError(f"Failed to download light curve data products for TIC {tic_id}.")
+    lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
     n_sectors = len(lc_collection)
 
     lc_raw = (lc_collection.stitch(corrector_func=lambda x: x.normalize())
@@ -441,21 +699,21 @@ def _fetch_flattened(tic_id, max_sectors=None, progress_callback=None,
     existing candidate, not a discovery run.
     Returns (t, f, n_sectors, total_points).
     """
-    _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
+    def _search():
+        _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
 
-    search = lk.search_lightcurve(f"TIC {tic_id}", author=["SPOC", "TESS-SPOC", "QLP"])
-    if len(search) == 0:
-        search = lk.search_lightcurve(f"TIC {tic_id}")
-    if len(search) == 0:
-        raise RuntimeError(f"No mission data found for TIC {tic_id}.")
+        search = lk.search_lightcurve(f"TIC {tic_id}", author=["SPOC", "TESS-SPOC", "QLP"])
+        if len(search) == 0:
+            search = lk.search_lightcurve(f"TIC {tic_id}")
+        if len(search) == 0:
+            raise RuntimeError(f"No mission data found for TIC {tic_id}.")
+        return search
 
+    search = _with_download_self_heal(_search, progress_callback)
     sectors_to_fetch = search if max_sectors is None else search[:max_sectors]
     _emit(progress_callback,
           f"Downloading {len(sectors_to_fetch)} of {len(search)} sector(s) for TIC {tic_id}...")
-
-    lc_collection = sectors_to_fetch.download_all()
-    if not lc_collection or len(lc_collection) == 0:
-        raise RuntimeError(f"Failed to download light curve data products for TIC {tic_id}.")
+    lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
     n_sectors = len(lc_collection)
 
     lc_raw = (lc_collection.stitch(corrector_func=lambda x: x.normalize())
@@ -679,7 +937,9 @@ def sweep_sky(ra, dec, radius=0.15, limit=50, min_mag=11.5, max_mag=15.0,
     """
     _emit(progress_callback, f"Querying TIC catalog around RA {ra}, Dec {dec} (radius {radius}°)...")
     coord = SkyCoord(ra=ra * u.deg, dec=dec * u.deg)
-    tic_catalog = Catalogs.query_region(coord, radius=radius * u.deg, catalog="TIC")
+    tic_catalog = _with_download_self_heal(
+        lambda: Catalogs.query_region(coord, radius=radius * u.deg, catalog="TIC"),
+        progress_callback)
 
     mask = (
         (tic_catalog["Tmag"] >= min_mag) & (tic_catalog["Tmag"] <= max_mag) &
