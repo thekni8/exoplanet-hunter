@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
-import { Activity, BarChart2, Compass, CheckCircle2, History, Radar } from 'lucide-react';
+import { Activity, BarChart2, BookOpen, Compass, CheckCircle2, History, Radar } from 'lucide-react';
 import Scanner from './views/Scanner.jsx';
+import Guide from './views/Guide.jsx';
 import Observatory from './views/Observatory.jsx';
 import Sweeper from './views/Sweeper.jsx';
 import QaBenchmarks from './views/QaBenchmarks.jsx';
@@ -69,6 +70,7 @@ export default function App() {
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           <div className="text-[10px] font-bold uppercase text-zinc-500 mb-2 mt-1 px-2 tracking-wider">Start here</div>
           {navBtn({ id: 'scanner', label: 'Deep Space Scanner', icon: Radar })}
+          {navBtn({ id: 'guide', label: "Beginner's Guide", icon: BookOpen })}
 
           <div className="text-[10px] font-bold uppercase text-zinc-500 mb-2 mt-4 px-2 tracking-wider border-t border-zinc-800 pt-3">Advanced tools</div>
           {advancedNav.map(navBtn)}
@@ -123,6 +125,7 @@ export default function App() {
 
       <main className="flex-1 flex flex-col h-full overflow-y-auto bg-zinc-950">
         {view === 'scanner' && <Scanner settings={settings} onOpenTarget={openTarget} />}
+        {view === 'guide' && <Guide />}
         {view === 'observatory' && <Observatory settings={settings} seed={obsSeed} />}
         {view === 'sweeper' && <Sweeper settings={settings} onOpenTarget={openTarget} />}
         {view === 'benchmarks' && <QaBenchmarks onOpenTarget={openTarget} />}

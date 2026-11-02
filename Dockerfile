@@ -12,6 +12,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY hunter.py api.py ./
 
+# The built React UI — api.py serves frontend/dist at / when it exists,
+# so the image must carry it or the container would be API-only.
+COPY frontend/dist ./frontend/dist
+
 # Runtime state (SQLite history, result JSONs, plates) lives in /app/data —
 # mount a volume there to keep history across container rebuilds.
 RUN mkdir -p /app/data/results /app/data/plates /app/reports
