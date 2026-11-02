@@ -10,8 +10,11 @@ import os
 import gc
 
 # Define target area (Defaulting to a sample patch in Orion)
-coord = SkyCoord(ra=83.82 * u.deg, dec=-5.39 * u.deg)
-tic_table = Catalogs.query_region(coord, radius=0.1 * u.deg, catalog="TIC")
+#coord = SkyCoord(ra=83.82 * u.deg, dec=-5.39 * u.deg)
+#tic_table = Catalogs.query_region(coord, radius=0.1 * u.deg, catalog="TIC")
+# Bypass the coordinate search to QA test a confirmed TESS exoplanet
+candidates = [{"ID": "261136679", "rad": 1.14}] 
+print("Starting guaranteed QA test on TIC 261136679...")
 
 mask = ((tic_table["Tmag"] >= 13.5) & (tic_table["Tmag"] <= 15.4) & 
         (tic_table["rad"] > 0.2) & (tic_table["rad"] < 1.5))
