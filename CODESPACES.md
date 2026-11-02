@@ -43,3 +43,12 @@ live at a public forwarded-port link ONLY while a Codespace session is running.
   If a Codespace ever hangs at "Setting up" again: Stop it from
   github.com/codespaces, start it again; if that fails, Delete + recreate —
   recreation always pulls the current repo config.
+- Port 8000's protocol must stay **HTTP** (the app serves plain HTTP; GitHub
+  adds the HTTPS layer outside). An earlier config set `protocol: https`,
+  which made the tunnel speak TLS to uvicorn: browser got HTTP 502 and the
+  terminal filled with "Invalid HTTP request received" warnings. If that
+  ever recurs in a live session: Ports tab → right-click 8000 → Change Port
+  Protocol → HTTP, then reload.
+- Dev's home ISP DNS (Jio) REFUSES `*.app.github.dev` lookups — forwarded
+  links fail with a fake "NXDOMAIN/typo" error in Chrome until DNS is routed
+  around it (Chrome Secure DNS → Cloudflare 1.1.1.1, or a macOS DNS override).
