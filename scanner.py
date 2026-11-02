@@ -46,7 +46,7 @@ for row in candidates:
         best = np.argmax(res.power)
         sde = (res.power[best] - np.median(res.power)) / (np.std(res.power) + 1e-12)
 
-        if sde >= 11.0:
+        if sde >= 3.0:
             P = float(res.period[best].value)
             planet_re = np.sqrt(max(0.0, float(res.depth[best]))) * star_rad * 109.1
             
