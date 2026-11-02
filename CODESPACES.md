@@ -11,7 +11,9 @@ live at a public forwarded-port link ONLY while a Codespace session is running.
    installs behind the "Setting up" screen — that design hung Dev's first
    launch on 2026-11-02), so this should be quick.
 4. Start the app (Terminal in the Codespace):
-   `./run.sh`
+   `bash run.sh`
+   (Use `bash run.sh`, not `./run.sh` — the file is stored in git without its
+   executable bit, and GitHub's API pushes can't set it; `bash` doesn't care.)
    On the FIRST run this installs the Python dependencies and builds the
    React UI **in the terminal, visibly** (a few minutes — watch it, errors
    show here instead of hiding), then serves UI + API together on port 8000.
