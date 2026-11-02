@@ -140,3 +140,38 @@ Docker-capable machine before advertising the route loudly.
 No git commit/push performed — left for the parent agent. Note for the
 Codespace ritual: after pulling this change, restart the app and
 hard-refresh (Cmd+Shift+R), per CODESPACES.md.
+
+## Follow-up (2026-11-02, later) — Guide readability pass
+
+Dev: "make the guide page text fill the page and fonts bigger, I can
+hardly read it." Guide view only; **no content changed** — every word,
+range and number is identical to the version above. No other view's
+layout or typography was touched, and no shared component was modified.
+
+What changed in `frontend/src/views/Guide.jsx`:
+
+- **Width:** the root container dropped `max-w-5xl mx-auto` — the page
+  now spans the full content width of the app shell
+  (`p-6 lg:p-8 space-y-8 w-full`). The value-cards grid now uses the
+  width: 1 column on narrow screens, 2 on `lg`, 3 on `2xl`; the
+  promising/fake result cards sit 2-across on `lg`.
+- **Type scale:** page title `text-base` → `text-4xl`; section headings
+  `text-sm` → `text-3xl`; all body copy `text-xs`/`text-[11px]` →
+  `text-lg` with `leading-8`; card titles `text-xs` → `text-xl`;
+  "Range:" lines `text-[10px]` → `text-sm` (nothing on the page is now
+  below ~13px; the one footnote is `text-base`/`leading-7`); step
+  number badges grew `w-5 h-5`/`text-[11px]` → `w-8 h-8`/`text-base`.
+- **Panel headers:** the shared `Panel` header renders its title at
+  11px and is used by every view, so it was *not* restyled. Guide.jsx
+  now uses a local `GuidePanel` variant with the same zinc chrome but a
+  `text-xl` bold title and `px-5 py-3` header.
+- **Spacing:** panel bodies and cards `p-3` → `p-6`, grid gaps
+  `gap-3` → `gap-5`, step/list spacing loosened to match.
+
+Rebuilt dist: `index-CdjsdVFJ.js` (220.76 kB, gzip 67.11 kB) +
+`index-CrWg_mbv.css` (21.99 kB). Bundle grep confirms the Guide shipped
+("Beginner pick" present). Local server restarted via `bash run.sh`;
+smoke test: `/health` → `{"ok":true}`, `/` serves the new hashes.
+`App.jsx` needed no change — the shell's `<main>` never capped width;
+the cap was the Guide's own container. No git commit/push performed —
+left for the parent agent (same pull + restart + Cmd+Shift+R ritual).
