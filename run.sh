@@ -15,11 +15,24 @@ if [ ! -f frontend/dist/index.html ]; then
   fi
 fi
 
-# --- Python env: prefer the project venv if present ---
+# --- Python env: installs happen HERE, in the terminal, where progress is
+#     visible — never hidden behind a Codespace "Setting up" screen. -------
+mkdir -p data reports
 if [ -x .venv/bin/uvicorn ]; then
   UVICORN=.venv/bin/uvicorn
-else
+elif command -v uvicorn >/dev/null 2>&1; then
   UVICORN=uvicorn
+else
+  echo "[run.sh] Installing Python dependencies (first run only, a few minutes)..."
+  if python3 -m venv .venv 2>/dev/null && [ -x .venv/bin/pip ]; then
+    .venv/bin/pip install --upgrade pip
+    .venv/bin/pip install -r requirements.txt
+    UVICORN=.venv/bin/uvicorn
+  else
+    echo "[run.sh] venv unavailable — falling back to pip --user install..."
+    python3 -m pip install --user -r requirements.txt
+    UVICORN="$HOME/.local/bin/uvicorn"
+  fi
 fi
 
 echo "[run.sh] Starting Exoplanet Hunter on http://0.0.0.0:8000"
