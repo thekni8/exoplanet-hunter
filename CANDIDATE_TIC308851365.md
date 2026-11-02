@@ -2,8 +2,9 @@
 
 **Signal found by:** Debashish Sarangi, using Exoplanet Hunter (TESS/BLS pipeline)
 **First detected:** 2026-11-02 · **Dossier compiled:** 2026-11-03
-**Status:** Unconfirmed candidate. Not a TOI, not a community candidate, not a
-catalogued eclipsing binary — no prior record in any archive checked (below).
+**Status:** RESOLVED 2026-11-03 — **eclipsing binary** (double-period fold
+test, §8). Not a planet. Still a genuine discovery: no prior record in any
+archive checked (ExoFOP, Exoplanet Archive, Villanova TESS EB catalog).
 
 ---
 
@@ -79,15 +80,53 @@ remaining sectors. SPOC products are unaffected.
   candidate submissions and follow-up observations; the §2 table maps 1-to-1
   onto the requested fields (period, epoch, duration, depth).
 
-## 7. Suggested Planet Hunters Talk post
+## 7. Planet Hunters Talk post (as filed)
 
-> **TIC 308851365 — strong unflagged 0.757 d signal, SDE up to 66**
+> **New unflagged eclipsing binary: TIC 308851365 (P = 1.513 d)**
 >
-> Found with a custom TESS/BLS pipeline. The signal repeats at P = 0.75677 d
-> (T0 = 1325.483 BTJD), depth ≈ 1.2 %, and strengthens with data
-> (SDE 16 → 47 → 66 across 2 → 12 sectors). Odd/even test: odd 1.31 % vs even
-> 1.26 % — planet-like. No TOI, no CTOI, not in the TESS EB catalog, nothing
-> on ExoFOP. Caveat: the fold is a smooth wide bowl and the duration (~6 h)
-> is long for the period, so EB/variability is very much on the table.
-> Host is a 0.93 R☉, 3959 K dwarf, Tmag 14.94. Would value the community's
-> eyes — candidate or convincing fake?
+> Found with a custom TESS/BLS pipeline, where it first appeared as a
+> planet candidate at the half-period alias 0.75677 d (SDE up to 66).
+> Odd/even test passed it as "planet-like" — but our own double-period fold
+> killed it: at the true period 1.51277 d there are two equal eclipses
+> (1.13 % / 1.08 %) plus a +1.1 % ellipsoidal brightening at both
+> quadratures (37σ) — twin stars, tidally distorted. No TOI, no CTOI, not
+> in the TESS EB catalog, nothing on ExoFOP. Posting for the record, and
+> filing with VSX as a new variable star. Full dossier:
+> github.com/thekni8/exoplanet-hunter (CANDIDATE_TIC308851365.md)
+
+## 8. Resolution — the double-period fold test (2026-11-03)
+
+The odd/even test cannot distinguish a planet at P from twin stars at 2P.
+So the raw (unflattened) light curve was folded at 2P and the out-of-eclipse
+light measured in windows:
+
+| Quantity (fold at 1.51277 d) | Value |
+|---|---|
+| Refined orbital period | **1.51277 d** |
+| Primary eclipse epoch | 1326.279 BTJD (BJD 2458326.279) |
+| Eclipse I median flux | 0.9887 (depth ≈ 1.13 %) |
+| Eclipse II median flux | 0.9892 (depth ≈ 1.08 %) |
+| Quadrature median flux (phases 0.25 / 0.75) | **1.0114** |
+| Shoulder median flux | 1.0005 |
+| **Ellipsoidal amplitude (quad − shoulder)** | **+1.09 %, at 37σ** |
+
+Verdict: the star brightens by ~1 % twice per orbit, in step with the
+eclipses — the signature of two tidally distorted stars presenting their
+long sides at quadrature. The smooth "bowl" in the 0.757 d fold was this
+wave all along. Classification: **eclipsing binary, P = 1.51277 d**, most
+likely a close EB/EW-type system of two similar stars. The SDE 66 signal
+was real — it was just two suns, not a planet.
+
+## 9. VSX submission packet (AAVSO International Variable Star Index)
+
+| Field | Value |
+|---|---|
+| Discoverer | Debashish Sarangi |
+| Identifiers | TIC 308851365 · 2MASS J08101571-6333293 · Gaia DR3 5277232093330484096 · UCAC4 133-013725 |
+| RA / Dec | 08 10 15.69 / −63 33 29.3 |
+| Type | E (eclipsing binary; EB/EW-like morphology — equal minima, continuous ellipsoidal variation) |
+| Period | 1.51277 d |
+| Epoch of primary minimum | BJD 2458326.279 |
+| Max magnitude | 14.94 (TESS) |
+| Min I / Min II | ≈ 14.95 / ≈ 14.95 (TESS; Δ ≈ 0.012 mag) |
+| Remarks | Discovered in TESS data (sectors incl. 1, 11–13) with a custom BLS pipeline; first detected at the 0.75677 d half-period alias (SDE 66.2); double-period fold shows equal minima + 1.1 % ellipsoidal modulation (37σ). Not in the Villanova TESS EB catalog, ExoFOP, or the NASA Exoplanet Archive as of 2026-11-03. Dossier: github.com/thekni8/exoplanet-hunter |
