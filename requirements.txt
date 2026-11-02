@@ -6,3 +6,5 @@ matplotlib
 pandas
 scipy
 numpy
+fastapi
+uvicorn
