@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Rocket, Crosshair, ShieldAlert, Loader2, ChevronDown } from 'lucide-react';
 import { postJob, getJob, getJobResult, getHistory } from '../api.js';
 import { useJobPolling } from '../useJob.js';
-import { Field, Panel, ProgressLog, fmtNum, fmtTime, inputCls } from '../components.jsx';
+import { Field, Panel, ProgressLog, SliderEnds, rangeError, fmtNum, fmtTime, inputCls } from '../components.jsx';
 import { OddEvenChart } from '../charts.jsx';
 
 // Stage 4 — the Scanner is Gemini v1's "Deep Space Scanner" rebuilt on
@@ -238,6 +238,13 @@ export default function Scanner({ settings, onOpenTarget }) {
   const run = async () => {
     setSubmitError(null);
     setLastScan(null);
+    // Gentle out-of-bounds guard: the sliders can't leave their range,
+    // so only the two typed coordinates need checking before submit.
+    const oob = rangeError('RA', ra, 0, 360) || rangeError('Dec', dec, -90, 90);
+    if (oob) {
+      setSubmitError(oob);
+      return;
+    }
     try {
       const { job_id } = await postJob('/api/sweep', {
         ra: Number(ra), dec: Number(dec), cone: Number(radius), limit: Number(maxStars),
@@ -270,15 +277,17 @@ export default function Scanner({ settings, onOpenTarget }) {
       <Panel title="Where should we look?">
         <div className="p-3 space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Field label="Right Ascension — RA (deg)"><input className={inputCls} type="number" step="0.01" value={ra} onChange={(e) => setRa(e.target.value)} /></Field>
-            <Field label="Declination — Dec (deg)"><input className={inputCls} type="number" step="0.01" value={dec} onChange={(e) => setDec(e.target.value)} /></Field>
-            <Field label={`Search radius: ${Number(radius).toFixed(2)}°`}>
+            <Field label="Right Ascension — RA (deg)" range="0 – 360"><input className={inputCls} type="number" step="0.01" min="0" max="360" value={ra} onChange={(e) => setRa(e.target.value)} /></Field>
+            <Field label="Declination — Dec (deg)" range="−90 – +90"><input className={inputCls} type="number" step="0.01" min="-90" max="90" value={dec} onChange={(e) => setDec(e.target.value)} /></Field>
+            <Field label={`Search radius: ${Number(radius).toFixed(2)}°`} range="0.01 – 1.00°">
               <input type="range" min="0.01" max="1.0" step="0.01" value={radius}
                 onChange={(e) => setRadius(Number(e.target.value))} className="accent-blue-600 w-full mt-2" />
+              <SliderEnds min="0.01°" max="1.00°" />
             </Field>
-            <Field label={`Stars to scan: ${maxStars}`}>
+            <Field label={`Stars to scan: ${maxStars}`} range="5 – 100">
               <input type="range" min="5" max="100" step="5" value={maxStars}
                 onChange={(e) => setMaxStars(Number(e.target.value))} className="accent-blue-600 w-full mt-2" />
+              <SliderEnds min="5" max="100" />
             </Field>
           </div>
           <p className="text-[11px] text-zinc-500 leading-snug">

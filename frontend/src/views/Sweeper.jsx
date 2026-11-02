@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Search, Crosshair, CheckCircle2 } from 'lucide-react';
 import { postJob } from '../api.js';
 import { useJobPolling } from '../useJob.js';
-import { Field, Panel, ProgressLog, fmtNum, inputCls } from '../components.jsx';
+import { Field, Panel, ProgressLog, rangeError, fmtNum, inputCls } from '../components.jsx';
 
 export default function Sweeper({ settings, onOpenTarget }) {
   const [ra, setRa] = useState(83.82);
@@ -22,6 +22,25 @@ export default function Sweeper({ settings, onOpenTarget }) {
 
   const run = async () => {
     setSubmitError(null);
+    // Gentle out-of-bounds guard: check every typed value (and the
+    // min/max pairs) before submitting — no silent clamping.
+    const oob =
+      rangeError('RA', ra, 0, 360) ||
+      rangeError('Dec', dec, -90, 90) ||
+      rangeError('Cone Radius', cone, 0.01, 2) ||
+      rangeError('Max Stars', limit, 1, 1000, true) ||
+      rangeError('Min Tmag', minMag, 0, 20) ||
+      rangeError('Max Tmag', maxMag, 0, 20) ||
+      rangeError('Min Star Radius', minRad, 0.1, 10) ||
+      rangeError('Max Star Radius', maxRad, 0.1, 10) ||
+      rangeError('Sector Cap', sectorCap, 1, 20, true) ||
+      rangeError('BLS Grid Points', blsPoints, 1000, 100000, true) ||
+      (Number(minMag) > Number(maxMag) ? 'Min Tmag must not be greater than Max Tmag' : null) ||
+      (Number(minRad) > Number(maxRad) ? 'Min Star Radius must not be greater than Max Star Radius' : null);
+    if (oob) {
+      setSubmitError(oob);
+      return;
+    }
     try {
       const { job_id } = await postJob('/api/sweep', {
         ra: Number(ra), dec: Number(dec), cone: Number(cone), limit: Number(limit),
@@ -45,16 +64,16 @@ export default function Sweeper({ settings, onOpenTarget }) {
       <Panel title="Sweep Parameters">
         <div className="p-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Field label="RA (deg)"><input className={inputCls} type="number" step="0.01" value={ra} onChange={(e) => setRa(e.target.value)} /></Field>
-            <Field label="Dec (deg)"><input className={inputCls} type="number" step="0.01" value={dec} onChange={(e) => setDec(e.target.value)} /></Field>
-            <Field label="Cone Radius (deg)"><input className={inputCls} type="number" step="0.05" value={cone} onChange={(e) => setCone(e.target.value)} /></Field>
-            <Field label="Max Stars"><input className={inputCls} type="number" step="1" value={limit} onChange={(e) => setLimit(e.target.value)} /></Field>
-            <Field label="Min Tmag"><input className={inputCls} type="number" step="0.5" value={minMag} onChange={(e) => setMinMag(e.target.value)} /></Field>
-            <Field label="Max Tmag"><input className={inputCls} type="number" step="0.5" value={maxMag} onChange={(e) => setMaxMag(e.target.value)} /></Field>
-            <Field label="Min Star Radius (R☉)"><input className={inputCls} type="number" step="0.1" value={minRad} onChange={(e) => setMinRad(e.target.value)} /></Field>
-            <Field label="Max Star Radius (R☉)"><input className={inputCls} type="number" step="0.1" value={maxRad} onChange={(e) => setMaxRad(e.target.value)} /></Field>
-            <Field label="Sector Cap (per star)"><input className={inputCls} type="number" step="1" value={sectorCap} onChange={(e) => setSectorCap(e.target.value)} /></Field>
-            <Field label="BLS Grid Points (per star)"><input className={inputCls} type="number" step="1000" value={blsPoints} onChange={(e) => setBlsPoints(e.target.value)} /></Field>
+            <Field label="RA (deg)" range="0 – 360"><input className={inputCls} type="number" step="0.01" min="0" max="360" value={ra} onChange={(e) => setRa(e.target.value)} /></Field>
+            <Field label="Dec (deg)" range="−90 – +90"><input className={inputCls} type="number" step="0.01" min="-90" max="90" value={dec} onChange={(e) => setDec(e.target.value)} /></Field>
+            <Field label="Cone Radius (deg)" range="0.01 – 2"><input className={inputCls} type="number" step="0.05" min="0.01" max="2" value={cone} onChange={(e) => setCone(e.target.value)} /></Field>
+            <Field label="Max Stars" range="1 – 1,000"><input className={inputCls} type="number" step="1" min="1" max="1000" value={limit} onChange={(e) => setLimit(e.target.value)} /></Field>
+            <Field label="Min Tmag" range="0 – 20"><input className={inputCls} type="number" step="0.5" min="0" max="20" value={minMag} onChange={(e) => setMinMag(e.target.value)} /></Field>
+            <Field label="Max Tmag" range="0 – 20"><input className={inputCls} type="number" step="0.5" min="0" max="20" value={maxMag} onChange={(e) => setMaxMag(e.target.value)} /></Field>
+            <Field label="Min Star Radius (R☉)" range="0.1 – 10"><input className={inputCls} type="number" step="0.1" min="0.1" max="10" value={minRad} onChange={(e) => setMinRad(e.target.value)} /></Field>
+            <Field label="Max Star Radius (R☉)" range="0.1 – 10"><input className={inputCls} type="number" step="0.1" min="0.1" max="10" value={maxRad} onChange={(e) => setMaxRad(e.target.value)} /></Field>
+            <Field label="Sector Cap (per star)" range="1 – 20"><input className={inputCls} type="number" step="1" min="1" max="20" value={sectorCap} onChange={(e) => setSectorCap(e.target.value)} /></Field>
+            <Field label="BLS Grid Points (per star)" range="1,000 – 100,000"><input className={inputCls} type="number" step="1000" min="1000" max="100000" value={blsPoints} onChange={(e) => setBlsPoints(e.target.value)} /></Field>
           </div>
           <div className="mt-3 flex items-center justify-between">
             <span className="text-[11px] text-zinc-500">The sweep always works through the full screened list — it runs as a background job.</span>

@@ -15,13 +15,40 @@ export function Panel({ title, right, children, className = '' }) {
   );
 }
 
-export function Field({ label, children }) {
+export function Field({ label, range, children }) {
   return (
     <div className="flex flex-col">
       <label className="text-[10px] text-zinc-400 mb-1 font-semibold">{label}</label>
+      {range && (
+        <div className="text-[10px] text-zinc-500 font-mono mb-1">Range: {range}</div>
+      )}
       {children}
     </div>
   );
+}
+
+// Min/max end labels for a slider, in the same quiet style as the
+// Field range hint.
+export function SliderEnds({ min, max }) {
+  return (
+    <div className="flex justify-between text-[10px] text-zinc-500 font-mono leading-none mt-0.5">
+      <span>{min}</span>
+      <span>{max}</span>
+    </div>
+  );
+}
+
+// Pre-submit range check: returns a plain message naming the field and
+// its valid range, or null when the value is in bounds. Used by the
+// views' run() handlers so an out-of-range value never reaches the API.
+export function rangeError(name, value, min, max, int = false) {
+  const n = Number(value);
+  const bad = value === '' || Number.isNaN(n) || n < min || n > max ||
+    (int && !Number.isInteger(n));
+  if (!bad) return null;
+  const lo = String(min).replace('-', '−');
+  const hi = String(max).replace('-', '−');
+  return `${name} must be ${int ? 'a whole number ' : ''}between ${lo} and ${hi}`;
 }
 
 export const inputCls =

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Play, Download } from 'lucide-react';
 import { postJob, getJob, getJobResult, plateUrl } from '../api.js';
 import { useJobPolling } from '../useJob.js';
-import { Field, Metric, Panel, ProgressLog, fmtNum, inputCls } from '../components.jsx';
+import { Field, Metric, Panel, ProgressLog, SliderEnds, rangeError, fmtNum, inputCls } from '../components.jsx';
 import { RawChart, FlatChart, BlsChart, PhaseChart } from '../charts.jsx';
 
 // seed: { tic, radius, jobId|null, nonce } — set by App when a sweep hit
@@ -58,6 +58,22 @@ export default function Observatory({ settings, seed }) {
 
   const run = async () => {
     setSubmitError(null);
+    // Gentle out-of-bounds guard: check typed values before submitting.
+    const ticNum = Number(String(tic).trim());
+    const oob =
+      (!Number.isInteger(ticNum) || ticNum <= 0
+        ? 'Target TIC ID must be a positive whole number'
+        : null) ||
+      rangeError('Host Radius', radius, 0.1, 10) ||
+      rangeError('Min Period', minPeriod, 0.1, 100) ||
+      rangeError('Max Period', maxPeriod, 0.1, 100) ||
+      (Number(minPeriod) >= Number(maxPeriod)
+        ? 'Min Period must be less than Max Period'
+        : null);
+    if (oob) {
+      setSubmitError(oob);
+      return;
+    }
     setResult(null);
     setResultJobId(null);
     setPlateError(false);
@@ -87,12 +103,12 @@ export default function Observatory({ settings, seed }) {
     <div className="p-4 space-y-4 max-w-7xl mx-auto w-full">
       <Panel>
         <div className="p-3 flex flex-wrap items-end gap-3">
-          <div className="w-44"><Field label="Target TIC ID"><input className={inputCls} value={tic} onChange={(e) => setTic(e.target.value)} /></Field></div>
-          <div className="w-28"><Field label="Host Radius (R☉)"><input className={inputCls} type="number" step="0.05" value={radius} onChange={(e) => setRadius(e.target.value)} /></Field></div>
-          <div className="w-28"><Field label="Min Period (d)"><input className={inputCls} type="number" step="0.1" value={minPeriod} onChange={(e) => setMinPeriod(e.target.value)} /></Field></div>
-          <div className="w-28"><Field label="Max Period (d)"><input className={inputCls} type="number" step="0.5" value={maxPeriod} onChange={(e) => setMaxPeriod(e.target.value)} /></Field></div>
+          <div className="w-44"><Field label="Target TIC ID" range="positive whole number"><input className={inputCls} value={tic} onChange={(e) => setTic(e.target.value)} /></Field></div>
+          <div className="w-28"><Field label="Host Radius (R☉)" range="0.1 – 10"><input className={inputCls} type="number" step="0.05" min="0.1" max="10" value={radius} onChange={(e) => setRadius(e.target.value)} /></Field></div>
+          <div className="w-28"><Field label="Min Period (d)" range="0.1 – 100"><input className={inputCls} type="number" step="0.1" min="0.1" max="100" value={minPeriod} onChange={(e) => setMinPeriod(e.target.value)} /></Field></div>
+          <div className="w-28"><Field label="Max Period (d)" range="0.1 – 100"><input className={inputCls} type="number" step="0.5" min="0.1" max="100" value={maxPeriod} onChange={(e) => setMaxPeriod(e.target.value)} /></Field></div>
           <div className="w-52">
-            <Field label={allSectors ? 'Sectors: ALL' : `Sector Cap: ${sectorCap}`}>
+            <Field label={allSectors ? 'Sectors: ALL' : `Sector Cap: ${sectorCap}`} range="1 – 20, or All">
               <div className="flex items-center gap-2">
                 <input type="range" min="1" max="20" step="1" value={sectorCap} disabled={allSectors}
                   onChange={(e) => setSectorCap(Number(e.target.value))} className="accent-blue-600 flex-1 disabled:opacity-40" />
@@ -100,6 +116,7 @@ export default function Observatory({ settings, seed }) {
                   <input type="checkbox" checked={allSectors} onChange={(e) => setAllSectors(e.target.checked)} className="accent-blue-600" /> All
                 </label>
               </div>
+              <SliderEnds min="1" max="20" />
             </Field>
           </div>
           <button onClick={run} disabled={busy}

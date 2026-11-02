@@ -5,6 +5,7 @@ import Observatory from './views/Observatory.jsx';
 import Sweeper from './views/Sweeper.jsx';
 import QaBenchmarks from './views/QaBenchmarks.jsx';
 import HistoryView from './views/HistoryView.jsx';
+import { SliderEnds } from './components.jsx';
 
 const PIPELINES = ['SPOC', 'TESS-SPOC', 'QLP'];
 
@@ -99,6 +100,7 @@ export default function App() {
                 </label>
                 <input type="range" min="5000" max="50000" step="5000" value={blsPoints}
                   onChange={(e) => setBlsPoints(Number(e.target.value))} className="accent-blue-600" />
+                <SliderEnds min="5,000" max="50,000" />
               </div>
 
               <div className="flex flex-col gap-1">
@@ -107,6 +109,7 @@ export default function App() {
                 </label>
                 <input type="range" min="31" max="201" step="10" value={detrendWindow}
                   onChange={(e) => setDetrendWindow(Number(e.target.value))} className="accent-blue-600" />
+                <SliderEnds min="31" max="201" />
               </div>
             </div>
           </div>
