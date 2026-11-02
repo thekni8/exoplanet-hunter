@@ -10,6 +10,10 @@ live at a public forwarded-port link ONLY while a Codespace session is running.
 3. Wait for the editor to load. Setup is now deliberately minimal (no hidden
    installs behind the "Setting up" screen — that design hung Dev's first
    launch on 2026-11-02), so this should be quick.
+   Note: the built website (`frontend/dist`) is committed to this repo on
+   purpose — the Codespace has no Node.js, and without dist the app answers
+   `{"detail":"Not Found"}` at `/` (API alive, UI missing). If the frontend
+   source ever changes, rebuild dist and re-push it together with the source.
 4. Start the app (Terminal in the Codespace):
    `bash run.sh`
    (Use `bash run.sh`, not `./run.sh` — the file is stored in git without its
