@@ -3,6 +3,44 @@ import { Search, Crosshair, CheckCircle2 } from 'lucide-react';
 import { postJob } from '../api.js';
 import { useJobPolling } from '../useJob.js';
 import { Field, Panel, ProgressLog, rangeError, fmtNum, inputCls } from '../components.jsx';
+import { FakeCheck, FakeCheckToggleButton } from '../fakecheck.jsx';
+
+// One sweep hit: the data row plus, when its fake-check is opened, a
+// full-width expansion row carrying the shared odd/even panel.
+function HitRow({ h, onOpenTarget }) {
+  const [showCheck, setShowCheck] = useState(false);
+  const [checkBusy, setCheckBusy] = useState(false);
+  return (
+    <>
+      <tr className="hover:bg-zinc-800/50">
+        <td className="px-4 py-2"><span className="text-green-400 font-semibold inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Hit</span></td>
+        <td className="px-4 py-2 font-bold text-blue-400">{h.tic_id}</td>
+        <td className="px-4 py-2 text-zinc-400">{fmtNum(h.tmag)}</td>
+        <td className="px-4 py-2 text-zinc-400">{fmtNum(h.star_radius_rsun)}</td>
+        <td className="px-4 py-2 font-bold">{fmtNum(h.period_days, 4)}</td>
+        <td className="px-4 py-2">{fmtNum(h.sde, 1)}</td>
+        <td className="px-4 py-2">{fmtNum(h.planet_radius_re)}</td>
+        <td className="px-4 py-2 text-zinc-400">{h.sectors_analyzed}</td>
+        <td className="px-4 py-2">
+          <div className="flex flex-wrap gap-1.5">
+            <FakeCheckToggleButton open={showCheck} busy={checkBusy} onToggle={() => setShowCheck((v) => !v)} />
+            <button onClick={() => onOpenTarget(h.tic_id, h.star_radius_rsun)}
+              className="inline-flex items-center gap-1 px-2 py-1 border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 rounded-sm text-[11px] font-sans font-semibold text-zinc-200">
+              <Crosshair className="w-3 h-3" /> Open in Observatory
+            </button>
+          </div>
+        </td>
+      </tr>
+      {showCheck && (
+        <tr className="bg-zinc-950/40">
+          <td colSpan={9} className="px-4 py-2">
+            <FakeCheck tic={h.tic_id} period={h.period_days} onBusyChange={setCheckBusy} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
 
 export default function Sweeper({ settings, onOpenTarget }) {
   const [ra, setRa] = useState(83.82);
@@ -106,22 +144,7 @@ export default function Sweeper({ settings, onOpenTarget }) {
               </thead>
               <tbody className="divide-y divide-zinc-800">
                 {hits.map((h) => (
-                  <tr key={h.tic_id} className="hover:bg-zinc-800/50">
-                    <td className="px-4 py-2"><span className="text-green-400 font-semibold inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Hit</span></td>
-                    <td className="px-4 py-2 font-bold text-blue-400">{h.tic_id}</td>
-                    <td className="px-4 py-2 text-zinc-400">{fmtNum(h.tmag)}</td>
-                    <td className="px-4 py-2 text-zinc-400">{fmtNum(h.star_radius_rsun)}</td>
-                    <td className="px-4 py-2 font-bold">{fmtNum(h.period_days, 4)}</td>
-                    <td className="px-4 py-2">{fmtNum(h.sde, 1)}</td>
-                    <td className="px-4 py-2">{fmtNum(h.planet_radius_re)}</td>
-                    <td className="px-4 py-2 text-zinc-400">{h.sectors_analyzed}</td>
-                    <td className="px-4 py-2">
-                      <button onClick={() => onOpenTarget(h.tic_id, h.star_radius_rsun)}
-                        className="inline-flex items-center gap-1 px-2 py-1 border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 rounded-sm text-[11px] font-sans font-semibold text-zinc-200">
-                        <Crosshair className="w-3 h-3" /> Open in Observatory
-                      </button>
-                    </td>
-                  </tr>
+                  <HitRow key={h.tic_id} h={h} onOpenTarget={onOpenTarget} />
                 ))}
               </tbody>
             </table>

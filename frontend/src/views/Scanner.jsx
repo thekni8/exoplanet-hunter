@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Rocket, Crosshair, ShieldAlert, Loader2, ChevronDown } from 'lucide-react';
-import { postJob, getJob, getJobResult, getHistory } from '../api.js';
+import { Rocket, Crosshair, Loader2, ChevronDown } from 'lucide-react';
+import { postJob, getJob, getHistory } from '../api.js';
 import { useJobPolling } from '../useJob.js';
 import { Field, Panel, ProgressLog, SliderEnds, rangeError, fmtNum, fmtTime, inputCls } from '../components.jsx';
-import { OddEvenChart } from '../charts.jsx';
+import { FakeCheck, FakeCheckToggleButton } from '../fakecheck.jsx';
 
 // Stage 4 — the Scanner is Gemini v1's "Deep Space Scanner" rebuilt on
 // the Stage 2/3 backend: point at a patch of sky, press one button, and
@@ -15,78 +15,9 @@ import { OddEvenChart } from '../charts.jsx';
 const STRONG_SDE = 11.0; // v1's alarm bar for "NEW UNFLAGGED SIGNAL"
 const HIT_SDE = 8.5;     // backend discoveries threshold (weaker list)
 
-const VERDICT_PLAIN = {
-  'planet-like': 'The two dips match — this looks planet-like.',
-  'likely-eclipsing-binary': 'The dips are different sizes — this is likely a binary star faking a planet.',
-  'inconclusive': "No clear dip could be measured at either spot — this check can't judge the signal.",
-};
-
-// ---------------------------------------------------------------------------
-// "Is it a fake?" — runs an /api/oddeven job for one candidate and shows
-// the odd/even chart + verdict in plain words. Auto-starts on mount.
-// ---------------------------------------------------------------------------
-function FakeCheck({ tic, period }) {
-  const [jobId, setJobId] = useState(null);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
-  const { job, pollError } = useJobPolling(jobId);
-
-  useEffect(() => {
-    let live = true;
-    postJob('/api/oddeven', { tic: String(tic), period: Number(period), sector_cap: 2 })
-      .then(({ job_id }) => { if (live) setJobId(job_id); })
-      .catch((e) => { if (live) setError(e.message || String(e)); });
-    return () => { live = false; };
-  }, [tic, period]);
-
-  useEffect(() => {
-    if (!job || job.status !== 'done' || result) return;
-    let live = true;
-    getJobResult(job.job_id)
-      .then((data) => { if (live) setResult(data); })
-      .catch((e) => { if (live) setError(e.message || String(e)); });
-    return () => { live = false; };
-  }, [job, result]);
-
-  if (error) {
-    return <div className="text-xs text-red-400 font-mono mt-3">Fake-check failed: {error}</div>;
-  }
-  if (!result) {
-    return (
-      <div className="text-xs text-zinc-400 font-mono mt-3 flex items-center gap-2">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        {job?.status === 'queued' ? 'Fake-check queued — waiting for the engine…'
-          : 'Running the odd/even test on real TESS data (comparing alternate dips)…'}
-        {pollError && <span className="text-red-400">({pollError})</span>}
-      </div>
-    );
-  }
-
-  const m = result.metrics;
-  const verdict = m?.verdict || 'inconclusive';
-  const sentence = VERDICT_PLAIN[verdict] || m?.verdict_text;
-  const tone = verdict === 'planet-like'
-    ? 'border-green-900 bg-green-950/30'
-    : verdict === 'likely-eclipsing-binary'
-      ? 'border-red-900 bg-red-950/30'
-      : 'border-zinc-700 bg-zinc-950/50';
-
-  return (
-    <div className={`mt-3 border rounded-sm p-3 space-y-3 ${tone}`}>
-      <div>
-        <div className={`text-sm font-bold ${verdict === 'planet-like' ? 'text-green-300' : verdict === 'likely-eclipsing-binary' ? 'text-red-300' : 'text-zinc-200'}`}>
-          {sentence}
-        </div>
-        <div className="text-[11px] text-zinc-400 font-mono mt-1">
-          Odd dips: {fmtNum(m?.depth_odd_percent, 3)}% deep · Even dips: {fmtNum(m?.depth_even_percent, 3)}% deep ·
-          difference {fmtNum((m?.depth_rel_diff || 0) * 100, 0)}% · tested at {fmtNum(m?.period_fit_days, 4)} d
-          over {m?.sectors_analyzed} sector(s) of real TESS data.
-        </div>
-      </div>
-      <OddEvenChart folded={result.folded} />
-    </div>
-  );
-}
+// The "Is it a fake?" flow lives in ../fakecheck.jsx (shared with
+// Observatory, Sweeper and History & Discoveries) — this view composes
+// its toggle button + panel so the card layout stays exactly as built.
 
 // ---------------------------------------------------------------------------
 // One signal card (strong hit) / row (weaker signal), with the two
@@ -95,12 +26,10 @@ function FakeCheck({ tic, period }) {
 // ---------------------------------------------------------------------------
 function SignalEntry({ hit, strong, onOpenTarget }) {
   const [showCheck, setShowCheck] = useState(false);
+  const [checkBusy, setCheckBusy] = useState(false);
   const buttons = (
     <div className="flex flex-wrap gap-2">
-      <button onClick={() => setShowCheck((v) => !v)}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-amber-700/60 bg-amber-950/40 hover:bg-amber-900/40 rounded-sm text-[11px] font-semibold text-amber-200">
-        <ShieldAlert className="w-3.5 h-3.5" /> Is it a fake? →
-      </button>
+      <FakeCheckToggleButton open={showCheck} busy={checkBusy} onToggle={() => setShowCheck((v) => !v)} />
       <button onClick={() => onOpenTarget(hit.tic_id, hit.star_radius_rsun)}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 rounded-sm text-[11px] font-semibold text-zinc-200">
         <Crosshair className="w-3.5 h-3.5" /> Open in Observatory
@@ -118,7 +47,7 @@ function SignalEntry({ hit, strong, onOpenTarget }) {
           <span className="font-mono text-xs text-zinc-400">≈ {fmtNum(hit.planet_radius_re)} R⊕</span>
           <span className="ml-auto">{buttons}</span>
         </div>
-        {showCheck && <FakeCheck tic={hit.tic_id} period={hit.period_days} />}
+        {showCheck && <FakeCheck tic={hit.tic_id} period={hit.period_days} onBusyChange={setCheckBusy} />}
       </div>
     );
   }
@@ -139,7 +68,7 @@ function SignalEntry({ hit, strong, onOpenTarget }) {
           <div className="text-zinc-100 text-sm mt-0.5">{fmtNum(hit.star_radius_rsun)} R☉ · Tmag {fmtNum(hit.tmag, 1)}</div></div>
       </div>
       <div className="mt-3">{buttons}</div>
-      {showCheck && <FakeCheck tic={hit.tic_id} period={hit.period_days} />}
+      {showCheck && <FakeCheck tic={hit.tic_id} period={hit.period_days} onBusyChange={setCheckBusy} />}
     </div>
   );
 }

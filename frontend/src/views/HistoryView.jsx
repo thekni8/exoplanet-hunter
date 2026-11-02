@@ -2,6 +2,38 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Crosshair } from 'lucide-react';
 import { getHistory, getDiscoveries } from '../api.js';
 import { Panel, StatusBadge, fmtNum, fmtTime } from '../components.jsx';
+import { FakeCheck, FakeCheckToggleButton } from '../fakecheck.jsx';
+
+// One discovery: the data row plus, when its fake-check is opened, a
+// full-width expansion row carrying the shared odd/even panel.
+function DiscoveryRow({ d }) {
+  const [showCheck, setShowCheck] = useState(false);
+  const [checkBusy, setCheckBusy] = useState(false);
+  return (
+    <>
+      <tr className="hover:bg-zinc-800/50">
+        <td className="px-4 py-2 text-zinc-400 whitespace-nowrap">{fmtTime(d.created_at)}</td>
+        <td className="px-4 py-2 uppercase text-zinc-400">{d.source}</td>
+        <td className="px-4 py-2 font-bold text-blue-400">{d.tic_id}</td>
+        <td className="px-4 py-2">{fmtNum(d.period_days, 4)}</td>
+        <td className="px-4 py-2 text-green-400">{fmtNum(d.sde, 1)}</td>
+        <td className="px-4 py-2">{fmtNum(d.depth_percent, 4)}</td>
+        <td className="px-4 py-2">{fmtNum(d.planet_radius_re)}</td>
+        <td className="px-4 py-2 text-zinc-400">{d.sectors ?? '—'}</td>
+        <td className="px-4 py-2">
+          <FakeCheckToggleButton open={showCheck} busy={checkBusy} onToggle={() => setShowCheck((v) => !v)} />
+        </td>
+      </tr>
+      {showCheck && (
+        <tr className="bg-zinc-950/40">
+          <td colSpan={9} className="px-4 py-2">
+            <FakeCheck tic={d.tic_id} period={d.period_days} onBusyChange={setCheckBusy} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
 
 export default function HistoryView({ onOpenJob }) {
   const [runs, setRuns] = useState(null);
@@ -86,20 +118,12 @@ export default function HistoryView({ onOpenJob }) {
                 <th className="px-4 py-2">TIC ID</th><th className="px-4 py-2">Period (d)</th>
                 <th className="px-4 py-2">SDE</th><th className="px-4 py-2">Depth %</th>
                 <th className="px-4 py-2">Size (R⊕)</th><th className="px-4 py-2">Sectors</th>
+                <th className="px-4 py-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
               {discoveries.map((d) => (
-                <tr key={d.id} className="hover:bg-zinc-800/50">
-                  <td className="px-4 py-2 text-zinc-400 whitespace-nowrap">{fmtTime(d.created_at)}</td>
-                  <td className="px-4 py-2 uppercase text-zinc-400">{d.source}</td>
-                  <td className="px-4 py-2 font-bold text-blue-400">{d.tic_id}</td>
-                  <td className="px-4 py-2">{fmtNum(d.period_days, 4)}</td>
-                  <td className="px-4 py-2 text-green-400">{fmtNum(d.sde, 1)}</td>
-                  <td className="px-4 py-2">{fmtNum(d.depth_percent, 4)}</td>
-                  <td className="px-4 py-2">{fmtNum(d.planet_radius_re)}</td>
-                  <td className="px-4 py-2 text-zinc-400">{d.sectors ?? '—'}</td>
-                </tr>
+                <DiscoveryRow key={d.id} d={d} />
               ))}
             </tbody>
           </table>

@@ -4,6 +4,7 @@ import { postJob, getJob, getJobResult, plateUrl } from '../api.js';
 import { useJobPolling } from '../useJob.js';
 import { Field, Metric, Panel, ProgressLog, SliderEnds, rangeError, fmtNum, inputCls } from '../components.jsx';
 import { RawChart, FlatChart, BlsChart, PhaseChart } from '../charts.jsx';
+import { FakeCheckButton } from '../fakecheck.jsx';
 
 // seed: { tic, radius, jobId|null, nonce } — set by App when a sweep hit
 // or a history run should be opened here. jobId present = load that
@@ -141,6 +142,9 @@ export default function Observatory({ settings, seed }) {
           </div>
           <div className="text-[11px] text-zinc-500 font-mono">
             Classification (engine): {metrics.classification || '—'} · Best period from real BLS over {metrics.sectors_analyzed} sector(s) of NASA TESS data.
+          </div>
+          <div>
+            <FakeCheckButton tic={metrics.tic_id} period={metrics.best_period_days} />
           </div>
         </>
       )}
