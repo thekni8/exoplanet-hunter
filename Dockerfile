@@ -6,12 +6,11 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Dependencies first (layer caching). requirements.txt is shared with the
-# CLI: it includes streamlit for the legacy app.py — heavier than the API
-# alone needs, but keeps one dependency list for the whole project.
+# CLI (hunter.py) and the API (api.py) — one dependency list for the project.
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY hunter.py api.py app.py ./
+COPY hunter.py api.py ./
 
 # Runtime state (SQLite history, result JSONs, plates) lives in /app/data —
 # mount a volume there to keep history across container rebuilds.

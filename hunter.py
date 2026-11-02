@@ -17,8 +17,8 @@ Behaviour preserved from the original:
     ``discoveries.csv`` UNCONDITIONALLY, and returns only the scalar dict
     ``{"TIC", "Period", "SDE", "Radius_Re"}``.
   * ``purge_corrupt_cache`` is MANUAL ONLY (terminal menu option 4). It is
-    never called automatically by the pipeline — unlike app.py, which
-    purged on every run.
+    never called automatically by the pipeline — unlike the old
+    Streamlit app (removed 2026-11-02), which purged on every run.
   * ``sweep_sky`` calls ``analyze_target`` per star (so sweep targets are
     also logged to discoveries.csv and get a full PNG each — a known issue
     in the original design, preserved deliberately; see STAGE1_REPORT.md).
