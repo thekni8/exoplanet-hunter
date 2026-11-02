@@ -1,7 +1,8 @@
 streamlit
 lightkurve
-numpy
-pandas
 astropy
 astroquery
 matplotlib
+pandas
+scipy
+numpy
