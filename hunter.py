@@ -483,15 +483,44 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     _emit(progress_callback, f"Running BLS ({bls_points:,} grid points) for TIC {tic_id}...")
     periods = np.linspace(min_p, max_p, bls_points) * u.day
     durations = np.linspace(0.03, 0.25, 14) * u.day
-    bls = BoxLeastSquares(t * u.day, f)
-    res = bls.power(periods, durations)
 
-    best_idx = int(np.argmax(res.power))
-    best_period = float(res.period[best_idx].value)
-    best_depth = float(res.depth[best_idx])
-    best_duration = float(res.duration[best_idx].value)
-    t0 = float(res.transit_time[best_idx].value)
-    sde = float((res.power[best_idx] - np.median(res.power)) / (np.std(res.power) + 1e-12))
+    def _bls_best(tt, ff):
+        """Production BLS (unchanged grid + SDE formula) -> best-fit scalars."""
+        _bls = BoxLeastSquares(tt * u.day, ff)
+        _res = _bls.power(periods, durations)
+        _i = int(np.argmax(_res.power))
+        return (_res, float(_res.period[_i].value), float(_res.depth[_i]),
+                float(_res.duration[_i].value),
+                float(_res.transit_time[_i].value),
+                float((_res.power[_i] - np.median(_res.power))
+                      / (np.std(_res.power) + 1e-12)))
+
+    res, best_period, best_depth, best_duration, t0, sde = _bls_best(t, f)
+
+    # --- Depth-recovery pass (2026-11-03 depth fix) -----------------------
+    # Autopsy on WASP-126 b (DEPTH_FIX_REPORT.md): lightkurve's flatten
+    # lets the trend absorb most of every transit — the removed trend sags
+    # ~0.43% in-transit at EVERY window length (101/301/501/1001), so the
+    # BLS depth read 0.217% where the raw data carries a 0.63% signal.
+    # Fix: re-flatten with the pass-1 transits masked out of the trend fit
+    # (lightkurve's mask= exists exactly for this: "data you want to
+    # preserve, e.g. transits") and re-run the identical BLS. All reported
+    # metrics come from this second pass. Skipped if the pass-1 "transit"
+    # would mask more than 50% of the curve (pathological duty cycle —
+    # too little unmasked curve left to anchor the trend). The 50% line
+    # still admits high-duty-cycle signals like TIC 308851365's eclipses
+    # (38% masked), whose depth was otherwise left unrecovered.
+    _phase1 = ((t - t0 + 0.5 * best_period) % best_period) - 0.5 * best_period
+    _transit_mask = np.abs(_phase1) <= (best_duration / 2.0 + 0.02)
+    if _transit_mask.mean() <= 0.50:
+        _emit(progress_callback,
+              "Refining depth: re-detrending with transits masked out of the trend fit...")
+        lc_flat, trend = lc_raw.flatten(window_length=detrend_window,
+                                        return_trend=True, mask=_transit_mask)
+        t = lc_flat.time.value
+        f = lc_flat.flux.value
+        res, best_period, best_depth, best_duration, t0, sde = _bls_best(t, f)
+
     planet_radius_re = float(np.sqrt(max(0.0, best_depth)) * star_radius * 109.1)
 
     # Phase fold (bins=70, as in the original PNG rendering)
@@ -554,7 +583,7 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     log_candidate(tic_id, best_period, sde, best_depth, planet_radius_re,
                   n_sectors, star_radius)
 
-    del lc_collection, lc_raw, lc_flat, trend, bls, res
+    del lc_collection, lc_raw, lc_flat, trend, res
     gc.collect()
     return full
 
