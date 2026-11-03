@@ -502,13 +502,20 @@ def _startup():
     global _worker_started
     init_db()
     # Jobs left "running" when the server died are dead — mark them failed.
+    # Collect their ids BEFORE stamping: afterwards we append a closing
+    # progress line to each, so its log in History explains the gap
+    # instead of trailing off mid-sentence.
     with _db_lock, db() as conn:
+        stale_running = [r["id"] for r in
+                         conn.execute("SELECT id FROM jobs WHERE status='running' ORDER BY created_at")]
         conn.execute(
             "UPDATE jobs SET status='failed', error='server restarted',"
             " finished_at=? WHERE status='running'", (_now(),))
         # Jobs left "queued" never started — re-enqueue them.
         queued = [r["id"] for r in
                   conn.execute("SELECT id FROM jobs WHERE status='queued' ORDER BY created_at")]
+    for job_id in stale_running:
+        append_progress(job_id, "Server restarted while this job was running — it did not finish. Everything above is the complete record up to the stop.")
     for job_id in queued:
         _job_queue.put(job_id)
     if not _worker_started:

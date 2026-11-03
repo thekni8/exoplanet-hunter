@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Crosshair } from 'lucide-react';
-import { getHistory, getDiscoveries } from '../api.js';
+import { RefreshCw, Crosshair, FileText } from 'lucide-react';
+import { getHistory, getDiscoveries, getJob } from '../api.js';
 import { Panel, StatusBadge, fmtNum, fmtTime } from '../components.jsx';
 import { FakeCheck, FakeCheckToggleButton } from '../fakecheck.jsx';
 import { DoublePeriodCheck, DoublePeriodToggleButton } from '../doubleperiod.jsx';
@@ -41,6 +41,80 @@ function DiscoveryRow({ d }) {
         <tr className="bg-zinc-950/40">
           <td colSpan={9} className="px-4 py-2">
             <DoublePeriodCheck tic={d.tic_id} period={d.period_days} onBusyChange={setDpBusy} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// One past run: the data row plus, when its Log is opened, a full-width
+// expansion row carrying the job's full error and every progress line.
+// The log is fetched lazily (once) via getJob — the history list itself
+// only carries the 160-char error snippet, so a dead run's record used
+// to be unopenable; this is the way in.
+function RunRow({ r, onOpenJob }) {
+  const [showLog, setShowLog] = useState(false);
+  const [log, setLog] = useState(null); // null = not fetched yet
+  const [logError, setLogError] = useState(null);
+
+  const toggleLog = async () => {
+    const opening = !showLog;
+    setShowLog(opening);
+    if (opening && log === null && logError === null) {
+      try {
+        setLog(await getJob(r.job_id));
+      } catch (e) {
+        setLogError(e.message || String(e));
+      }
+    }
+  };
+
+  return (
+    <>
+      <tr className="hover:bg-zinc-800/50">
+        <td className="px-4 py-2 text-zinc-400 whitespace-nowrap">{fmtTime(r.created_at)}</td>
+        <td className="px-4 py-2 uppercase text-zinc-400">{r.type}</td>
+        <td className="px-4 py-2 font-bold text-blue-400">{r.target}</td>
+        <td className="px-4 py-2"><StatusBadge status={r.status} />{r.status === 'failed' && r.error && <div className="text-red-400/80 text-[10px] mt-0.5 max-w-xs whitespace-pre-wrap break-words">{String(r.error).slice(0, 160)}</div>}</td>
+        <td className="px-4 py-2">{r.period != null ? fmtNum(r.period, 4) : '—'}</td>
+        <td className="px-4 py-2">{r.sde != null ? fmtNum(r.sde, 1) : '—'}</td>
+        <td className="px-4 py-2">
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={toggleLog}
+              className="inline-flex items-center gap-1 px-2 py-1 border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 rounded-sm text-[11px] font-sans font-semibold text-zinc-200">
+              <FileText className="w-3 h-3" /> Log
+            </button>
+            {r.type === 'analyze' && r.status === 'done' && (
+              <button onClick={() => onOpenJob(r)}
+                className="inline-flex items-center gap-1 px-2 py-1 border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 rounded-sm text-[11px] font-sans font-semibold text-zinc-200">
+                <Crosshair className="w-3 h-3" /> View result
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+      {showLog && (
+        <tr className="bg-zinc-950/40">
+          <td colSpan={7} className="px-4 py-2">
+            {logError !== null ? (
+              <div className="text-[11px] text-zinc-400 font-mono">Could not load this run's log: {logError}</div>
+            ) : log === null ? (
+              <div className="text-[11px] text-zinc-500 font-mono">Loading log…</div>
+            ) : (
+              <div className="space-y-1">
+                {log.error && (
+                  <div className="text-[11px] text-red-400 font-mono whitespace-pre-wrap break-words">{String(log.error)}</div>
+                )}
+                {log.progress && log.progress.length > 0 ? (
+                  log.progress.map((line, i) => (
+                    <div key={i} className="text-[11px] text-zinc-400 font-mono whitespace-pre-wrap break-words">{line}</div>
+                  ))
+                ) : (
+                  <div className="text-[11px] text-zinc-500 font-mono">No progress lines recorded for this run.</div>
+                )}
+              </div>
+            )}
           </td>
         </tr>
       )}
@@ -96,22 +170,7 @@ export default function HistoryView({ onOpenJob }) {
             </thead>
             <tbody className="divide-y divide-zinc-800">
               {runs.map((r) => (
-                <tr key={r.job_id} className="hover:bg-zinc-800/50">
-                  <td className="px-4 py-2 text-zinc-400 whitespace-nowrap">{fmtTime(r.created_at)}</td>
-                  <td className="px-4 py-2 uppercase text-zinc-400">{r.type}</td>
-                  <td className="px-4 py-2 font-bold text-blue-400">{r.target}</td>
-                  <td className="px-4 py-2"><StatusBadge status={r.status} />{r.status === 'failed' && r.error && <div className="text-red-400/80 text-[10px] mt-0.5 max-w-xs whitespace-pre-wrap break-words">{String(r.error).slice(0, 160)}</div>}</td>
-                  <td className="px-4 py-2">{r.period != null ? fmtNum(r.period, 4) : '—'}</td>
-                  <td className="px-4 py-2">{r.sde != null ? fmtNum(r.sde, 1) : '—'}</td>
-                  <td className="px-4 py-2">
-                    {r.type === 'analyze' && r.status === 'done' && (
-                      <button onClick={() => onOpenJob(r)}
-                        className="inline-flex items-center gap-1 px-2 py-1 border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 rounded-sm text-[11px] font-sans font-semibold text-zinc-200">
-                        <Crosshair className="w-3 h-3" /> View result
-                      </button>
-                    )}
-                  </td>
-                </tr>
+                <RunRow key={r.job_id} r={r} onOpenJob={onOpenJob} />
               ))}
             </tbody>
           </table>
