@@ -53,6 +53,7 @@ what actually runs; see STAGE2_REPORT.md.
 """
 
 import json
+import math
 import os
 import queue
 import shutil
@@ -83,6 +84,10 @@ from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 HIT_SDE = 8.5  # discoveries are hits only: SDE >= 8.5
+# TIC contamination ratio at/above which a HIT is flagged as a blend
+# risk (flag only — stars are never dropped for contamination). Both
+# blend mirages of the first two sweeps sat at 0.136 / 0.186.
+CONTAMINATION_FLAG_THRESHOLD = 0.10
 
 # ---------------------------------------------------------------------------
 # Storage (stdlib sqlite3; one short-lived connection per operation,
@@ -241,6 +246,72 @@ def _run_analyze(job_id, p):
     append_progress(job_id, "Done.")
 
 
+def _clean_catalog_float(value):
+    """Catalog value as a JSON-safe float, or None: NaN, masked and
+    unparseable values all become None (the field is still carried)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+# persistence.py's raw verdict -> the sweep-facing label.
+_PERSISTENCE_LABELS = {
+    "CONSISTENT": "persistent",
+    "CONCENTRATED": "fails-persistence — blend-suspect",
+    "MIXED": "patchy",
+    "NO USABLE SECTORS": "inconclusive",
+}
+
+
+def _run_hit_persistence(entry, tic_id, star_rad, metrics, sector_cap, cb):
+    """Per-hit sector-persistence test, integrated into the sweep.
+
+    Runs persistence.sector_persistence — the exact implementation
+    validated against CANDIDATE_374942698_FOLLOWUP.md and used in the
+    SWEEP2 vetting — at the hit's own ephemeris (period / T0 / duration
+    from the analyze that produced the hit), on the same sector set
+    (same sector cap => same first-N products, downloads cached).
+
+    Attaches a compact summary dict to the hit's entry and emits ONE
+    progress line. NEVER raises: the discovery is already recorded by
+    the time this runs, and a persistence failure must neither kill
+    the sweep nor retract the hit — the hit stands, unlabelled.
+    """
+    try:
+        import persistence
+        per = persistence.sector_persistence(
+            tic_id, star_rad, metrics["best_period_days"],
+            metrics["t0_days"], metrics["duration_hours"],
+            sector_cap=sector_cap, progress_callback=lambda _msg: None)
+    except Exception as e:
+        cb(f"persistence check unavailable: {e}")
+        return
+    raw_verdict = per.get("verdict")
+    label = _PERSISTENCE_LABELS.get(raw_verdict, "inconclusive")
+    n_usable = per.get("n_usable") or 0
+    n_pos = per.get("n_pos_1p5sigma") or 0
+    entry["persistence"] = {
+        "sectors_usable": per.get("n_usable"),
+        "sectors_with_dip": per.get("n_pos_1p5sigma"),
+        "frac_ge_1p5sigma": per.get("frac_pos_1p5sigma"),
+        "weighted_mean_depth_pct": per.get("weighted_mean_depth_pct"),
+        "chi2": per.get("chi2"),
+        "chi2_p": per.get("chi2_p"),
+        "module_verdict": raw_verdict,
+        "verdict": label,
+    }
+    if not n_usable:
+        cb("↳ persistence: no usable sectors — inconclusive")
+    elif label == "fails-persistence — blend-suspect":
+        cb(f"↳ persistence: {n_pos}/{n_usable} sectors — "
+           f"fails persistence — blend-suspect")
+    else:
+        cb(f"↳ persistence: {n_pos}/{n_usable} sectors, "
+           f"mean depth {per.get('weighted_mean_depth_pct'):.2f}% — {label}")
+
+
 def _run_sweep(job_id, p):
     """Sweep job: TIC cone query + screening (same as hunter.sweep_sky),
     then analyze_target_json per target, sequentially, ALWAYS finishing
@@ -256,6 +327,24 @@ def _run_sweep(job_id, p):
     "skipped_known". Discoveries logging is unchanged (hits only,
     SDE >= 8.5) — the SDE >= 11 "unflagged signal" bar is presentation
     only, applied by the Scanner UI.
+
+    Blend-screening integration (2026-11-04): the two vetting stages
+    that killed both blend mirages of the first sweeps (TIC 374942698,
+    TIC 231096116 — each passed every fold check first) now run INSIDE
+    the sweep, on this shared path, so Sweeper and Scanner inherit
+    both:
+      * every target's TIC contamination ratio ("contratio", when the
+        catalog provides it) is carried into its analyzed entry; a HIT
+        at contratio >= CONTAMINATION_FLAG_THRESHOLD additionally
+        carries a "high-contamination — blend risk" flag in its entry
+        and on its HIT progress line. Flag only — no star is dropped
+        or deprioritized because of contamination.
+      * every hit then runs the sector-persistence test
+        (_run_hit_persistence) at the hit's own ephemeris on the same
+        sectors, attaching a compact summary + verdict label to the
+        hit entry and emitting one extra progress line. The discovery
+        row is written BEFORE the persistence stage runs, exactly as
+        before, and the stage can never fail the sweep.
     """
     import astropy.units as u
     from astropy.coordinates import SkyCoord
@@ -287,6 +376,10 @@ def _run_sweep(job_id, p):
     # query_region here died outright on a dropped connection and
     # killed a sweep before any star ran (2026-11-03 06:52 IST).
     tic_catalog = hunter._query_tic_cone_healed(coord, cone, cb)
+    # TIC contamination ratio rides along when the catalog provides
+    # the column; when it doesn't, entries record null (no per-star
+    # ExoFOP fetches — screen time stays one catalog call).
+    has_contratio = "contratio" in tic_catalog.colnames
     mask = (
         (tic_catalog["Tmag"] >= min_mag) & (tic_catalog["Tmag"] <= max_mag) &
         (tic_catalog["rad"] >= min_rad) & (tic_catalog["rad"] <= max_rad)
@@ -300,6 +393,8 @@ def _run_sweep(job_id, p):
     for i, row in enumerate(targets, start=1):
         tic_id = str(row["ID"])
         star_rad = float(row["rad"])
+        contratio = (_clean_catalog_float(row["contratio"])
+                     if has_contratio else None)
         if scanner and hunter.is_already_known_online(tic_id):
             skipped_known += 1
             cb(f"Target {i} of {total}: TIC {tic_id} — already known on "
@@ -314,14 +409,24 @@ def _run_sweep(job_id, p):
             )
             m = result["metrics"]
             entry = {"tic_id": tic_id, "tmag": float(row["Tmag"]),
-                     "star_radius_rsun": star_rad, "period_days": m["best_period_days"],
+                     "star_radius_rsun": star_rad, "contratio": contratio,
+                     "period_days": m["best_period_days"],
                      "sde": m["sde"], "planet_radius_re": m["planet_radius_earth"],
                      "sectors_analyzed": m["sectors_analyzed"]}
             analyzed.append(entry)
             if m["sde"] >= HIT_SDE:
                 hits.append(entry)
                 record_discovery(job_id, "sweep", m)
-                cb(f"HIT: TIC {tic_id} — P={m['best_period_days']:.4f} d, SDE={m['sde']:.1f}")
+                hit_line = (f"HIT: TIC {tic_id} — "
+                            f"P={m['best_period_days']:.4f} d, SDE={m['sde']:.1f}")
+                if (contratio is not None
+                        and contratio >= CONTAMINATION_FLAG_THRESHOLD):
+                    entry["contamination_flag"] = \
+                        "high-contamination — blend risk"
+                    hit_line += " — high-contamination — blend risk"
+                cb(hit_line)
+                _run_hit_persistence(entry, tic_id, star_rad, m,
+                                     sector_cap, cb)
         except Exception as e:  # recorded, not swallowed — sweep continues
             errors.append({"tic_id": tic_id, "error": str(e)})
             cb(f"Target {i} of {total}: TIC {tic_id} failed: {e}")
