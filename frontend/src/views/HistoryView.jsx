@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Crosshair, FileText } from 'lucide-react';
 import { getHistory, getDiscoveries, getJob } from '../api.js';
 import { Panel, StatusBadge, fmtNum, fmtTime } from '../components.jsx';
@@ -50,25 +50,60 @@ function DiscoveryRow({ d }) {
 
 // One past run: the data row plus, when its Log is opened, a full-width
 // expansion row carrying the job's full error and every progress line.
-// The log is fetched lazily (once) via getJob — the history list itself
-// only carries the 160-char error snippet, so a dead run's record used
-// to be unopenable; this is the way in.
-function RunRow({ r, onOpenJob }) {
+// The log is fetched lazily (first open) via getJob — the history list
+// itself only carries the 160-char error snippet, so a dead run's record
+// used to be unopenable; this is the way in. Once open, the log stays
+// live two ways: the page Refresh button bumps refreshTick (passed from
+// HistoryView), which refetches any open log; and while the fetched job
+// is still queued/running the row re-polls getJob every 5 s on its own.
+// Polling stops at a terminal status, when the log closes, and on
+// unmount — closed rows and finished jobs never fetch.
+function RunRow({ r, onOpenJob, refreshTick }) {
   const [showLog, setShowLog] = useState(false);
   const [log, setLog] = useState(null); // null = not fetched yet
   const [logError, setLogError] = useState(null);
+  const attemptedRef = useRef(false); // a fetch has been tried at least once
 
-  const toggleLog = async () => {
+  const fetchLog = useCallback(async () => {
+    attemptedRef.current = true;
+    try {
+      setLog(await getJob(r.job_id));
+      setLogError(null);
+    } catch (e) {
+      setLogError(e.message || String(e));
+    }
+  }, [r.job_id]);
+
+  const toggleLog = () => {
     const opening = !showLog;
     setShowLog(opening);
-    if (opening && log === null && logError === null) {
-      try {
-        setLog(await getJob(r.job_id));
-      } catch (e) {
-        setLogError(e.message || String(e));
-      }
+    if (opening && !attemptedRef.current) {
+      fetchLog();
     }
   };
+
+  // Page Refresh (or the initial load) bumped refreshTick: if this log
+  // is open and has been fetched before, refetch so it doesn't sit
+  // frozen at open-time. Tick changes while closed only move the
+  // baseline — no fetch.
+  const prevTickRef = useRef(refreshTick);
+  useEffect(() => {
+    const tickChanged = refreshTick !== prevTickRef.current;
+    prevTickRef.current = refreshTick;
+    if (tickChanged && showLog && attemptedRef.current) {
+      fetchLog();
+    }
+  }, [refreshTick, showLog, fetchLog]);
+
+  // Self-poll while open on a live job. When a poll sees a terminal
+  // status, setLog flips isLive false and this effect's cleanup clears
+  // the interval; closing the row or unmounting cleans up the same way.
+  const isLive = log !== null && (log.status === 'queued' || log.status === 'running');
+  useEffect(() => {
+    if (!showLog || !isLive) return undefined;
+    const id = setInterval(fetchLog, 5000);
+    return () => clearInterval(id);
+  }, [showLog, isLive, fetchLog]);
 
   return (
     <>
@@ -126,8 +161,13 @@ export default function HistoryView({ onOpenJob }) {
   const [runs, setRuns] = useState(null);
   const [discoveries, setDiscoveries] = useState(null);
   const [error, setError] = useState(null);
+  // Bumped on every load() — the mount load and every Refresh click —
+  // and handed to each RunRow so an open log refetches instead of
+  // staying frozen at the moment it was first opened.
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const load = useCallback(async () => {
+    setRefreshTick((t) => t + 1);
     setError(null);
     try {
       const [h, d] = await Promise.all([getHistory(50), getDiscoveries(100)]);
@@ -170,7 +210,7 @@ export default function HistoryView({ onOpenJob }) {
             </thead>
             <tbody className="divide-y divide-zinc-800">
               {runs.map((r) => (
-                <RunRow key={r.job_id} r={r} onOpenJob={onOpenJob} />
+                <RunRow key={r.job_id} r={r} onOpenJob={onOpenJob} refreshTick={refreshTick} />
               ))}
             </tbody>
           </table>
