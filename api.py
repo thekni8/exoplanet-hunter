@@ -283,7 +283,10 @@ def _run_sweep(job_id, p):
            "faint-dwarf screen, already-known stars skipped via Zooniverse).")
     cb(f"Querying TIC catalog around RA {ra}, Dec {dec} (radius {cone}°)...")
     coord = SkyCoord(ra=ra * u.deg, dec=dec * u.deg)
-    tic_catalog = Catalogs.query_region(coord, radius=cone * u.deg, catalog="TIC")
+    # Stage 5c: healed cone query (deep connection budget) — a bare
+    # query_region here died outright on a dropped connection and
+    # killed a sweep before any star ran (2026-11-03 06:52 IST).
+    tic_catalog = hunter._query_tic_cone_healed(coord, cone, cb)
     mask = (
         (tic_catalog["Tmag"] >= min_mag) & (tic_catalog["Tmag"] <= max_mag) &
         (tic_catalog["rad"] >= min_rad) & (tic_catalog["rad"] <= max_rad)

@@ -159,6 +159,16 @@ _DOWNLOAD_MAX_ATTEMPTS = 4
 _CONNECTION_MAX_ATTEMPTS = 3
 _CONNECTION_BACKOFF_SECONDS = (5, 15)
 
+# The sweep's TIC cone query gets a much deeper connection budget
+# (Stage 5c): it is a single cheap catalog call, but it gates the whole
+# sweep — a sustained MAST bad patch killed a sweep before a single
+# star ran (2026-11-03 06:52 IST) once the shared 3-attempt budget was
+# exhausted. 8 attempts, waiting 5/15/30/60/60/60/60 s between them
+# (~5 min of persistence for one catalog call). Cone query ONLY —
+# analyze/oddeven/doubleperiod fetches keep the shared budget above.
+_SWEEP_CONNECTION_MAX_ATTEMPTS = 8
+_SWEEP_CONNECTION_BACKOFF_SECONDS = (5, 15, 30, 60, 60, 60, 60)
+
 # Class names (matched against every exception in the chain) that mark a
 # transient connection failure — MAST or the network dropped us.
 _CONNECTION_CLASS_NAMES = frozenset({
@@ -269,11 +279,17 @@ def _purge_corrupt_files(paths):
 
 
 def _with_download_self_heal(step, progress_callback=None,
-                             max_attempts=None, corrupt_max_retries=None):
+                             max_attempts=None, corrupt_max_retries=None,
+                             connection_max_attempts=None,
+                             connection_backoff_seconds=None):
     """Run ``step()`` (a network callable) with bounded retries.
 
     * Connection-class failure -> backoff (5 s, then 15 s) and retry;
       at most _CONNECTION_MAX_ATTEMPTS attempts for that class.
+      ``connection_max_attempts`` / ``connection_backoff_seconds``
+      override that budget for callers that need deeper persistence
+      (the sweep's TIC cone query — see _SWEEP_CONNECTION_* above);
+      the backoff sequence's last value repeats if failures outrun it.
     * Corrupt cached file -> the named .fits file(s) are deleted and
       the step retries so lightkurve re-downloads just those.
     * Total attempts are capped at _DOWNLOAD_MAX_ATTEMPTS unless
@@ -288,6 +304,10 @@ def _with_download_self_heal(step, progress_callback=None,
     """
     if max_attempts is None:
         max_attempts = _DOWNLOAD_MAX_ATTEMPTS
+    if connection_max_attempts is None:
+        connection_max_attempts = _CONNECTION_MAX_ATTEMPTS
+    if connection_backoff_seconds is None:
+        connection_backoff_seconds = _CONNECTION_BACKOFF_SECONDS
     attempts = 0
     connection_failures = 0
     corrupt_retries = 0
@@ -306,14 +326,16 @@ def _with_download_self_heal(step, progress_callback=None,
                           "Removed a corrupt downloaded file and re-downloading…")
                     continue
             if (_is_connection_error(e)
-                    and connection_failures < _CONNECTION_MAX_ATTEMPTS - 1
+                    and connection_failures < connection_max_attempts - 1
                     and attempts < max_attempts):
-                wait = _CONNECTION_BACKOFF_SECONDS[connection_failures]
+                wait = connection_backoff_seconds[
+                    min(connection_failures,
+                        len(connection_backoff_seconds) - 1)]
                 connection_failures += 1
                 _emit(progress_callback,
                       f"Connection dropped — retrying "
                       f"(attempt {connection_failures + 1} of "
-                      f"{_CONNECTION_MAX_ATTEMPTS})…")
+                      f"{connection_max_attempts})…")
                 time.sleep(wait)
                 continue
             raise
@@ -1205,6 +1227,35 @@ def double_period_test_json(tic_id, period_days, sector_cap=None,
 # Sky sweeper
 # ---------------------------------------------------------------------------
 
+def _query_tic_cone_healed(coord, radius_deg, progress_callback=None):
+    """TIC cone query with the sweep's deep connection budget (Stage 5c).
+
+    Both sweep paths (hunter.sweep_sky and the API's sweep runner)
+    start with this one cheap catalog call, and it gates everything:
+    if it dies, zero stars are analyzed. It therefore retries
+    connection-class failures up to _SWEEP_CONNECTION_MAX_ATTEMPTS
+    times with a growing backoff instead of the shared download
+    budget tuned for bulk light-curve fetches. Non-connection errors
+    propagate immediately; if every attempt drops, a final progress
+    line is emitted and the original error propagates unchanged.
+    """
+    try:
+        return _with_download_self_heal(
+            lambda: Catalogs.query_region(coord, radius=radius_deg * u.deg,
+                                          catalog="TIC"),
+            progress_callback,
+            max_attempts=_SWEEP_CONNECTION_MAX_ATTEMPTS,
+            connection_max_attempts=_SWEEP_CONNECTION_MAX_ATTEMPTS,
+            connection_backoff_seconds=_SWEEP_CONNECTION_BACKOFF_SECONDS)
+    except Exception as e:
+        if _is_connection_error(e):
+            _emit(progress_callback,
+                  f"TIC catalog unreachable after "
+                  f"{_SWEEP_CONNECTION_MAX_ATTEMPTS} attempts — "
+                  f"sweep aborted.")
+        raise
+
+
 def sweep_sky(ra, dec, radius=0.15, limit=50, min_mag=11.5, max_mag=15.0,
               min_r=0.5, max_r=1.8, bls_points=10000, sector_cap=2,
               progress_callback=None, check_known=False):
@@ -1220,9 +1271,7 @@ def sweep_sky(ra, dec, radius=0.15, limit=50, min_mag=11.5, max_mag=15.0,
     """
     _emit(progress_callback, f"Querying TIC catalog around RA {ra}, Dec {dec} (radius {radius}°)...")
     coord = SkyCoord(ra=ra * u.deg, dec=dec * u.deg)
-    tic_catalog = _with_download_self_heal(
-        lambda: Catalogs.query_region(coord, radius=radius * u.deg, catalog="TIC"),
-        progress_callback)
+    tic_catalog = _query_tic_cone_healed(coord, radius, progress_callback)
 
     mask = (
         (tic_catalog["Tmag"] >= min_mag) & (tic_catalog["Tmag"] <= max_mag) &
@@ -1261,6 +1310,9 @@ def sweep_sky(ra, dec, radius=0.15, limit=50, min_mag=11.5, max_mag=15.0,
         except Exception as e:
             # Printed, not swallowed — the sweep continues with the next star.
             print(f"Error analyzing TIC {tic_id}: {e}", flush=True)
+            _emit(progress_callback,
+                  f"TIC {tic_id} failed ({type(e).__name__}) — continuing "
+                  f"with the next star.")
 
     summary_line = f"Sweep complete: {len(hits)} hit(s) with SDE >= 8.0."
     if check_known:
