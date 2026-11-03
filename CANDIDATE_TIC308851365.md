@@ -130,3 +130,19 @@ was real — it was just two suns, not a planet.
 | Max magnitude | 14.94 (TESS) |
 | Min I / Min II | ≈ 14.95 / ≈ 14.95 (TESS; Δ ≈ 0.012 mag) |
 | Remarks | Discovered in TESS data (sectors incl. 1, 11–13) with a custom BLS pipeline; first detected at the 0.75677 d half-period alias (SDE 66.2); double-period fold shows equal minima + 1.1 % ellipsoidal modulation (37σ). Not in the Villanova TESS EB catalog, ExoFOP, or the NASA Exoplanet Archive as of 2026-11-03. Dossier: github.com/thekni8/exoplanet-hunter |
+
+## 10. Outcome (2026-11-03)
+
+- **Planet Hunters Talk:** discovery posted and live —
+  https://www.zooniverse.org/projects/nora-dot-eisner/planet-hunters-tess/talk/2110/4170913
+  — with a correction comment noting the pre-existing VSX ROT entry.
+- **VSX:** a spot check before filing found the star already in VSX as
+  **Gaia DR3 5277232093330484096** (OID 3714428), classified ROT at
+  0.75629 d by the Gaia collaboration. Instead of a duplicate new-star
+  entry, a **revision** was filed by Debashish Sarangi: ROT → EB, period
+  1.51277 d, epoch 2458326.279, TIC/2MASS/UCAC4 identifiers added, TESS
+  photometry in remarks, Gaia G magnitudes retained, and the double-period
+  fold plot (`double_period_fold_308851365.png`) attached as supporting
+  evidence. **Submitted 2026-11-03 00:12 UTC — staged pending moderator
+  review (confirmation revid 853367).** The live entry remains ROT until
+  the moderators promote the revision.
