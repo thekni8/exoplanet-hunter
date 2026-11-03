@@ -241,6 +241,77 @@ export function OddEvenChart({ folded, height = 240 }) {
   );
 }
 
+// Double-period (ellipsoidal / twin-star) chart: the RAW light curve
+// folded at twice the candidate period, phase 0..1. Eclipse windows
+// are shaded red, quadrature windows green — twin stars show the
+// binned median riding HIGH through the green zones (tidally squeezed
+// stars presenting their wide sides); a planet's fold stays flat
+// between the dips. Rendered from the binned curve of an
+// /api/doubleperiod job result (same canvas approach as OddEvenChart).
+export function DoublePeriodChart({ folded, height = 240 }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || !folded || !folded.binned?.phase?.length) return;
+    const { ctx, width } = setup(canvas, height);
+    const binned = folded.binned;
+    // Plot brightness relative to the star's normal level, in percent.
+    const toPct = (v) => (v - 1) * 100;
+    let yLo = Infinity, yHi = -Infinity;
+    for (let i = 0; i < binned.median_flux.length; i++) {
+      const v = toPct(binned.median_flux[i]);
+      if (v < yLo) yLo = v;
+      if (v > yHi) yHi = v;
+    }
+    if (!Number.isFinite(yLo)) { yLo = -0.1; yHi = 0.1; }
+    const padY = Math.max((yHi - yLo) * 0.25, 0.01);
+    yLo -= padY; yHi += padY;
+    const { toX, toY } = axes(ctx, width, height, PAD, 0, 1, yLo, yHi,
+      (v) => v.toFixed(1), (v) => v.toFixed(2) + '%');
+    // measurement windows, shaded under the data
+    const shade = (lo, hi, color) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(toX(lo), PAD.t, toX(hi) - toX(lo), height - PAD.t - PAD.b);
+    };
+    shade(0.94, 1.0, 'rgba(239,68,68,0.14)');
+    shade(0.0, 0.06, 'rgba(239,68,68,0.14)');
+    shade(0.44, 0.56, 'rgba(239,68,68,0.14)');
+    shade(0.19, 0.31, 'rgba(34,197,94,0.14)');
+    shade(0.69, 0.81, 'rgba(34,197,94,0.14)');
+    ctx.font = 'bold 9px monospace';
+    ctx.fillStyle = '#f87171';
+    ctx.fillText('ECLIPSE', toX(0.462), PAD.t + 10);
+    ctx.fillText('ECLIPSE', toX(0.943), PAD.t + 10);
+    ctx.fillStyle = '#4ade80';
+    ctx.fillText('QUADRATURE', toX(0.198), PAD.t + 10);
+    ctx.fillText('QUADRATURE', toX(0.698), PAD.t + 10);
+    // zero line (star's normal brightness)
+    ctx.strokeStyle = '#52525b';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(PAD.l, toY(0)); ctx.lineTo(width - PAD.r, toY(0)); ctx.stroke();
+    ctx.setLineDash([]);
+    // binned medians as a connected line + dots
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    binned.median_flux.forEach((fv, i) => {
+      const x = toX(binned.phase[i]), y = toY(toPct(fv));
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.fillStyle = '#38bdf8';
+    binned.median_flux.forEach((fv, i) => {
+      ctx.fillRect(toX(binned.phase[i]) - 1.5, toY(toPct(fv)) - 1.5, 3, 3);
+    });
+  }, [folded, height]);
+  return (
+    <ChartShell title="Double-Period Fold — raw light curve at twice the period"
+      right={<span className="flex gap-3 text-[10px]"><span className="text-red-400">■ Eclipses</span><span className="text-green-400">■ Quadratures</span><span className="text-sky-400">— Binned median</span></span>}>
+      <canvas ref={ref} style={{ width: '100%', height }} />
+    </ChartShell>
+  );
+}
+
 export function PhaseChart({ phaseFolded, height = 220 }) {
   const ref = useRef(null);
   useEffect(() => {

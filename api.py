@@ -31,6 +31,9 @@ Endpoints:
                               bls_points, sector_cap, scanner?}
   POST /api/oddeven          {tic, period, sector_cap?} — Stage 4: v1's
                               odd/even eclipsing-binary fake-check
+  POST /api/doubleperiod     {tic, period, sector_cap?} — double-period
+                              (ellipsoidal / twin-star) check on the RAW
+                              light curve; the odd/even blind-spot test
   POST /api/qa               run Dev's 3 QA benchmarks (1-2 sectors, 10k grid);
                               optional {"custom": {tic, expected_period_days,
                               label?}} runs ONE user-supplied target as its
@@ -77,7 +80,7 @@ import hunter  # noqa: E402  (after chdir: hunter creates reports/ at import)
 
 from fastapi import FastAPI, HTTPException  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 
 HIT_SDE = 8.5  # discoveries are hits only: SDE >= 8.5
 
@@ -106,7 +109,7 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS jobs (
                 id           TEXT PRIMARY KEY,
-                type         TEXT NOT NULL,          -- analyze | sweep | qa | oddeven
+                type         TEXT NOT NULL,          -- analyze | sweep | qa | oddeven | doubleperiod
                 params_json  TEXT NOT NULL,
                 target       TEXT,                   -- human summary for history
                 status       TEXT NOT NULL,          -- queued|running|done|failed
@@ -361,6 +364,30 @@ def _run_oddeven(job_id, p):
     append_progress(job_id, "Done.")
 
 
+def _run_doubleperiod(job_id, p):
+    """Double-period (ellipsoidal) check job: hunter.double_period_test_json
+    through the same queue as the odd/even check. The full payload
+    (metrics + binned folded curve) is stored like an oddeven result so
+    /result returns the chart data; the metrics dict is the job summary.
+    No discovery is recorded — this judges an existing candidate.
+    """
+    result = hunter.double_period_test_json(
+        p["tic"],
+        p["period"],
+        sector_cap=p.get("sector_cap"),
+        progress_callback=lambda msg: append_progress(job_id, msg),
+    )
+    metrics = result["metrics"]
+
+    result_path = RESULTS_DIR / f"{job_id}.json"
+    result_path.write_text(json.dumps(result))
+
+    update_job(job_id, status="done", finished_at=_now(),
+               result_json=json.dumps(metrics), result_path=str(result_path),
+               period=metrics["period_2p_refined_days"])
+    append_progress(job_id, "Done.")
+
+
 def _qa_custom_entry(custom, cb):
     """One user-supplied QA target, judged by EXACTLY the benchmark
     rule from hunter.run_qa: same 10,000-point BLS grid, PASS iff
@@ -437,7 +464,7 @@ def _run_qa(job_id, p):
 
 
 _RUNNERS = {"analyze": _run_analyze, "sweep": _run_sweep, "qa": _run_qa,
-            "oddeven": _run_oddeven}
+            "oddeven": _run_oddeven, "doubleperiod": _run_doubleperiod}
 
 
 def _worker_loop():
@@ -520,6 +547,12 @@ class OddEvenRequest(BaseModel):
     sector_cap: Optional[int] = None
 
 
+class DoublePeriodRequest(BaseModel):
+    tic: str
+    period: float = Field(gt=0)
+    sector_cap: int = Field(default=2, ge=1, le=40)
+
+
 class QaCustomTarget(BaseModel):
     tic: str
     expected_period_days: float
@@ -583,6 +616,13 @@ def post_oddeven(req: OddEvenRequest):
     params = req.dict()
     return _submit("oddeven", params,
                    f"Odd/Even TIC {req.tic} @ {req.period} d")
+
+
+@app.post("/api/doubleperiod")
+def post_doubleperiod(req: DoublePeriodRequest):
+    params = req.dict()
+    return _submit("doubleperiod", params,
+                   f"Double-Period TIC {req.tic} @ {req.period} d")
 
 
 @app.get("/api/jobs/{job_id}")

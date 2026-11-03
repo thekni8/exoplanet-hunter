@@ -4,6 +4,7 @@ import { postJob, getJob, getHistory } from '../api.js';
 import { useJobPolling } from '../useJob.js';
 import { Field, Panel, ProgressLog, SliderEnds, rangeError, fmtNum, fmtTime, inputCls } from '../components.jsx';
 import { FakeCheck, FakeCheckToggleButton } from '../fakecheck.jsx';
+import { DoublePeriodCheck, DoublePeriodToggleButton } from '../doubleperiod.jsx';
 
 // Stage 4 — the Scanner is Gemini v1's "Deep Space Scanner" rebuilt on
 // the Stage 2/3 backend: point at a patch of sky, press one button, and
@@ -27,9 +28,12 @@ const HIT_SDE = 8.5;     // backend discoveries threshold (weaker list)
 function SignalEntry({ hit, strong, onOpenTarget }) {
   const [showCheck, setShowCheck] = useState(false);
   const [checkBusy, setCheckBusy] = useState(false);
+  const [showDp, setShowDp] = useState(false);
+  const [dpBusy, setDpBusy] = useState(false);
   const buttons = (
     <div className="flex flex-wrap gap-2">
       <FakeCheckToggleButton open={showCheck} busy={checkBusy} onToggle={() => setShowCheck((v) => !v)} />
+      <DoublePeriodToggleButton open={showDp} busy={dpBusy} onToggle={() => setShowDp((v) => !v)} />
       <button onClick={() => onOpenTarget(hit.tic_id, hit.star_radius_rsun)}
         className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 rounded-sm text-[11px] font-semibold text-zinc-200">
         <Crosshair className="w-3.5 h-3.5" /> Open in Observatory
@@ -48,6 +52,7 @@ function SignalEntry({ hit, strong, onOpenTarget }) {
           <span className="ml-auto">{buttons}</span>
         </div>
         {showCheck && <FakeCheck tic={hit.tic_id} period={hit.period_days} onBusyChange={setCheckBusy} />}
+        {showDp && <DoublePeriodCheck tic={hit.tic_id} period={hit.period_days} onBusyChange={setDpBusy} />}
       </div>
     );
   }
@@ -69,6 +74,7 @@ function SignalEntry({ hit, strong, onOpenTarget }) {
       </div>
       <div className="mt-3">{buttons}</div>
       {showCheck && <FakeCheck tic={hit.tic_id} period={hit.period_days} onBusyChange={setCheckBusy} />}
+      {showDp && <DoublePeriodCheck tic={hit.tic_id} period={hit.period_days} onBusyChange={setDpBusy} />}
     </div>
   );
 }

@@ -3,12 +3,15 @@ import { RefreshCw, Crosshair } from 'lucide-react';
 import { getHistory, getDiscoveries } from '../api.js';
 import { Panel, StatusBadge, fmtNum, fmtTime } from '../components.jsx';
 import { FakeCheck, FakeCheckToggleButton } from '../fakecheck.jsx';
+import { DoublePeriodCheck, DoublePeriodToggleButton } from '../doubleperiod.jsx';
 
-// One discovery: the data row plus, when its fake-check is opened, a
-// full-width expansion row carrying the shared odd/even panel.
+// One discovery: the data row plus, when one of its checks is opened,
+// a full-width expansion row carrying the shared check panel.
 function DiscoveryRow({ d }) {
   const [showCheck, setShowCheck] = useState(false);
   const [checkBusy, setCheckBusy] = useState(false);
+  const [showDp, setShowDp] = useState(false);
+  const [dpBusy, setDpBusy] = useState(false);
   return (
     <>
       <tr className="hover:bg-zinc-800/50">
@@ -21,13 +24,23 @@ function DiscoveryRow({ d }) {
         <td className="px-4 py-2">{fmtNum(d.planet_radius_re)}</td>
         <td className="px-4 py-2 text-zinc-400">{d.sectors ?? '—'}</td>
         <td className="px-4 py-2">
-          <FakeCheckToggleButton open={showCheck} busy={checkBusy} onToggle={() => setShowCheck((v) => !v)} />
+          <div className="flex flex-wrap gap-1.5">
+            <FakeCheckToggleButton open={showCheck} busy={checkBusy} onToggle={() => setShowCheck((v) => !v)} />
+            <DoublePeriodToggleButton open={showDp} busy={dpBusy} onToggle={() => setShowDp((v) => !v)} />
+          </div>
         </td>
       </tr>
       {showCheck && (
         <tr className="bg-zinc-950/40">
           <td colSpan={9} className="px-4 py-2">
             <FakeCheck tic={d.tic_id} period={d.period_days} onBusyChange={setCheckBusy} />
+          </td>
+        </tr>
+      )}
+      {showDp && (
+        <tr className="bg-zinc-950/40">
+          <td colSpan={9} className="px-4 py-2">
+            <DoublePeriodCheck tic={d.tic_id} period={d.period_days} onBusyChange={setDpBusy} />
           </td>
         </tr>
       )}

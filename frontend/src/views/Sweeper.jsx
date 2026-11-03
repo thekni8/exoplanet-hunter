@@ -4,12 +4,15 @@ import { postJob } from '../api.js';
 import { useJobPolling } from '../useJob.js';
 import { Field, Panel, ProgressLog, rangeError, fmtNum, inputCls } from '../components.jsx';
 import { FakeCheck, FakeCheckToggleButton } from '../fakecheck.jsx';
+import { DoublePeriodCheck, DoublePeriodToggleButton } from '../doubleperiod.jsx';
 
-// One sweep hit: the data row plus, when its fake-check is opened, a
-// full-width expansion row carrying the shared odd/even panel.
+// One sweep hit: the data row plus, when one of its checks is opened,
+// a full-width expansion row carrying the shared check panel.
 function HitRow({ h, onOpenTarget }) {
   const [showCheck, setShowCheck] = useState(false);
   const [checkBusy, setCheckBusy] = useState(false);
+  const [showDp, setShowDp] = useState(false);
+  const [dpBusy, setDpBusy] = useState(false);
   return (
     <>
       <tr className="hover:bg-zinc-800/50">
@@ -24,6 +27,7 @@ function HitRow({ h, onOpenTarget }) {
         <td className="px-4 py-2">
           <div className="flex flex-wrap gap-1.5">
             <FakeCheckToggleButton open={showCheck} busy={checkBusy} onToggle={() => setShowCheck((v) => !v)} />
+            <DoublePeriodToggleButton open={showDp} busy={dpBusy} onToggle={() => setShowDp((v) => !v)} />
             <button onClick={() => onOpenTarget(h.tic_id, h.star_radius_rsun)}
               className="inline-flex items-center gap-1 px-2 py-1 border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 rounded-sm text-[11px] font-sans font-semibold text-zinc-200">
               <Crosshair className="w-3 h-3" /> Open in Observatory
@@ -35,6 +39,13 @@ function HitRow({ h, onOpenTarget }) {
         <tr className="bg-zinc-950/40">
           <td colSpan={9} className="px-4 py-2">
             <FakeCheck tic={h.tic_id} period={h.period_days} onBusyChange={setCheckBusy} />
+          </td>
+        </tr>
+      )}
+      {showDp && (
+        <tr className="bg-zinc-950/40">
+          <td colSpan={9} className="px-4 py-2">
+            <DoublePeriodCheck tic={h.tic_id} period={h.period_days} onBusyChange={setDpBusy} />
           </td>
         </tr>
       )}

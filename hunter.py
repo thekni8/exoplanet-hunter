@@ -74,6 +74,13 @@ SELFHEAL_REPORT.md). They change nothing on the happy path:
       the source: TIC 308851365's sector-1 HLSP file re-downloads to
       the same truncated bytes on two machines, so skipping is the
       only cure.) The job fails only if ZERO products download.
+  (h) ``double_period_test(...)`` / ``double_period_test_json(...)``:
+      the ellipsoidal (twin-star) check that resolved TIC 308851365.
+      Odd/even cannot separate a planet at P from equal twins at 2P;
+      this test folds the RAW (unflattened) light curve at 2P and
+      measures the out-of-eclipse light: twin stars brighten at both
+      quadratures (tidal distortion), a planet leaves them flat.
+      Renders NO PNG and logs NOTHING — a check, not a discovery.
 
 CLI (original flags):
     python hunter.py --tic 25155310 --radius 1.30 --sectors 2 --grid 8000
@@ -691,13 +698,13 @@ def is_already_known_online(tic_id):
 # Stage 4 (f): Odd/Even eclipsing-binary check (v1's QA Validation Lab)
 # ---------------------------------------------------------------------------
 
-def _fetch_flattened(tic_id, max_sectors=None, progress_callback=None,
-                     detrend_window=101):
-    """Front half of Dev's analyze pipeline (search -> download -> stitch
-    -> flatten), shared by odd_even_test. Unlike _run_pipeline this
-    renders NO PNG and logs NOTHING — the odd/even test is a check on an
-    existing candidate, not a discovery run.
-    Returns (t, f, n_sectors, total_points).
+def _fetch_stitched(tic_id, max_sectors=None, progress_callback=None):
+    """Shared front half of the fetch path (search -> download -> stitch
+    -> per-sector normalize -> NaN/outlier cleaning), used by both
+    _fetch_flattened (odd/even check) and _fetch_raw (double-period
+    test). Returns (lc_raw, n_sectors): the stitched LightCurve exactly
+    as the pre-refactor _fetch_flattened built it, plus the sector
+    count. Callers flatten it or extract its arrays as they need.
     """
     def _search():
         _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
@@ -718,12 +725,46 @@ def _fetch_flattened(tic_id, max_sectors=None, progress_callback=None,
 
     lc_raw = (lc_collection.stitch(corrector_func=lambda x: x.normalize())
               .remove_nans().remove_outliers(sigma=5.0))
+    del lc_collection
+    gc.collect()
+    return lc_raw, n_sectors
+
+
+def _fetch_flattened(tic_id, max_sectors=None, progress_callback=None,
+                     detrend_window=101):
+    """Front half of Dev's analyze pipeline (search -> download -> stitch
+    -> flatten), shared by odd_even_test. Unlike _run_pipeline this
+    renders NO PNG and logs NOTHING — the odd/even test is a check on an
+    existing candidate, not a discovery run.
+    Returns (t, f, n_sectors, total_points).
+    """
+    lc_raw, n_sectors = _fetch_stitched(
+        tic_id, max_sectors=max_sectors, progress_callback=progress_callback)
     total_points = int(len(lc_raw))
     lc_flat = lc_raw.flatten(window_length=detrend_window)
     t = np.asarray(lc_flat.time.value, dtype=float)
     f = np.asarray(lc_flat.flux.value, dtype=float)
 
-    del lc_collection, lc_raw, lc_flat
+    del lc_raw, lc_flat
+    gc.collect()
+    return t, f, n_sectors, total_points
+
+
+def _fetch_raw(tic_id, max_sectors=None, progress_callback=None):
+    """Same fetch as _fetch_flattened but WITHOUT the flatten step.
+
+    The double-period (ellipsoidal) test needs the raw normalized
+    curve: flatten(window=101) is an hours-scale detrending filter that
+    can erase the ~1.5-day ellipsoidal wave the test measures.
+    Returns (t, f, n_sectors, total_points).
+    """
+    lc_raw, n_sectors = _fetch_stitched(
+        tic_id, max_sectors=max_sectors, progress_callback=progress_callback)
+    total_points = int(len(lc_raw))
+    t = np.asarray(lc_raw.time.value, dtype=float)
+    f = np.asarray(lc_raw.flux.value, dtype=float)
+
+    del lc_raw
     gc.collect()
     return t, f, n_sectors, total_points
 
@@ -916,6 +957,248 @@ def odd_even_test_json(tic_id, period_days, sector_cap=None, progress_callback=N
                          progress_callback=progress_callback,
                          detrend_window=detrend_window)
     return odd_even_result_to_json_dict(full, max_points=max_points)
+
+
+# ---------------------------------------------------------------------------
+# Double-period (ellipsoidal / twin-star) test — the check that resolved
+# TIC 308851365 (planet-like by odd/even; +1.09% quadrature wave here)
+# ---------------------------------------------------------------------------
+
+# Phase windows over the 2P fold (fractions of the doubled period).
+# Eclipse 1 sits at phase 0 (the BLS epoch), eclipse 2 half a cycle
+# later; quadratures are the quarter-orbit points where tidally
+# distorted stars present their wide sides and the system brightens.
+# The shoulder windows hug the eclipses but stay clear of their wings.
+DP_ECLIPSE1_WINDOWS = [(0.94, 1.0), (0.0, 0.06)]
+DP_ECLIPSE2_WINDOWS = [(0.44, 0.56)]
+DP_QUADRATURE_WINDOWS = [(0.19, 0.31), (0.69, 0.81)]
+DP_SHOULDER_WINDOWS = [(0.08, 0.17), (0.58, 0.67), (0.83, 0.92), (0.33, 0.42)]
+
+# A quadrature wave at least this big AND this significant is the
+# twin-star signature. Thresholds fixed by the two reference cases:
+# TIC 308851365 (delta +1.09% at 37 sigma -> binary) vs the WASP-126 b
+# control (flat out-of-eclipse light -> no signal).
+DP_DELTA_THRESHOLD_PERCENT = 0.2
+DP_SIGMA_THRESHOLD = 5.0
+
+
+def _phase_window_stats(phase, flux, windows):
+    """Median flux + scatter/sqrt(N) standard error over the union of
+    the given phase windows. Returns (median, se, n); median/se are
+    None when the windows hold no points."""
+    mask = np.zeros(phase.shape, dtype=bool)
+    for lo, hi in windows:
+        mask |= (phase >= lo) & (phase <= hi)
+    vals = flux[mask]
+    n = int(vals.size)
+    if n == 0:
+        return None, None, 0
+    median = float(np.median(vals))
+    se = float(np.std(vals) / math.sqrt(n)) if n > 1 else 0.0
+    return median, se, n
+
+
+def double_period_test(tic_id, period_days, sector_cap=None, progress_callback=None):
+    """Double-period ellipsoidal (twin-star) test.
+
+    The odd/even check has a blind spot: twin stars of similar size in
+    a 2P orbit eclipse with EQUAL depths and pass as "planet-like".
+    But close twins raise tides on each other — squeezed out of round,
+    they show their wider sides at the quarter-orbit points
+    (quadratures), so the light curve folded at 2P BRIGHTENS there,
+    twice per orbit. A planet is far too light to bend its star, so it
+    can never produce this wave. This is the test that unmasked
+    TIC 308851365 (+1.09% at 37 sigma; reclassified EB in VSX).
+
+    Method:
+      * Fetch the RAW normalized light curve (_fetch_raw — NO
+        flatten; the flatten filter can erase the wave).
+      * Refine the fold period with a focused BLS scan around 2P
+        (+/-3%, 3000 periods, durations 0.08/0.15/0.25 d); its
+        transit_time is the fold epoch, so eclipse 1 sits at phase 0.
+      * Median flux in the eclipse / quadrature / shoulder phase
+        windows (module constants above); delta = median(Q) -
+        median(S), standard error combined in quadrature from each
+        window set's scatter/sqrt(N); sigma = delta / SE.
+      * Verdicts: delta >= +0.2% at >= 5 sigma -> "likely-binary";
+        delta <= -0.2% at >= 5 sigma -> "inconclusive" (a quadrature
+        DIP is not the twin signature — spots/systematics can do it);
+        anything else -> "no-ellipsoidal-signal".
+
+    Returns a dict of scalars + the binned folded curve (see
+    double_period_test_json for the JSON-serializable mirror).
+    Renders NO PNG and logs NOTHING — a check, not a discovery.
+    """
+    tic_id = str(tic_id).strip()
+    period_days = float(period_days)
+    if not math.isfinite(period_days) or period_days <= 0:
+        raise ValueError(f"period_days must be a positive number, got {period_days!r}.")
+
+    _emit(progress_callback,
+          f"Double-period test: TIC {tic_id} at candidate period {period_days:.4f} d "
+          f"(folding the RAW light curve at {2.0 * period_days:.4f} d)...")
+    t, f, n_sectors, total_points = _fetch_raw(
+        tic_id, max_sectors=sector_cap, progress_callback=progress_callback)
+
+    _emit(progress_callback, "Refining the double period with a focused BLS scan...")
+    p2_guess = 2.0 * period_days
+    grid = np.linspace(p2_guess * 0.97, p2_guess * 1.03, 3000) * u.day
+    durations = np.array([0.08, 0.15, 0.25]) * u.day
+    bls = BoxLeastSquares(t * u.day, f)
+    res = bls.power(grid, durations)
+    best_idx = int(np.argmax(res.power))
+    p2 = float(res.period[best_idx].value)
+    t0 = float(res.transit_time[best_idx].value)
+    duration = float(res.duration[best_idx].value)
+    del bls, res
+    _emit(progress_callback,
+          f"Refined double period {p2:.5f} d (supplied 2P = {p2_guess:.5f} d); "
+          f"measuring the out-of-eclipse light...")
+
+    phase = ((t - t0) % p2) / p2
+    e1_med, _e1_se, _e1_n = _phase_window_stats(phase, f, DP_ECLIPSE1_WINDOWS)
+    e2_med, _e2_se, _e2_n = _phase_window_stats(phase, f, DP_ECLIPSE2_WINDOWS)
+    q_med, q_se, _q_n = _phase_window_stats(phase, f, DP_QUADRATURE_WINDOWS)
+    s_med, s_se, _s_n = _phase_window_stats(phase, f, DP_SHOULDER_WINDOWS)
+
+    if q_med is None or s_med is None or e1_med is None or e2_med is None:
+        delta = delta_percent = delta_se = delta_sigma = None
+        verdict = "inconclusive"
+        verdict_text = (
+            "Too few out-of-eclipse points landed in the measurement "
+            "windows, so this check can't judge the signal either way.")
+    else:
+        delta = float(q_med - s_med)
+        delta_percent = delta * 100.0
+        delta_se = float(math.hypot(q_se or 0.0, s_se or 0.0))
+        delta_sigma = float(delta / delta_se) if delta_se > 0 else 0.0
+        if (delta_percent >= DP_DELTA_THRESHOLD_PERCENT
+                and delta_sigma >= DP_SIGMA_THRESHOLD):
+            verdict = "likely-binary"
+            verdict_text = (
+                f"The light between the eclipses is not flat — at the "
+                f"quarter-orbit points the system brightens to {q_med:.4f} "
+                f"while the shoulders beside the eclipses sit at {s_med:.4f}: "
+                f"a {delta_percent:.2f}% wave at {abs(delta_sigma):.0f}σ. "
+                f"That brightening is two stars squeezed out of round by "
+                f"each other's gravity, showing us their wider sides twice "
+                f"per orbit — a planet is far too light to bend its star "
+                f"like this. These are twin stars orbiting every "
+                f"{p2:.2f} days, not a planet.")
+        elif (delta_percent <= -DP_DELTA_THRESHOLD_PERCENT
+                and delta_sigma <= -DP_SIGMA_THRESHOLD):
+            verdict = "inconclusive"
+            verdict_text = (
+                f"The light between the eclipses DIPS at the quarter-orbit "
+                f"points instead of brightening ({delta_percent:.2f}% at "
+                f"{abs(delta_sigma):.0f}σ) — that is not the twin-star "
+                f"signature this test looks for. Starspots or leftover "
+                f"instrument wiggles can bend the out-of-eclipse light "
+                f"this way, so this check can't judge the signal.")
+        else:
+            verdict = "no-ellipsoidal-signal"
+            verdict_text = (
+                f"The light between the eclipses is flat — quadratures "
+                f"sit at {q_med:.4f} and the shoulders at {s_med:.4f}, a "
+                f"difference of {delta_percent:+.3f}% ± {delta_se * 100.0:.3f}%, "
+                f"so there is no twin-star ellipsoidal wave. That is "
+                f"consistent with a real planet — or with a binary whose "
+                f"stars are too far apart to distort each other.")
+
+    if delta_percent is not None:
+        _emit(progress_callback,
+              f"Quadratures {q_med:.5f} · Shoulders {s_med:.5f} · "
+              f"wave {delta_percent:+.3f}% ({abs(delta_sigma):.1f}σ) "
+              f"→ verdict: {verdict}")
+    else:
+        _emit(progress_callback,
+              f"Not enough out-of-eclipse data → verdict: {verdict}")
+
+    # Binned medians over the 2P phase fold (100 bins) for the chart.
+    edges = np.linspace(0.0, 1.0, 100 + 1)
+    bin_idx = np.clip(np.digitize(phase, edges) - 1, 0, 99)
+    binned_phase, binned_flux = [], []
+    for b in range(100):
+        mask = bin_idx == b
+        if not mask.any():
+            continue
+        binned_phase.append(float(0.5 * (edges[b] + edges[b + 1])))
+        binned_flux.append(float(np.median(f[mask])))
+
+    return {
+        "TIC": tic_id,
+        "Period_Given_Days": period_days,
+        "Period_2P_Refined_Days": p2,
+        "T0_2P": t0,
+        "Duration_2P_Days": duration,
+        "Sectors_Analyzed": int(n_sectors),
+        "Total_Points": int(total_points),
+        "Eclipse1_Median": e1_med,
+        "Eclipse2_Median": e2_med,
+        "Quadrature_Median": q_med,
+        "Shoulder_Median": s_med,
+        "Quadrature_SE": q_se,
+        "Shoulder_SE": s_se,
+        "Delta": delta,
+        "Delta_Percent": delta_percent,
+        "Delta_SE": delta_se,
+        "Delta_Sigma": delta_sigma,
+        "Verdict": verdict,
+        "Verdict_Text": verdict_text,
+        # arrays
+        "binned_phase": np.asarray(binned_phase, dtype=float),
+        "binned_median_flux": np.asarray(binned_flux, dtype=float),
+    }
+
+
+def double_period_result_to_json_dict(full):
+    """Serialize a double_period_test result to a JSON-safe dict."""
+    def _opt(v):
+        return None if v is None else float(v)
+
+    def _depth(median):
+        return None if median is None else (1.0 - median) * 100.0
+
+    return {
+        "metrics": {
+            "tic_id": full["TIC"],
+            "period_given_days": full["Period_Given_Days"],
+            "period_2p_refined_days": full["Period_2P_Refined_Days"],
+            "t0_2p_days": full["T0_2P"],
+            "duration_2p_days": full["Duration_2P_Days"],
+            "sectors_used": full["Sectors_Analyzed"],
+            "total_points": full["Total_Points"],
+            "eclipse1_median": _opt(full["Eclipse1_Median"]),
+            "eclipse2_median": _opt(full["Eclipse2_Median"]),
+            "eclipse1_depth_percent": _depth(full["Eclipse1_Median"]),
+            "eclipse2_depth_percent": _depth(full["Eclipse2_Median"]),
+            "quadrature_median": _opt(full["Quadrature_Median"]),
+            "shoulder_median": _opt(full["Shoulder_Median"]),
+            "delta_percent": _opt(full["Delta_Percent"]),
+            "delta_se_percent": (None if full["Delta_SE"] is None
+                                 else full["Delta_SE"] * 100.0),
+            "delta_sigma": _opt(full["Delta_Sigma"]),
+            "verdict": full["Verdict"],
+            "verdict_text": full["Verdict_Text"],
+        },
+        "folded": {
+            "period_2p_days": full["Period_2P_Refined_Days"],
+            "binned": {
+                "phase": [float(v) for v in full["binned_phase"]],
+                "median_flux": [float(v) for v in full["binned_median_flux"]],
+            },
+        },
+    }
+
+
+def double_period_test_json(tic_id, period_days, sector_cap=None,
+                            progress_callback=None):
+    """JSON mirror of double_period_test (same pattern as
+    odd_even_test_json): metrics + binned folded curve for the
+    API/frontend layer."""
+    full = double_period_test(tic_id, period_days, sector_cap=sector_cap,
+                              progress_callback=progress_callback)
+    return double_period_result_to_json_dict(full)
 
 
 # ---------------------------------------------------------------------------
