@@ -3,7 +3,7 @@ import { ShieldAlert, Loader2 } from 'lucide-react';
 import { postJob, getJobResult } from './api.js';
 import { useJobPolling } from './useJob.js';
 import { fmtNum } from './components.jsx';
-import { OddEvenChart } from './charts.jsx';
+import { OddEvenChart, RawFoldChart } from './charts.jsx';
 
 // ---------------------------------------------------------------------------
 // Shared "Is it a fake?" odd/even check (Stage 4 flow, extracted from
@@ -11,7 +11,8 @@ import { OddEvenChart } from './charts.jsx';
 //   FakeCheckToggleButton — the amber button (one visual identity app-wide)
 //   FakeCheck             — runs one /api/oddeven job on mount and renders
 //                           the running state, a failure, or the verdict
-//                           box (plain sentence + depths + OddEvenChart)
+//                           box (plain sentence + depths + OddEvenChart +
+//                           the raw-fold exhibit when the payload has one)
 //   FakeCheckButton       — the one-piece widget: toggle + inline panel,
 //                           for block-layout contexts (Observatory)
 // Table views (Sweeper, History) compose the toggle + FakeCheck with
@@ -107,6 +108,7 @@ export function FakeCheck({ tic, period, onBusyChange }) {
         </div>
       </div>
       <OddEvenChart folded={result.folded} />
+      {result.raw_fold && <RawFoldChart rawFold={result.raw_fold} />}
     </div>
   );
 }

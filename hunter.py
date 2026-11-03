@@ -81,6 +81,17 @@ SELFHEAL_REPORT.md). They change nothing on the happy path:
       measures the out-of-eclipse light: twin stars brighten at both
       quadratures (tidal distortion), a planet leaves them flat.
       Renders NO PNG and logs NOTHING — a check, not a discovery.
+  (i) ``odd_even_test`` results gain a ``raw_fold`` exhibit: the RAW
+      (unflattened) light curve folded at 2x the refined period with
+      the SAME refined epoch as the numeric test, display-cleaned
+      (NaN removal, 5-sigma clip, median-normalized to brightness %)
+      and stride-downsampled for the frontend. It imports the one
+      advantage of Gemini's pilot Colab QA
+      (gemini_pilot_qa_odd_even.py) — the raw-data view that exposes
+      stormy light curves the flattened numeric test can iron flat
+      (TIC 294665246) — while the numeric verdict stays the judge,
+      byte-for-byte unchanged. A failed raw fetch degrades to
+      raw_fold = None and never fails the check.
 
 CLI (original flags):
     python hunter.py --tic 25155310 --radius 1.30 --sectors 2 --grid 8000
@@ -123,6 +134,11 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Bridge addition (c): cap for each downsampled series in the JSON payload.
 DEFAULT_MAX_POINTS = 4000
+
+# Raw-fold exhibit (bridge addition (i)): the odd/even JSON payload also
+# carries up to this many RAW folded points — enough for the eye to judge
+# the storm, small enough to ship as JSON.
+RAW_FOLD_MAX_POINTS = 15000
 
 
 # ---------------------------------------------------------------------------
@@ -853,6 +869,11 @@ def odd_even_test(tic_id, period_days, sector_cap=None, progress_callback=None,
       * Verdict: relative depth difference |odd - even| / max(odd, even)
         <= 0.25 -> "planet-like"; beyond -> "likely-eclipsing-binary";
         no positive dip measured at either position -> "inconclusive".
+      * Exhibit (not a measurement): the result also carries the RAW
+        unflattened curve folded with the same refined epoch,
+        display-cleaned (NaN removal, 5-sigma clip) and normalized to
+        brightness % — the view that exposes stormy data the flattened
+        verdict can iron flat (bridge addition (i)).
 
     Returns a dict of scalars + numpy arrays (see
     odd_even_test_json for the JSON-serializable mirror).
@@ -926,6 +947,49 @@ def odd_even_test(tic_id, period_days, sector_cap=None, progress_callback=None,
           f"Odd depth {depth_odd * 100:.4f}% · Even depth {depth_even * 100:.4f}% "
           f"→ verdict: {verdict}")
 
+    # Raw-fold exhibit (bridge addition (i)): the same sector set,
+    # UNflattened, folded at 2x the refined period with the SAME refined
+    # epoch as the numeric fold above — so the dip families land at the
+    # same s = -P/2 / +P/2 and the frontend's markers stay honest (the
+    # Colab cell this view is modelled on folds at a default epoch, so
+    # its markers are only nominal). Display processing ONLY: NaN
+    # removal, a 5-sigma clip (Gemini-style), median normalization to
+    # brightness %. The numeric verdict above is untouched by this
+    # block, and a failed raw fetch degrades to raw_fold = None in the
+    # JSON — it never fails the check.
+    raw_s = raw_pct = None
+    raw_total = None
+    _emit(progress_callback,
+          "Building raw-fold exhibit from the unflattened light curve...")
+    try:
+        t_raw, f_raw, _, _ = _fetch_raw(
+            tic_id, max_sectors=sector_cap,
+            progress_callback=progress_callback)
+        finite = np.isfinite(t_raw) & np.isfinite(f_raw)
+        t_raw, f_raw = t_raw[finite], f_raw[finite]
+        if t_raw.size == 0:
+            raise RuntimeError("no finite raw points")
+        med = float(np.median(f_raw))
+        spread = float(np.std(f_raw))
+        if spread > 0.0:
+            keep = np.abs(f_raw - med) <= 5.0 * spread
+            t_raw, f_raw = t_raw[keep], f_raw[keep]
+        if t_raw.size == 0:
+            raise RuntimeError("no raw points survive display cleaning")
+        s_raw = ((t_raw - t0 + 0.5 * fit_period) % (2.0 * fit_period)) - fit_period
+        order_raw = np.argsort(s_raw)
+        raw_s = np.asarray(s_raw[order_raw], dtype=float)
+        raw_pct = np.asarray(f_raw[order_raw] / med * 100.0, dtype=float)
+        raw_total = int(raw_s.size)
+        del t_raw, f_raw, s_raw
+        gc.collect()
+    except Exception as e:
+        _emit(progress_callback,
+              f"Raw-fold exhibit unavailable ({e}) — "
+              f"numeric verdict unaffected.")
+        raw_s = raw_pct = None
+        raw_total = None
+
     # Binned medians over the folded axis (60 bins) — v1's clean overlay line.
     edges = np.linspace(-fit_period, fit_period, 60 + 1)
     bin_idx = np.clip(np.digitize(s, edges) - 1, 0, 59)
@@ -961,12 +1025,30 @@ def odd_even_test(tic_id, period_days, sector_cap=None, progress_callback=None,
         "folded_flux": np.asarray(f[order], dtype=float),
         "binned_time_days": np.asarray(binned_t, dtype=float),
         "binned_flux": np.asarray(binned_f, dtype=float),
+        # raw-fold exhibit (arrays, or None when the raw fetch failed)
+        "raw_folded_time_days": raw_s,
+        "raw_folded_brightness_pct": raw_pct,
+        "raw_fold_total_points": raw_total,
     }
 
 
 def odd_even_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
     """Serialize an odd_even_test result to a JSON-safe dict."""
     fold_t, fold_f = _downsample_pair(full["folded_time_days"], full["folded_flux"], max_points)
+    # Raw-fold exhibit: stride-downsampled [s_days, brightness_pct]
+    # pairs, or None when the raw fetch failed (exhibit absent, the
+    # numeric result stands alone — the frontend renders nothing extra).
+    raw_fold = None
+    raw_t = full.get("raw_folded_time_days")
+    raw_p = full.get("raw_folded_brightness_pct")
+    if raw_t is not None and raw_p is not None and len(raw_t) > 0:
+        xs, ys = _downsample_pair(raw_t, raw_p, RAW_FOLD_MAX_POINTS)
+        raw_fold = {
+            "fold_period_days": full["Fold_Period_Days"],
+            "points": [[x, y] for x, y in zip(xs, ys)],
+            "n_total": int(full.get("raw_fold_total_points") or len(raw_t)),
+            "n_shown": len(xs),
+        }
     return {
         "metrics": {
             "tic_id": full["TIC"],
@@ -997,6 +1079,7 @@ def odd_even_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
                 "flux": [float(v) for v in full["binned_flux"]],
             },
         },
+        "raw_fold": raw_fold,
     }
 
 

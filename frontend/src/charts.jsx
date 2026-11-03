@@ -241,6 +241,60 @@ export function OddEvenChart({ folded, height = 240 }) {
   );
 }
 
+// Raw-fold exhibit for the odd/even check: the UNflattened light curve
+// folded at 2x the refined period with the same refined epoch as the
+// numeric test, so the dip families sit at -P/2 / +P/2 under the dashed
+// markers. This is the view Gemini's pilot Colab QA had and the numeric
+// test lacked — flattening can iron a stormy light curve into two tidy
+// "matching" dips (TIC 294665246), while the raw fold shows the storm.
+// Rendered from result.raw_fold of an /api/oddeven job result; absent
+// (null) when the raw fetch failed, in which case nothing renders.
+export function RawFoldChart({ rawFold, height = 240 }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || !rawFold || !rawFold.points?.length) return;
+    const { ctx, width } = setup(canvas, height);
+    const P = (rawFold.fold_period_days || 2) / 2;
+    const pts = rawFold.points; // [[s_days, brightness_pct], ...]
+    const ys = pts.map((p) => p[1]);
+    const [yMin, yMax] = rangeOf([ys]);
+    const { toX, toY } = axes(ctx, width, height, PAD, -P, P, yMin, yMax,
+      (v) => v.toFixed(1) + 'd', (v) => v.toFixed(1) + '%');
+    // 100% line (star's median brightness)
+    ctx.strokeStyle = '#52525b';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(PAD.l, toY(100)); ctx.lineTo(width - PAD.r, toY(100)); ctx.stroke();
+    ctx.setLineDash([]);
+    // raw cadence scatter — no binning, no flattening: the storm as-is
+    ctx.fillStyle = 'rgba(161,161,170,0.35)';
+    for (let i = 0; i < pts.length; i++) {
+      ctx.fillRect(toX(pts[i][0]), toY(pts[i][1]), 1.4, 1.4);
+    }
+    // dip-family markers at the honest (refined-epoch) positions
+    const centers = [
+      { v: -P / 2, color: '#ef4444', label: 'Odd Transits (Dip 1)' },
+      { v: P / 2, color: '#60a5fa', label: 'Even Transits (Dip 2)' },
+    ];
+    ctx.font = 'bold 10px monospace';
+    centers.forEach(({ v, color, label }) => {
+      const x = toX(v);
+      ctx.strokeStyle = color;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, height - PAD.b); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color;
+      ctx.fillText(label, Math.min(Math.max(x - 55, PAD.l), width - 150), PAD.t + 10);
+    });
+  }, [rawFold, height]);
+  return (
+    <ChartShell title="Raw fold — unflattened data (what the star actually looks like)"
+      right={<span className="text-[10px]">x: Days from Center · y: Brightness (%) · {rawFold.n_shown?.toLocaleString('en-US')} of {rawFold.n_total?.toLocaleString('en-US')} points</span>}>
+      <canvas ref={ref} style={{ width: '100%', height }} />
+    </ChartShell>
+  );
+}
+
 // Double-period (ellipsoidal / twin-star) chart: the RAW light curve
 // folded at twice the candidate period, phase 0..1. Eclipse windows
 // are shaded red, quadrature windows green — twin stars show the
