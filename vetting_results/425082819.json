@@ -1,0 +1,70 @@
+{
+  "tic": "425082819",
+  "star_radius_rsun": 0.35,
+  "gauntlet": "sweep4",
+  "sweep": {
+    "period_days": 0.6421,
+    "sde": 10.4,
+    "field": "RA 85.0, Dec -68.0, cone 1.0",
+    "in_sweep_persistence_stamp": "0/14 sectors \u2014 fails persistence \u2014 blend-suspect (HIT line: high-contamination \u2014 blend risk)"
+  },
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 0.6421142114211421,
+    "sde": 10.438563476441459,
+    "depth_percent": 2.6365609018237874,
+    "planet_radius_re": 6.200285658588687,
+    "duration_hours": 5.6160000000000005,
+    "t0_days": 2144.6407760804695,
+    "sectors_analyzed": 14,
+    "total_points": 114553
+  },
+  "period_match": {
+    "rel_diff": 2.2132722538712635e-05,
+    "rel_diff_half": 0.5000221327225387,
+    "rel_diff_double": 0.9999778672774613
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "inconclusive",
+    "verdict_text": "No dip could be measured at either expected position, so this check can't judge the signal either way.",
+    "depth_odd_percent": -0.0872030256982903,
+    "depth_even_percent": -0.13293570427554968,
+    "depth_ratio": 1.0,
+    "period_fit_days": 0.6412794629462947,
+    "fold_depth_fraction_of_bls": 0.05042011515212644
+  },
+  "double_period": {
+    "verdict": "no-ellipsoidal-signal",
+    "verdict_text": "The light between the eclipses is flat \u2014 quadratures sit at 0.9936 and the shoulders at 0.9938, a difference of -0.020% \u00b1 0.276%, so there is no twin-star ellipsoidal wave. That is consistent with a real planet \u2014 or with a binary whose stars are too far apart to distort each other.",
+    "delta_percent": -0.019669532775878906,
+    "delta_sigma": -0.07124001628277034,
+    "period_2p_refined_days": 1.3152014944742223,
+    "eclipse1_depth_percent": 1.3493478298187256,
+    "eclipse2_depth_percent": 0.1574993133544922
+  },
+  "verdict": "PIPELINE PHANTOM",
+  "driver_verdict_raw": "PIPELINE PHANTOM (stage-gate kill at b)",
+  "killed_at_stage": "b",
+  "kill_reason": "odd/even inconclusive and folds evaporated (deepest fold dip 0.133% = 5% of BLS depth)",
+  "elapsed_s": 55.7,
+  "catalogue": {
+    "ra_deg": 83.1085581333573,
+    "dec_deg": -67.906802211829,
+    "offset_from_centre_deg": 0.716,
+    "tmag": 14.639,
+    "rad_rsun_tic": 0.351082,
+    "mass_msun": 0.335458,
+    "teff_k": 3271.0,
+    "dist_pc": 121.287,
+    "gaia_dr3": 4658607647103919872,
+    "twomass": "05322605-6754244",
+    "archive_toi_rows": 0
+  },
+  "contamination": {
+    "tic_contratio": 0.5248273,
+    "source": "TIC catalog via MAST (the value ExoFOP displays)",
+    "flag_line": 0.1,
+    "flagged": true
+  }
+}

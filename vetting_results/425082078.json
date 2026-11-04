@@ -1,0 +1,112 @@
+{
+  "tic": "425082078",
+  "star_radius_rsun": 0.5,
+  "gauntlet": "sweep4",
+  "sweep": {
+    "period_days": 13.2045,
+    "sde": 10.5,
+    "field": "RA 85.0, Dec -68.0, cone 1.0",
+    "in_sweep_persistence_stamp": "2/18 sectors \u2014 fails persistence \u2014 blend-suspect (HIT line: high-contamination \u2014 blend risk)"
+  },
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 13.204520452045204,
+    "sde": 10.52493984161135,
+    "depth_percent": 1.8544636911636163,
+    "planet_radius_re": 7.428547800179253,
+    "duration_hours": 5.976,
+    "t0_days": 2153.0752539422733,
+    "sectors_analyzed": 20,
+    "total_points": 182166
+  },
+  "period_match": {
+    "rel_diff": 1.5488693403057178e-06,
+    "rel_diff_half": 0.5000015488693403,
+    "rel_diff_double": 0.9999984511306597
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "planet-like",
+    "verdict_text": "The two dips match \u2014 odd transits dip 0.276% and even transits dip 0.331%, within 17% of each other. That is what a real planet crossing the same star every 13.21 days should look like.",
+    "depth_odd_percent": 0.2760924170967849,
+    "depth_even_percent": 0.33067878475427914,
+    "depth_ratio": 0.8349263086289122,
+    "period_fit_days": 13.208481808180817
+  },
+  "double_period": {
+    "verdict": "no-ellipsoidal-signal",
+    "verdict_text": "The light between the eclipses is flat \u2014 quadratures sit at 1.0005 and the shoulders at 1.0013, a difference of -0.075% \u00b1 0.031%, so there is no twin-star ellipsoidal wave. That is consistent with a real planet \u2014 or with a binary whose stars are too far apart to distort each other.",
+    "delta_percent": -0.07468461990356445,
+    "delta_sigma": -2.4219384805668174,
+    "period_2p_refined_days": 26.451573637523804,
+    "eclipse1_depth_percent": 0.8753776550292969,
+    "eclipse2_depth_percent": 0.9260833263397217
+  },
+  "verdict": "BLEND-SUSPECT",
+  "driver_verdict_raw": "no fold kill at (b)/(c)",
+  "killed_at_stage": "e",
+  "kill_reason": "persistence CONCENTRATED (2/18) at the sweep ephemeris, re-derived standalone; raw monster sectors [93, 94, 96, 97]",
+  "elapsed_s": 74.7,
+  "persistence": {
+    "tic": "425082078",
+    "period_days": 13.204520452045204,
+    "t0_btjd": 2153.0752539422733,
+    "duration_hours": 5.976,
+    "n_sectors_total": 20,
+    "n_usable": 18,
+    "n_pos_1p5sigma": 2,
+    "frac_pos_1p5sigma": 0.1111111111111111,
+    "weighted_mean_depth_pct": 0.024072711618896524,
+    "weighted_mean_sigma_pct": 0.06054142602032734,
+    "chi2": 42.760971521654255,
+    "dof": 17,
+    "chi2_p": 0.0005202273239460192,
+    "verdict": "CONCENTRATED",
+    "event_depth_median_pct": 0.11349014036686755,
+    "event_depth_mean_pct": 0.9433578563713985,
+    "event_frac_positive": 0.6774193548387096,
+    "n_full_events": 31,
+    "raw_monster_sectors": [
+      {
+        "sector": 93,
+        "depth_raw_pct": 9.423506774867018,
+        "depth_pct": 2.005273084382353
+      },
+      {
+        "sector": 94,
+        "depth_raw_pct": 25.54790816415089,
+        "depth_pct": 12.831260697057267
+      },
+      {
+        "sector": 96,
+        "depth_raw_pct": 22.571443287296013,
+        "depth_pct": 9.674233572251378
+      },
+      {
+        "sector": 97,
+        "depth_raw_pct": 28.261595772874127,
+        "depth_pct": 15.179406367417448
+      }
+    ]
+  },
+  "reclassification_note": "The folds alone do not convict this star (odd/even planet-like 0.276%/0.331%; double-period: no ellipsoidal wave, and the 0.875%/0.926% 'eclipse pair' at 26.4516 d is the same single eclipse seen in both windows \u2014 the expected fold of a true 13.2 d train, not an alternation). The conviction is persistence, re-derived standalone and matching the in-sweep stamp digit for digit: CONCENTRATED, 2/18 sectors >= 1.5 sigma, weighted mean +0.024% against a 1.855% BLS depth, with raw monster sectors 93/94/96/97. With contratio 0.326 the aperture is heavily mixed \u2014 the TIC 231096116 configuration (passed every fold check, died on persistence): a neighbour's diluted, sector-unstable signal. The in-sweep stamp's species (blend-suspect) is upheld exactly.",
+  "catalogue": {
+    "ra_deg": 83.1277324593671,
+    "dec_deg": -68.2761041436577,
+    "offset_from_centre_deg": 0.75,
+    "tmag": 14.8687,
+    "rad_rsun_tic": 0.497705,
+    "mass_msun": 0.495783,
+    "teff_k": 3599.0,
+    "dist_pc": 248.659,
+    "gaia_dr3": 4658578132086917632,
+    "twomass": "05323064-6816340",
+    "archive_toi_rows": 0
+  },
+  "contamination": {
+    "tic_contratio": 0.325638533,
+    "source": "TIC catalog via MAST (the value ExoFOP displays)",
+    "flag_line": 0.1,
+    "flagged": true
+  }
+}

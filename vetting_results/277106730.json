@@ -1,0 +1,69 @@
+{
+  "tic": "277106730",
+  "star_radius_rsun": 0.49,
+  "gauntlet": "sweep4",
+  "sweep": {
+    "period_days": 1.7055,
+    "sde": 10.4,
+    "field": "RA 85.0, Dec -68.0, cone 1.0",
+    "in_sweep_persistence_stamp": "2/20 sectors \u2014 fails persistence \u2014 blend-suspect (HIT line: high-contamination \u2014 blend risk)"
+  },
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 1.7055205520552055,
+    "sde": 10.438718499414076,
+    "depth_percent": 0.10039386436827596,
+    "planet_radius_re": 1.693847924600081,
+    "duration_hours": 5.976,
+    "t0_days": 1354.6537960173305,
+    "sectors_analyzed": 20,
+    "total_points": 45935
+  },
+  "period_match": {
+    "rel_diff": 1.2050457464355515e-05,
+    "rel_diff_half": 0.5000120504574643,
+    "rel_diff_double": 0.9999879495425357
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "likely-eclipsing-binary",
+    "verdict_text": "The two dips are different sizes \u2014 odd transits dip 0.017% but even transits dip -0.012% (172% apart). That is the classic sign of an eclipsing binary whose real period is twice the candidate period.",
+    "depth_odd_percent": 0.017043539971661748,
+    "depth_even_percent": -0.012203999435156376,
+    "depth_ratio": -0.716048394608628,
+    "period_fit_days": 1.676867806780678
+  },
+  "double_period": {
+    "verdict": "no-ellipsoidal-signal",
+    "verdict_text": "The light between the eclipses is flat \u2014 quadratures sit at 0.9996 and the shoulders at 0.9995, a difference of +0.012% \u00b1 0.016%, so there is no twin-star ellipsoidal wave. That is consistent with a real planet \u2014 or with a binary whose stars are too far apart to distort each other.",
+    "delta_percent": 0.011813640594482422,
+    "delta_sigma": 0.7552168447496252,
+    "period_2p_refined_days": 3.482185025771667,
+    "eclipse1_depth_percent": 0.10184645652770996,
+    "eclipse2_depth_percent": 0.04200339317321777
+  },
+  "verdict": "LIKELY BINARY",
+  "driver_verdict_raw": "LIKELY BINARY (stage-gate kill at b)",
+  "killed_at_stage": "b",
+  "kill_reason": "odd/even depths differ (alternating eclipse depths)",
+  "elapsed_s": 47.8,
+  "catalogue": {
+    "ra_deg": 84.2126454456484,
+    "dec_deg": -68.298500905872,
+    "offset_from_centre_deg": 0.418,
+    "tmag": 13.4553,
+    "rad_rsun_tic": 0.491793,
+    "mass_msun": 0.489886,
+    "teff_k": 3602.0,
+    "dist_pc": 128.787,
+    "gaia_dr3": 4657835515069813248,
+    "twomass": "05365103-6817545",
+    "archive_toi_rows": 0
+  },
+  "contamination": {
+    "tic_contratio": 0.10942141,
+    "source": "TIC catalog via MAST (the value ExoFOP displays)",
+    "flag_line": 0.1,
+    "flagged": true
+  }
+}
