@@ -1,0 +1,164 @@
+{
+  "tic": "177163233",
+  "star_radius_rsun": 0.33,
+  "gauntlet": "sweep2",
+  "sweep": {
+    "period_days": 12.4523,
+    "sde": 8.8,
+    "field": "RA 105.0, Dec -71.0, cone 1.0 (PRESUMED - sweep 3)",
+    "in_sweep_persistence_stamp": "12/18 sectors, mean depth 0.12% - patchy"
+  },
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 12.452295229522951,
+    "sde": 8.8474478871499,
+    "depth_percent": 0.137573800045175,
+    "planet_radius_re": 1.3353851955054794,
+    "duration_hours": 0.72,
+    "t0_days": 1356.2860484185474,
+    "sectors_analyzed": 20,
+    "total_points": 175945
+  },
+  "period_match": {
+    "rel_diff": 3.831000737257374e-07,
+    "rel_diff_half": 0.4999996168999263,
+    "rel_diff_double": 1.0000003831000737
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "inconclusive",
+    "verdict_text": "No dip could be measured at either expected position, so this check can't judge the signal either way.",
+    "depth_odd_percent": 0.0,
+    "depth_even_percent": 0.0,
+    "depth_ratio": 1.0,
+    "period_fit_days": 12.452295229522951,
+    "fold_depth_fraction_of_bls": 0.0
+  },
+  "verdict": "INCONCLUSIVE",
+  "killed_at_stage": "b",
+  "kill_reason": "odd/even inconclusive and folds evaporated (deepest fold dip 0.000% = 0% of BLS depth)",
+  "elapsed_s": 152.0,
+  "driver_verdict_raw": "PIPELINE PHANTOM (stage-gate kill at b)",
+  "reclassification_note": "Driver gate killed at (b) as PIPELINE PHANTOM (odd/even folds 0.000%/0.000%). Reclassified INCONCLUSIVE per the batch's BLS-only precedent (cf. TIC 177172764, TIC 41083982, TIC 150066703): the odd/even median window (+/-0.50 d) is ~17x the 0.72 h event duration, so the estimator reads baseline even for a real dip of this shape and the (b) kill is not decisive. Post-gate persistence at cap 20 measures a real early-era excess (+0.122% +- 0.017%, 7.2 sigma, 12/18 sectors, matching the in-sweep stamp), so the star is not a pure flattening phantom at sweep depth; the uncapped 84-sector check then shows the excess is confined to the year-1 sectors and absent (0.0 sigma) in sectors >= 60, which no transiting planet can do. Final: INCONCLUSIVE - era-confined shallow signal, most consistent with quasi-periodic stellar variability in the early cycles; not a candidate.",
+  "persistence_postgate_diagnostic": {
+    "note": "run after the stage-(b) gate kill, per tasking, to compare with the in-sweep stamp",
+    "verdict_module": "MIXED",
+    "n_usable": 18,
+    "n_pos_1p5sigma": 12,
+    "frac_pos_1p5sigma": 0.6666666666666666,
+    "weighted_mean_depth_pct": 0.1220609314667906,
+    "weighted_mean_sigma_pct": 0.01697706867930984,
+    "chi2": 53.136972892434535,
+    "dof": 17,
+    "chi2_p": 1.3590316469767938e-05,
+    "event_depth_median_pct": 0.11903029230183604,
+    "event_frac_positive": 0.7142857142857143,
+    "n_full_events": 35,
+    "raw_monster_sectors": [],
+    "matches_in_sweep_stamp": true
+  },
+  "double_period": {
+    "verdict": "no-ellipsoidal-signal",
+    "verdict_text": "The light between the eclipses is flat \u2014 quadratures sit at 1.0001 and the shoulders at 1.0000, a difference of +0.009% \u00b1 0.004%, so there is no twin-star ellipsoidal wave. That is consistent with a real planet \u2014 or with a binary whose stars are too far apart to distort each other.",
+    "delta_percent": 0.009304285049438477,
+    "delta_sigma": 2.5187514834114393,
+    "period_2p_refined_days": 25.214755998774265,
+    "eclipse1_depth_percent": 0.01061558723449707,
+    "eclipse2_depth_percent": 0.0003457069396972656
+  },
+  "orbit_phase": {
+    "period_over_orbit_ratio": 0.9089,
+    "n_on_data_centers": 20,
+    "frac_within_1p5d_of_orbit_boundary": 0.35,
+    "expected_boundary_frac_by_chance": 0.219,
+    "circular_mean_resultant_R": 0.195
+  },
+  "orbit_phase_pileup_flag": false,
+  "uncapped_check": {
+    "note": "all-sector (84) tiebreaker for a shallow signal: uncapped BLS analyze + persistence folded at the FIXED cap-20 ephemeris (P=12.45230 d, T0=1356.28605, DUR=0.72 h)",
+    "analyze_all84": {
+      "period_days": 14.45169516951695,
+      "sde": 9.538508598197016,
+      "depth_percent": 0.09424570781554892,
+      "planet_radius_re": 1.1052727955127228,
+      "duration_hours": 5.976,
+      "t0_days": 1363.1605484185473,
+      "sectors_analyzed": 84,
+      "total_points": 557582,
+      "elapsed_s": 388.6
+    },
+    "analyze_note": "uncapped BLS top peak MOVED to P=14.4517 d (SDE 9.54, depth 0.094%) - with full data the 12.4523 d peak is no longer the periodogram winner",
+    "persistence_at_fixed_ephemeris": {
+      "verdict_module": "CONCENTRATED",
+      "n_usable": 80,
+      "n_pos_1p5sigma": 13,
+      "frac_pos_1p5sigma": 0.1625,
+      "weighted_mean_depth_pct": 0.07538497300005927,
+      "weighted_mean_sigma_pct": 0.012208608016563482,
+      "chi2": 92.74326295194341,
+      "dof": 79,
+      "chi2_p": 0.13828868445918938,
+      "event_depth_median_pct": 0.039797937229785196,
+      "event_depth_mean_pct": 0.04094113421920757,
+      "event_frac_positive": 0.6493506493506493,
+      "n_full_events": 154,
+      "raw_monster_sectors": []
+    },
+    "era_split": {
+      "first20_ranges_swept_subset": {
+        "n_ranges": 20,
+        "n_pos_1p5sigma": 8,
+        "weighted_mean_depth_pct": 0.136794275568149,
+        "weighted_mean_sigma_pct": 0.01892708231189742,
+        "significance_sigma": 7.227435973169576
+      },
+      "sectors_27_39": {
+        "n_ranges": 26,
+        "n_pos_1p5sigma": 0,
+        "weighted_mean_depth_pct": -0.030107058932381015,
+        "weighted_mean_sigma_pct": 0.02497574535838478,
+        "significance_sigma": -1.205451869418326
+      },
+      "remaining_ranges_after_first20": {
+        "n_ranges": 60,
+        "n_pos_1p5sigma": 5,
+        "weighted_mean_depth_pct": 0.031629003995924984,
+        "weighted_mean_sigma_pct": 0.015976632344772985,
+        "significance_sigma": 1.9797040648727782
+      },
+      "sectors_60_plus": {
+        "n_ranges": 25,
+        "n_pos_1p5sigma": 2,
+        "weighted_mean_depth_pct": 0.0001952184823950908,
+        "weighted_mean_sigma_pct": 0.030585376260073738,
+        "significance_sigma": 0.006382739278245522
+      },
+      "all_ranges": {
+        "n_ranges": 80,
+        "n_pos_1p5sigma": 13,
+        "weighted_mean_depth_pct": 0.07538497300005927,
+        "weighted_mean_sigma_pct": 0.012208608016563482,
+        "significance_sigma": 6.17473940499884
+      }
+    }
+  },
+  "contamination": {
+    "tic_contratio": 0.0187018514,
+    "source": "TIC catalog via MAST (the value ExoFOP displays)",
+    "flag_line": 0.1,
+    "flagged": false
+  },
+  "catalogue": {
+    "ra_deg": 104.467465081764,
+    "dec_deg": -70.9590594483161,
+    "offset_from_presumed_centre_deg": 0.178,
+    "tmag": 13.0499,
+    "rad_rsun_tic": 0.331609,
+    "mass_msun": 0.31295,
+    "teff_k": 3453.0,
+    "dist_pc": 60.7751,
+    "gaia_dr3": 5267331540876168192,
+    "twomass": "06575217-7057324",
+    "archive_toi_rows": 0
+  }
+}

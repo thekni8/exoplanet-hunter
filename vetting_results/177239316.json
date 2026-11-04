@@ -1,0 +1,71 @@
+{
+  "tic": "177239316",
+  "star_radius_rsun": 0.42,
+  "gauntlet": "sweep2",
+  "sweep": {
+    "period_days": 12.9644,
+    "sde": 11.8,
+    "field": "RA 105.0, Dec -71.0, cone 1.0 (PRESUMED - sweep 3)",
+    "in_sweep_persistence_stamp": "5/18 sectors - fails persistence - blend-suspect (HIT line also flagged: high-contamination - blend risk)"
+  },
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 12.964396439643965,
+    "sde": 11.84012277492768,
+    "depth_percent": 1.1468965619301175,
+    "planet_radius_re": 4.907227206087597,
+    "duration_hours": 5.976,
+    "t0_days": 2260.7523339764,
+    "sectors_analyzed": 20,
+    "total_points": 183455
+  },
+  "period_match": {
+    "rel_diff": 2.746255927680268e-07,
+    "rel_diff_half": 0.49999972537440723,
+    "rel_diff_double": 1.0000002746255927
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "likely-eclipsing-binary",
+    "verdict_text": "The two dips are different sizes \u2014 odd transits dip 0.288% but even transits dip 0.143% (50% apart). That is the classic sign of an eclipsing binary whose real period is twice the candidate period.",
+    "depth_odd_percent": 0.28800405670323936,
+    "depth_even_percent": 0.1431548846505093,
+    "depth_ratio": 0.497058570247907,
+    "period_fit_days": 12.9631
+  },
+  "verdict": "LIKELY BINARY",
+  "killed_at_stage": "b",
+  "kill_reason": "odd/even alternating eclipse depths at 2P (odd 0.288% vs even 0.143%, ratio 0.50); double-period windows 0.411% / 0.274% at refined 25.9239 d, no ellipsoidal wave (-0.092% @ -3.7 sigma). Eclipsing binary in the aperture; true period ~25.92 d, the sweep's 12.9644 d is the half-period alias.",
+  "elapsed_s": 157.8,
+  "double_period": {
+    "verdict": "no-ellipsoidal-signal",
+    "verdict_text": "The light between the eclipses is flat \u2014 quadratures sit at 0.9993 and the shoulders at 1.0002, a difference of -0.092% \u00b1 0.025%, so there is no twin-star ellipsoidal wave. That is consistent with a real planet \u2014 or with a binary whose stars are too far apart to distort each other.",
+    "delta_percent": -0.09202361106872559,
+    "delta_sigma": -3.6625513629897575,
+    "period_2p_refined_days": 25.923864765936415,
+    "eclipse1_depth_percent": 0.41083991527557373,
+    "eclipse2_depth_percent": 0.2740621566772461,
+    "note": "Post-gate diagnostic (driver gated at stage b); run to complete the brief's (a)-(c) fold set."
+  },
+  "driver_verdict_raw": "LIKELY BINARY",
+  "reclassification_note": "Fold completion AGREES with and REFINES the in-sweep stamp. The stamp's 'fails persistence - blend-suspect' said the alias-ephemeris signal does not behave like a constant-depth planet train; the folds identify what it actually is - an eclipsing binary with two unequal eclipses. With contratio 0.301 the EB may be the target or a neighbour inside the aperture (folds alone cannot separate those; centroid work could), but the planet reading is dead either way. Verdict class follows the batch precedent for this fold signature (cf. TIC 294671352, contratio 0.272, LIKELY BINARY).",
+  "contamination": {
+    "tic_contratio": 0.301329523,
+    "source": "TIC catalog via MAST (the value ExoFOP displays)",
+    "flag_line": 0.1,
+    "flagged": true
+  },
+  "catalogue": {
+    "ra_deg": 105.484035024666,
+    "dec_deg": -70.6415408374328,
+    "offset_from_presumed_centre_deg": 0.392,
+    "tmag": 14.9756,
+    "rad_rsun_tic": 0.418319,
+    "mass_msun": 0.411999,
+    "teff_k": 3579.0,
+    "dist_pc": 213.382,
+    "gaia_dr3": 5267365625736548096,
+    "twomass": "07015615-7038295",
+    "archive_toi_rows": 0
+  }
+}

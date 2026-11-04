@@ -1,0 +1,48 @@
+{
+ "tic": "294671352",
+ "star_radius_rsun": 0.37,
+ "gauntlet": "sweep2",
+ "sweep": {
+  "period_days": 13.1286,
+  "sde": 14.1,
+  "field": "RA 70.0, Dec -70.0, cone 1.0"
+ },
+ "known_zooniverse_talk": false,
+ "analyze": {
+  "period_days": 13.128562856285628,
+  "sde": 14.086408163187865,
+  "depth_percent": 0.8473860184796452,
+  "planet_radius_re": 3.7159265555786187,
+  "duration_hours": 5.976,
+  "t0_days": 2149.868504235873,
+  "sectors_analyzed": 20,
+  "total_points": 175850
+ },
+ "period_match": {
+  "rel_diff": 2.8292212705611697e-06,
+  "rel_diff_half": 0.49999717077872946,
+  "rel_diff_double": 1.0000028292212706
+ },
+ "reproduced": true,
+ "odd_even": {
+  "verdict": "likely-eclipsing-binary",
+  "verdict_text": "The two dips are different sizes \u2014 odd transits dip 0.152% but even transits dip 0.105% (31% apart). That is the classic sign of an eclipsing binary whose real period is twice the candidate period.",
+  "depth_odd_percent": 0.15241446644289613,
+  "depth_even_percent": 0.10483475457452318,
+  "depth_ratio": 0.6878267989987732,
+  "period_fit_days": 13.12725
+ },
+ "verdict": "LIKELY BINARY",
+ "killed_at_stage": "b",
+ "kill_reason": "odd/even depths differ (alternating eclipse depths)",
+ "elapsed_s": 70.4,
+ "pair_check": {
+  "partner_tic": 231096116,
+  "separation_arcmin": 47.37,
+  "separation_note": "positions from MAST TIC ID-criteria lookup (verified vs ExoFOP); far beyond any shared-aperture bleed (TESS pixel 21 arcsec, apertures ~1-2 arcmin)",
+  "vsx_midpoint_cone": "NOT RUN - the AAVSO VSX list endpoint returned HTTP 403 via the page fetcher and the result was not retried via alternate endpoints; at 47.4 arcmin separation a common contaminator is geometrically implausible regardless",
+  "conclusion": "No common contaminator: two independent false alarms whose half-period aliases coincide in the same 0.01 d period bin (294671352 is itself a 26.2545 d EB; 231096116 is a blend-suspect with sector monsters + 0.186 contamination)",
+  "exofop_contamination_this_star": 0.272229
+ },
+ "exofop_contamination": 0.272229
+}

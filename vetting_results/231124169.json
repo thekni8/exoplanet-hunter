@@ -1,0 +1,48 @@
+{
+  "tic": "231124169",
+  "star_radius_rsun": 0.44,
+  "gauntlet": "sweep2",
+  "sweep": {
+    "period_days": 1.458,
+    "sde": 24.4,
+    "field": "RA 70.0, Dec -70.0, cone 1.0"
+  },
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 1.458045804580458,
+    "sde": 24.449104765415267,
+    "depth_percent": 0.20753730534540468,
+    "planet_radius_re": 2.1868828253056036,
+    "duration_hours": 5.976,
+    "t0_days": 1326.3788320282192,
+    "sectors_analyzed": 20,
+    "total_points": 67262
+  },
+  "period_match": {
+    "rel_diff": 3.1416035979498385e-05,
+    "rel_diff_half": 0.5000314160359794,
+    "rel_diff_double": 0.9999685839640206
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "planet-like",
+    "verdict_text": "The two dips match \u2014 odd transits dip 0.192% and even transits dip 0.201%, within 5% of each other. That is what a real planet crossing the same star every 1.46 days should look like.",
+    "depth_odd_percent": 0.19160101004849217,
+    "depth_even_percent": 0.20110485954744073,
+    "depth_ratio": 0.9527418207579087,
+    "period_fit_days": 1.4567335633563356
+  },
+  "double_period": {
+    "verdict": "likely-binary",
+    "verdict_text": "The light between the eclipses is not flat \u2014 at the quarter-orbit points the system brightens to 1.0087 while the shoulders beside the eclipses sit at 1.0000: a 0.87% wave at 92\u03c3. That brightening is two stars squeezed out of round by each other's gravity, showing us their wider sides twice per orbit \u2014 a planet is far too light to bend its star like this. These are twin stars orbiting every 2.91 days, not a planet.",
+    "delta_percent": 0.8712053298950195,
+    "delta_sigma": 92.16039702281415,
+    "period_2p_refined_days": 2.913962152467331,
+    "eclipse1_depth_percent": 0.9573221206665039,
+    "eclipse2_depth_percent": 0.9627014398574829
+  },
+  "verdict": "LIKELY BINARY",
+  "killed_at_stage": "c",
+  "kill_reason": "ellipsoidal wave +0.87% @ 92 sigma",
+  "elapsed_s": 63.8
+}

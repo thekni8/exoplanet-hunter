@@ -1,0 +1,56 @@
+{
+  "tic": "231092486",
+  "star_radius_rsun": 0.5,
+  "gauntlet": "sweep2",
+  "sweep": {
+    "period_days": 12.7512,
+    "sde": 14.0,
+    "field": "RA 70.0, Dec -70.0, cone 1.0"
+  },
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 12.75122512251225,
+    "sde": 13.952851858015935,
+    "depth_percent": 0.7494659880786818,
+    "planet_radius_re": 4.722486436603819,
+    "duration_hours": 5.184,
+    "t0_days": 2147.6440595702106,
+    "sectors_analyzed": 20,
+    "total_points": 179516
+  },
+  "period_match": {
+    "rel_diff": 1.970207686340441e-06,
+    "rel_diff_half": 0.5000019702076863,
+    "rel_diff_double": 0.9999980297923137
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "likely-eclipsing-binary",
+    "verdict_text": "The two dips are different sizes \u2014 odd transits dip 0.001% but even transits dip 0.010% (87% apart). That is the classic sign of an eclipsing binary whose real period is twice the candidate period.",
+    "depth_odd_percent": 0.0012180773559578029,
+    "depth_even_percent": 0.009666515826534106,
+    "depth_ratio": 0.1260099686191214,
+    "period_fit_days": 12.75122512251225,
+    "fold_depth_fraction_of_bls": 0.012897871258060717
+  },
+  "verdict": "PIPELINE PHANTOM",
+  "killed_at_stage": "b",
+  "kill_reason": "stage (b): the raw 2P fold contains NO eclipse at either parity (odd +0.001%, even +0.010% vs pipeline depth 0.749%; deepest fold dip = 1.3% of BLS depth, far under the 25% evaporation threshold) - the signal evaporated in the raw fold; the app ratio rule fires 'likely-eclipsing-binary' on the ratio of two noise-level numbers, but with no eclipses present there is nothing to alternate. Classified PIPELINE PHANTOM per the sweep-1 definition (identical pattern to TIC 294671640). Raw app verdict preserved in odd_even.verdict / app_odd_even_verdict_raw.",
+  "elapsed_s": 76.8,
+  "app_odd_even_verdict_raw": "likely-eclipsing-binary",
+  "exofop_contamination": 0.6497545,
+  "contamination_source": "TIC contratio via MAST Catalogs.query_criteria (the value ExoFOP displays)",
+  "position_ra_dec": [
+    69.0803213708848,
+    -69.3191573958245
+  ],
+  "gaia_dr3": "4655843367495154432",
+  "tic_stellar": {
+    "Tmag": 14.637,
+    "rad_rsun": 0.495756,
+    "mass_msun": 0.493846,
+    "Teff_K": 3601.0
+  },
+  "exofop_tois": 0,
+  "archive_toi_check": "NASA Exoplanet Archive TAP, toi table, tid=231092486: 0 rows"
+}

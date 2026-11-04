@@ -1,0 +1,71 @@
+{
+  "tic": "177239184",
+  "star_radius_rsun": 0.31,
+  "gauntlet": "sweep2",
+  "sweep": {
+    "period_days": 13.1433,
+    "sde": 10.6,
+    "field": "RA 105.0, Dec -71.0, cone 1.0 (PRESUMED - sweep 3)",
+    "in_sweep_persistence_stamp": "3/17 sectors - fails persistence - blend-suspect (no contamination flag; contratio 0.026)"
+  },
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 13.143264326432643,
+    "sde": 10.63326962784093,
+    "depth_percent": 2.7793320950647304,
+    "planet_radius_re": 5.638410169731675,
+    "duration_hours": 5.976,
+    "t0_days": 2265.753351218789,
+    "sectors_analyzed": 20,
+    "total_points": 185941
+  },
+  "period_match": {
+    "rel_diff": 2.7142017116712357e-06,
+    "rel_diff_half": 0.49999728579828834,
+    "rel_diff_double": 1.0000027142017116
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "likely-eclipsing-binary",
+    "verdict_text": "The two dips are different sizes \u2014 odd transits dip 0.399% but even transits dip 0.274% (31% apart). That is the classic sign of an eclipsing binary whose real period is twice the candidate period.",
+    "depth_odd_percent": 0.3992842060184687,
+    "depth_even_percent": 0.27392427310445333,
+    "depth_ratio": 0.6860383380448138,
+    "period_fit_days": 13.135378367836783
+  },
+  "verdict": "LIKELY BINARY",
+  "killed_at_stage": "b",
+  "kill_reason": "odd/even alternating eclipse depths at 2P (odd 0.399% vs even 0.274%, 31% apart); double-period CONFIRMS with deep unequal eclipses (2.155% / 1.363%) at refined 25.9413 d plus an ellipsoidal wave +0.592% @ 12.5 sigma. On-target twin-star eclipsing binary; true period ~25.94 d, the sweep's 13.1433 d is the half-period alias.",
+  "elapsed_s": 157.2,
+  "double_period": {
+    "verdict": "likely-binary",
+    "verdict_text": "The light between the eclipses is not flat \u2014 at the quarter-orbit points the system brightens to 1.0080 while the shoulders beside the eclipses sit at 1.0020: a 0.59% wave at 12\u03c3. That brightening is two stars squeezed out of round by each other's gravity, showing us their wider sides twice per orbit \u2014 a planet is far too light to bend its star like this. These are twin stars orbiting every 25.94 days, not a planet.",
+    "delta_percent": 0.5919158458709717,
+    "delta_sigma": 12.498882290511812,
+    "period_2p_refined_days": 25.941271445917515,
+    "eclipse1_depth_percent": 2.1553903818130493,
+    "eclipse2_depth_percent": 1.3634949922561646,
+    "note": "Post-gate diagnostic (driver gated at stage b); run to complete the brief's (a)-(c) fold set."
+  },
+  "driver_verdict_raw": "LIKELY BINARY",
+  "reclassification_note": "Fold completion AGREES with the stamp's suspicion and IDENTIFIES the object. The in-sweep 'fails persistence - blend-suspect' is the persistence module's generic label for a non-constant-depth alias signal; it is refined here, not overturned in substance: the signal is not a planet train. The blend reading specifically is excluded - contratio 0.026 (clean aperture) and an on-target ellipsoidal wave - this binary is the target star itself.",
+  "contamination": {
+    "tic_contratio": 0.0257159378,
+    "source": "TIC catalog via MAST (the value ExoFOP displays)",
+    "flag_line": 0.1,
+    "flagged": false
+  },
+  "catalogue": {
+    "ra_deg": 105.485325438966,
+    "dec_deg": -70.4291648574743,
+    "offset_from_presumed_centre_deg": 0.593,
+    "tmag": 14.8973,
+    "rad_rsun_tic": 0.314398,
+    "mass_msun": 0.293109,
+    "teff_k": 3392.0,
+    "dist_pc": 129.629,
+    "gaia_dr3": 5268121780498760704,
+    "twomass": "07015648-7025450",
+    "archive_toi_rows": 0
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "tic": "299900306",
+  "star_radius_rsun": 0.47,
+  "gauntlet": "sweep2",
+  "sweep": {
+    "period_days": 11.3423,
+    "sde": 10.7,
+    "field": "RA 105.0, Dec -71.0, cone 1.0 (PRESUMED - sweep 3)",
+    "in_sweep_persistence_stamp": "5/20 sectors - fails persistence - blend-suspect (HIT line also flagged: high-contamination - blend risk)"
+  },
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 11.342334233423342,
+    "sde": 10.737525961362477,
+    "depth_percent": 0.12019018079529054,
+    "planet_radius_re": 1.7776943935590364,
+    "duration_hours": 5.184,
+    "t0_days": 1329.985621723594,
+    "sectors_analyzed": 20,
+    "total_points": 42957
+  },
+  "period_match": {
+    "rel_diff": 3.0182082419174492e-06,
+    "rel_diff_half": 0.5000030182082419,
+    "rel_diff_double": 0.9999969817917581
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "likely-eclipsing-binary",
+    "verdict_text": "The two dips are different sizes \u2014 odd transits dip 0.004% but even transits dip -0.003% (159% apart). That is the classic sign of an eclipsing binary whose real period is twice the candidate period.",
+    "depth_odd_percent": 0.004428274544909794,
+    "depth_even_percent": -0.002602309166710448,
+    "depth_ratio": -0.5876575944691023,
+    "period_fit_days": 11.342334233423342
+  },
+  "verdict": "PIPELINE PHANTOM",
+  "killed_at_stage": "b",
+  "kill_reason": "The app's ratio rule mechanically fired 'likely-eclipsing-binary' on a noise split of two zeros: odd/even folds +0.004% / -0.003% - no eclipse at either parity; deepest fold dip = 3.3% of the 0.120% BLS depth, far under the 25% evaporation line. Double-period agrees: no eclipse pair (0.048% / -0.008% at refined 22.266 d) and no ellipsoidal wave (+0.009% @ 1.6 sigma). Per the batch definition (cf. TIC 294671640, identical pattern) this is a PIPELINE PHANTOM; the raw app verdict is preserved as driver_verdict_raw.",
+  "elapsed_s": 98.3,
+  "double_period": {
+    "verdict": "no-ellipsoidal-signal",
+    "verdict_text": "The light between the eclipses is flat \u2014 quadratures sit at 1.0001 and the shoulders at 1.0000, a difference of +0.009% \u00b1 0.006%, so there is no twin-star ellipsoidal wave. That is consistent with a real planet \u2014 or with a binary whose stars are too far apart to distort each other.",
+    "delta_percent": 0.008958578109741211,
+    "delta_sigma": 1.604911727735277,
+    "period_2p_refined_days": 22.265996776403213,
+    "eclipse1_depth_percent": 0.04843771457672119,
+    "eclipse2_depth_percent": -0.008106231689453125,
+    "note": "Post-gate diagnostic (driver gated at stage b); run to complete the brief's (a)-(c) fold set."
+  },
+  "driver_verdict_raw": "LIKELY BINARY",
+  "reclassification_note": "Fold completion OVERTURNS the in-sweep stamp's blend reading. The stamp convicted on persistence (5/20) plus the HIT line's contamination flag (contratio 0.574, the dirtiest aperture of the sweep) - but the folds find no eclipse signal anywhere in the aperture, blended or on-target, at P or 2P. There is no neighbour EB to blame; what remains is a BLS-only signal on a sparse 42,957-point FFI star that evaporates in every fold. The contamination explains a noisy aperture, not this signal's mechanism.",
+  "contamination": {
+    "tic_contratio": 0.574289262,
+    "source": "TIC catalog via MAST (the value ExoFOP displays)",
+    "flag_line": 0.1,
+    "flagged": true
+  },
+  "catalogue": {
+    "ra_deg": 106.054479180988,
+    "dec_deg": -70.4216396853408,
+    "offset_from_presumed_centre_deg": 0.675,
+    "tmag": 12.8929,
+    "rad_rsun_tic": 0.474314,
+    "mass_msun": 0.75,
+    "teff_k": 4709.0,
+    "dist_pc": 161.076,
+    "gaia_dr3": 5267377647349000960,
+    "twomass": "07041309-7025178",
+    "archive_toi_rows": 0
+  }
+}
