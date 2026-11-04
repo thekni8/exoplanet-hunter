@@ -1,0 +1,438 @@
+{
+  "tic": "349272923",
+  "sweep_error": "'%' (dimensionless) and 'electron / s' are not convertible",
+  "n_products_authors_filter": 0,
+  "n_products_unfiltered_fallback": 19,
+  "search_path": "fallback (authors filter returned 0)",
+  "search_table": [
+    {
+      "mission": "TESS Sector 01",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "1"
+    },
+    {
+      "mission": "TESS Sector 03",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "3"
+    },
+    {
+      "mission": "TESS Sector 04",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "4"
+    },
+    {
+      "mission": "TESS Sector 05",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "5"
+    },
+    {
+      "mission": "TESS Sector 06",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "6"
+    },
+    {
+      "mission": "TESS Sector 07",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2019",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "7"
+    },
+    {
+      "mission": "TESS Sector 08",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2019",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "8"
+    },
+    {
+      "mission": "TESS Sector 09",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2019",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "9"
+    },
+    {
+      "mission": "TESS Sector 10",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2019",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "10"
+    },
+    {
+      "mission": "TESS Sector 11",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2019",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "11"
+    },
+    {
+      "mission": "TESS Sector 13",
+      "author": "GSFC-ELEANOR-LITE",
+      "year": "2019",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "GSFC-ELEANOR-LITE",
+      "sequence_number": "13"
+    },
+    {
+      "mission": "TESS Sector 03",
+      "author": "TASOC",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "TASOC",
+      "sequence_number": "3"
+    },
+    {
+      "mission": "TESS Sector 03",
+      "author": "TASOC",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "TASOC",
+      "sequence_number": "3"
+    },
+    {
+      "mission": "TESS Sector 04",
+      "author": "TASOC",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "TASOC",
+      "sequence_number": "4"
+    },
+    {
+      "mission": "TESS Sector 04",
+      "author": "TASOC",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "TASOC",
+      "sequence_number": "4"
+    },
+    {
+      "mission": "TESS Sector 05",
+      "author": "TASOC",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "TASOC",
+      "sequence_number": "5"
+    },
+    {
+      "mission": "TESS Sector 05",
+      "author": "TASOC",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "TASOC",
+      "sequence_number": "5"
+    },
+    {
+      "mission": "TESS Sector 06",
+      "author": "TASOC",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "TASOC",
+      "sequence_number": "6"
+    },
+    {
+      "mission": "TESS Sector 06",
+      "author": "TASOC",
+      "year": "2018",
+      "exptime": "1800.0",
+      "target_name": "349272923",
+      "description": "FITS",
+      "provenance_name": "TASOC",
+      "sequence_number": "6"
+    }
+  ],
+  "n_downloaded": 19,
+  "products": [
+    {
+      "sector": 1,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0001-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0001-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1062,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 3,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0003-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0003-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 798,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 4,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0004-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0004-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 963,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 5,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0005-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0005-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1124,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 6,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0006-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0006-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 903,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 7,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0007-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0007-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1072,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 8,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0008-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0008-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 862,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 9,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0009-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0009-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1104,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 10,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0010-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0010-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1107,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 11,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0011-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0011-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1081,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 13,
+      "author": "GSFC-ELEANOR-LITE",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_gsfc-eleanor-lite_tess_ffi_s0013-0000000349272923_tess_v1.0_lc/hlsp_gsfc-eleanor-lite_tess_ffi_s0013-0000000349272923_tess_v1.0_lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1177,
+      "flux_unit": "electron / s",
+      "flux_err_unit": "electron / s",
+      "flux_column_unit": "electron / s",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 3,
+      "author": "TASOC",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_tasoc_tess_ffi_tic00349272923-s0003-cam4-ccd4-c1800_tess_v05/hlsp_tasoc_tess_ffi_tic00349272923-s0003-cam4-ccd4-c1800_tess_v05_cbv-lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1288,
+      "flux_unit": "ppm",
+      "flux_err_unit": "ppm",
+      "flux_column_unit": "ppm",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 3,
+      "author": "TASOC",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_tasoc_tess_ffi_tic00349272923-s0003-cam4-ccd4-c1800_tess_v05/hlsp_tasoc_tess_ffi_tic00349272923-s0003-cam4-ccd4-c1800_tess_v05_ens-lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1288,
+      "flux_unit": "ppm",
+      "flux_err_unit": "ppm",
+      "flux_column_unit": "ppm",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 4,
+      "author": "TASOC",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_tasoc_tess_ffi_tic00349272923-s0004-cam4-ccd4-c1800_tess_v05/hlsp_tasoc_tess_ffi_tic00349272923-s0004-cam4-ccd4-c1800_tess_v05_cbv-lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1060,
+      "flux_unit": "ppm",
+      "flux_err_unit": "ppm",
+      "flux_column_unit": "ppm",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 4,
+      "author": "TASOC",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_tasoc_tess_ffi_tic00349272923-s0004-cam4-ccd4-c1800_tess_v05/hlsp_tasoc_tess_ffi_tic00349272923-s0004-cam4-ccd4-c1800_tess_v05_ens-lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1060,
+      "flux_unit": "ppm",
+      "flux_err_unit": "ppm",
+      "flux_column_unit": "ppm",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 5,
+      "author": "TASOC",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_tasoc_tess_ffi_tic00349272923-s0005-cam4-ccd4-c1800_tess_v05/hlsp_tasoc_tess_ffi_tic00349272923-s0005-cam4-ccd4-c1800_tess_v05_cbv-lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1196,
+      "flux_unit": "ppm",
+      "flux_err_unit": "ppm",
+      "flux_column_unit": "ppm",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 5,
+      "author": "TASOC",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_tasoc_tess_ffi_tic00349272923-s0005-cam4-ccd4-c1800_tess_v05/hlsp_tasoc_tess_ffi_tic00349272923-s0005-cam4-ccd4-c1800_tess_v05_ens-lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 1196,
+      "flux_unit": "ppm",
+      "flux_err_unit": "ppm",
+      "flux_column_unit": "ppm",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 6,
+      "author": "TASOC",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_tasoc_tess_ffi_tic00349272923-s0006-cam4-ccd1-c1800_tess_v05/hlsp_tasoc_tess_ffi_tic00349272923-s0006-cam4-ccd1-c1800_tess_v05_cbv-lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 993,
+      "flux_unit": "ppm",
+      "flux_err_unit": "ppm",
+      "flux_column_unit": "ppm",
+      "flux_unit_after_normalize": ""
+    },
+    {
+      "sector": 6,
+      "author": "TASOC",
+      "creator": null,
+      "filename": "/home/hatch/.cache/lightkurve/mastDownload/HLSP/hlsp_tasoc_tess_ffi_tic00349272923-s0006-cam4-ccd1-c1800_tess_v05/hlsp_tasoc_tess_ffi_tic00349272923-s0006-cam4-ccd1-c1800_tess_v05_ens-lc.fits",
+      "object": "TIC 349272923",
+      "n_points": 993,
+      "flux_unit": "ppm",
+      "flux_err_unit": "ppm",
+      "flux_column_unit": "ppm",
+      "flux_unit_after_normalize": ""
+    }
+  ],
+  "stitch": {
+    "ok": false,
+    "traceback": "Traceback (most recent call last):\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/quantity.py\", line 992, in to_value\n    scale = self.unit._to(unit)\n            ^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/core.py\", line 623, in _to\n    raise UnitConversionError(f\"'{self!r}' is not a scaled version of '{other!r}'\")\nastropy.units.errors.UnitConversionError: 'Unit(\"%\")' is not a scaled version of 'Unit(\"electron / s\")'\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/hatch/workspace/exoplanet-hunter/sweep5_diag.py\", line 115, in main\n    stitched = coll.stitch(corrector_func=lambda x: x.normalize())\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/lightkurve/collections.py\", line 228, in stitch\n    return vstack(lcs, join_type=\"inner\", metadata_conflicts=\"silent\")\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/table/operations.py\", line 718, in vstack\n    out = _vstack(tables, join_type, metadata_conflicts)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/table/operations.py\", line 1508, in _vstack\n    col[idx0:idx1] = array[name]\n    ~~~^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/quantity.py\", line 1322, in __setitem__\n    self.view(np.ndarray).__setitem__(i, self._to_own_unit(value))\n                                         ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/quantity.py\", line 1713, in _to_own_unit\n    _value = value.to_value(unit)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/quantity.py\", line 995, in to_value\n    value = self._to_value(unit, equivalencies)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/quantity.py\", line 901, in _to_value\n    return self.unit.to(\n           ^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/core.py\", line 659, in to\n    return self.get_converter(Unit(other), equivalencies)(value)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/core.py\", line 588, in get_converter\n    raise exc\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/core.py\", line 571, in get_converter\n    return self._apply_equivalencies(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/core.py\", line 522, in _apply_equivalencies\n    raise UnitConversionError(f\"{unit_str} and {other_str} are not convertible\")\nastropy.units.errors.UnitConversionError: '%' (dimensionless) and 'electron / s' are not convertible\n"
+  },
+  "stitch_no_corrector": {
+    "ok": false,
+    "traceback": "Traceback (most recent call last):\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/quantity.py\", line 992, in to_value\n    scale = self.unit._to(unit)\n            ^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/core.py\", line 623, in _to\n    raise UnitConversionError(f\"'{self!r}' is not a scaled version of '{other!r}'\")\nastropy.units.errors.UnitConversionError: 'Unit(\"electron / s\")' is not a scaled version of 'Unit(\"ppm\")'\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/home/hatch/workspace/exoplanet-hunter/sweep5_diag.py\", line 125, in main\n    raw = coll.stitch(corrector_func=lambda x: x)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/lightkurve/collections.py\", line 228, in stitch\n    return vstack(lcs, join_type=\"inner\", metadata_conflicts=\"silent\")\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/table/operations.py\", line 718, in vstack\n    out = _vstack(tables, join_type, metadata_conflicts)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/table/operations.py\", line 1508, in _vstack\n    col[idx0:idx1] = array[name]\n    ~~~^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/quantity.py\", line 1322, in __setitem__\n    self.view(np.ndarray).__setitem__(i, self._to_own_unit(value))\n                                         ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/quantity.py\", line 1713, in _to_own_unit\n    _value = value.to_value(unit)\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/quantity.py\", line 995, in to_value\n    value = self._to_value(unit, equivalencies)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/quantity.py\", line 901, in _to_value\n    return self.unit.to(\n           ^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/core.py\", line 659, in to\n    return self.get_converter(Unit(other), equivalencies)(value)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/core.py\", line 588, in get_converter\n    raise exc\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/core.py\", line 571, in get_converter\n    return self._apply_equivalencies(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/hatch/workspace/exoplanet-hunter/.venv/lib/python3.12/site-packages/astropy/units/core.py\", line 522, in _apply_equivalencies\n    raise UnitConversionError(f\"{unit_str} and {other_str} are not convertible\")\nastropy.units.errors.UnitConversionError: 'electron / s' and 'ppm' (dimensionless) are not convertible\n"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "tic": "349478154",
+  "star_radius_rsun": 0.36,
+  "gauntlet": "sweep5",
+  "sweep": {
+    "period_days": 13.1335,
+    "sde": 10.7,
+    "field": "RA 110.0, Dec -63.0, cone 1.0",
+    "in_sweep_persistence_stamp": "4/17 sectors - fails persistence - blend-suspect (high-contamination flag)"
+  },
+  "history_logging": "suppressed in driver (hunter.log_candidate no-op); data/hunter.db untouched",
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 13.133463346334633,
+    "sde": 10.718078547566016,
+    "depth_percent": 1.057235495578915,
+    "planet_radius_re": 4.03843520499644,
+    "duration_hours": 3.5279999999999996,
+    "t0_days": 2148.3554140827982,
+    "sectors_analyzed": 20,
+    "total_points": 205646
+  },
+  "period_match": {
+    "rel_diff": 2.7908528089900114e-06,
+    "rel_diff_half": 0.49999720914719104,
+    "rel_diff_double": 1.000002790852809
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "likely-eclipsing-binary",
+    "verdict_text": "The two dips are different sizes \u2014 odd transits dip 0.031% but even transits dip 0.045% (31% apart). That is the classic sign of an eclipsing binary whose real period is twice the candidate period.",
+    "depth_odd_percent": 0.03146242918301567,
+    "depth_even_percent": 0.04548376442117252,
+    "depth_ratio": 0.6917287868189298,
+    "period_fit_days": 13.126896614661465
+  },
+  "double_period": {
+    "verdict": "no-ellipsoidal-signal",
+    "verdict_text": "The light between the eclipses is flat \u2014 quadratures sit at 1.0017 and the shoulders at 1.0027, a difference of -0.092% \u00b1 0.031%, so there is no twin-star ellipsoidal wave. That is consistent with a real planet \u2014 or with a binary whose stars are too far apart to distort each other.",
+    "delta_percent": -0.09185075759887695,
+    "delta_sigma": -3.00389671984103,
+    "period_2p_refined_days": 25.744828826663927,
+    "eclipse1_depth_percent": 0.9030461311340332,
+    "eclipse2_depth_percent": 0.8311808109283447
+  },
+  "verdict": "BLEND-SUSPECT",
+  "driver_verdict_raw": "LIKELY BINARY (stage-gate kill at b)",
+  "killed_at_stage": "b",
+  "kill_reason": "odd/even depths differ (alternating eclipse depths)",
+  "elapsed_s": 91.2,
+  "catalogue": {
+    "ra_deg": 110.582732200005,
+    "dec_deg": -63.4885312790249,
+    "offset_from_centre_deg": 0.555,
+    "tmag": 14.8201,
+    "rad_rsun_tic": 0.36453,
+    "mass_msun": 0.350975,
+    "teff_k": 3366.0,
+    "dist_pc": 148.854,
+    "gaia_dr3": 5288712369113145344,
+    "twomass": "07221984-6329187",
+    "archive_toi_rows": 0
+  },
+  "contamination": {
+    "tic_contratio": 2.52422571,
+    "source": "TIC catalog via MAST (the value ExoFOP displays)",
+    "flag_line": 0.1,
+    "flagged": true
+  },
+  "reclassification_note": "Driver's LIKELY BINARY gated at stage (b) on a 0.031% / 0.045% fold ratio (deepest fold = 4% of BLS depth). Stage (c) does find a real, deep, near-equal eclipse pair (0.903% / 0.831%) at 25.745 d, but with no ellipsoidal wave (-0.092% at -3 sigma) the pair is morphologically ambiguous between an equal-twin EB and a 12.87 d planet folded at its double - the 308851365 blind spot, unbroken here. The aperture is the patch's most contaminated (contratio 2.524) and the swept 13.1335 d ephemeris itself evaporates. Reclassified BLEND-SUSPECT: the in-sweep stamp's species upheld; the coherent pair most plausibly belongs to the contaminating flux."
+}

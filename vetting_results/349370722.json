@@ -1,0 +1,70 @@
+{
+  "tic": "349370722",
+  "star_radius_rsun": 0.3,
+  "gauntlet": "sweep5",
+  "sweep": {
+    "period_days": 13.2045,
+    "sde": 11.6,
+    "field": "RA 110.0, Dec -63.0, cone 1.0",
+    "in_sweep_persistence_stamp": "1/13 sectors - fails persistence - blend-suspect (high-contamination flag)"
+  },
+  "history_logging": "suppressed in driver (hunter.log_candidate no-op); data/hunter.db untouched",
+  "known_zooniverse_talk": false,
+  "analyze": {
+    "period_days": 13.204520452045204,
+    "sde": 11.564962984178095,
+    "depth_percent": 2.238851558921794,
+    "planet_radius_re": 4.8973219469057705,
+    "duration_hours": 4.3919999999999995,
+    "t0_days": 2152.948455996178,
+    "sectors_analyzed": 16,
+    "total_points": 141920
+  },
+  "period_match": {
+    "rel_diff": 1.5488693403057178e-06,
+    "rel_diff_half": 0.5000015488693403,
+    "rel_diff_double": 0.9999984511306597
+  },
+  "reproduced": true,
+  "odd_even": {
+    "verdict": "likely-eclipsing-binary",
+    "verdict_text": "The two dips are different sizes \u2014 odd transits dip 0.134% but even transits dip 0.210% (36% apart). That is the classic sign of an eclipsing binary whose real period is twice the candidate period.",
+    "depth_odd_percent": 0.13373126942272107,
+    "depth_even_percent": 0.20954481858815877,
+    "depth_ratio": 0.6381988842470865,
+    "period_fit_days": 13.205840904090408
+  },
+  "double_period": {
+    "verdict": "likely-binary",
+    "verdict_text": "The light between the eclipses is not flat \u2014 at the quarter-orbit points the system brightens to 1.0068 while the shoulders beside the eclipses sit at 0.9993: a 0.75% wave at 27\u03c3. That brightening is two stars squeezed out of round by each other's gravity, showing us their wider sides twice per orbit \u2014 a planet is far too light to bend its star like this. These are twin stars orbiting every 27.12 days, not a planet.",
+    "delta_percent": 0.7475733757019043,
+    "delta_sigma": 27.29944726396986,
+    "period_2p_refined_days": 27.11888844903163,
+    "eclipse1_depth_percent": 1.4900267124176025,
+    "eclipse2_depth_percent": 0.582382082939148
+  },
+  "verdict": "LIKELY BINARY",
+  "driver_verdict_raw": "LIKELY BINARY (stage-gate kill at b)",
+  "killed_at_stage": "b",
+  "kill_reason": "odd/even depths differ (alternating eclipse depths)",
+  "elapsed_s": 64.7,
+  "catalogue": {
+    "ra_deg": 109.889584221531,
+    "dec_deg": -62.8995491350276,
+    "offset_from_centre_deg": 0.112,
+    "tmag": 14.5393,
+    "rad_rsun_tic": 0.299697,
+    "mass_msun": 0.276272,
+    "teff_k": 3282.0,
+    "dist_pc": null,
+    "gaia_dr3": 5291802099865563648,
+    "twomass": "07193348-6253583",
+    "archive_toi_rows": 0
+  },
+  "contamination": {
+    "tic_contratio": 0.155530691,
+    "source": "TIC catalog via MAST (the value ExoFOP displays)",
+    "flag_line": 0.1,
+    "flagged": true
+  }
+}

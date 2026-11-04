@@ -1,0 +1,340 @@
+{
+  "centre": {
+    "ra": 110.0,
+    "dec": -63.0
+  },
+  "rows": {
+    "349370722": {
+      "ra_deg": 109.889584221531,
+      "dec_deg": -62.8995491350276,
+      "tmag": 14.5393,
+      "rad_rsun_tic": 0.299697,
+      "mass_msun": 0.276272,
+      "teff_k": 3282.0,
+      "dist_pc": null,
+      "gaia_dr3": 5291802099865563648,
+      "twomass": "07193348-6253583",
+      "contratio": 0.155530691,
+      "offset_from_centre_deg": 0.112,
+      "archive_toi_rows": 0
+    },
+    "349370477": {
+      "ra_deg": 109.952489669959,
+      "dec_deg": -63.2713304690044,
+      "tmag": 13.9468,
+      "rad_rsun_tic": 0.370111,
+      "mass_msun": 0.357397,
+      "teff_k": 3415.0,
+      "dist_pc": 103.803,
+      "gaia_dr3": 5291735201454908160,
+      "twomass": "07194859-6316167",
+      "contratio": 0.06817669,
+      "offset_from_centre_deg": 0.272,
+      "archive_toi_rows": 0
+    },
+    "349408892": {
+      "ra_deg": 110.437013990638,
+      "dec_deg": -63.2329488727238,
+      "tmag": 14.6793,
+      "rad_rsun_tic": 0.481006,
+      "mass_msun": 0.478973,
+      "teff_k": 3629.0,
+      "dist_pc": 217.144,
+      "gaia_dr3": 5291732761913553664,
+      "twomass": "07214488-6313586",
+      "contratio": 0.3626303,
+      "offset_from_centre_deg": 0.305,
+      "archive_toi_rows": 0
+    },
+    "349477788": {
+      "ra_deg": 110.685123695715,
+      "dec_deg": -63.0053210581517,
+      "tmag": 13.7873,
+      "rad_rsun_tic": 0.450694,
+      "mass_msun": 0.447295,
+      "teff_k": 3625.0,
+      "dist_pc": 135.102,
+      "gaia_dr3": 5291745440657094272,
+      "twomass": "07224443-6300191",
+      "contratio": 0.392009735,
+      "offset_from_centre_deg": 0.311
+    },
+    "349477874": {
+      "ra_deg": 110.736941443752,
+      "dec_deg": -63.1169343294123,
+      "tmag": 14.8798,
+      "rad_rsun_tic": 0.447625,
+      "mass_msun": 0.444009,
+      "teff_k": 3522.0,
+      "dist_pc": 208.646,
+      "gaia_dr3": 5291740870811876992,
+      "twomass": "07225686-6307009",
+      "contratio": 0.07453558,
+      "offset_from_centre_deg": 0.354,
+      "archive_toi_rows": 0
+    },
+    "349370417": {
+      "ra_deg": 109.962699820041,
+      "dec_deg": -63.3550685299159,
+      "tmag": 14.2666,
+      "rad_rsun_tic": 0.433319,
+      "mass_msun": 0.428521,
+      "teff_k": 3437.0,
+      "dist_pc": 145.706,
+      "gaia_dr3": 5291731005270902400,
+      "twomass": "07195105-6321182",
+      "contratio": 0.042561546,
+      "offset_from_centre_deg": 0.355,
+      "archive_toi_rows": 0
+    },
+    "349370907": {
+      "ra_deg": 109.888991814548,
+      "dec_deg": -62.6391224047878,
+      "tmag": 14.2218,
+      "rad_rsun_tic": 0.432561,
+      "mass_msun": 0.427693,
+      "teff_k": 3536.0,
+      "dist_pc": 151.583,
+      "gaia_dr3": 5291824674214130688,
+      "twomass": "07193335-6238208",
+      "contratio": 0.162579685,
+      "offset_from_centre_deg": 0.364,
+      "archive_toi_rows": 0
+    },
+    "349309779": {
+      "ra_deg": 109.619155784442,
+      "dec_deg": -62.6673627159861,
+      "tmag": 14.569,
+      "rad_rsun_tic": 0.348329,
+      "mass_msun": 0.332277,
+      "teff_k": 3329.0,
+      "dist_pc": 122.658,
+      "gaia_dr3": 5291823639125779456,
+      "twomass": "07182858-6240025",
+      "contratio": 0.04037042,
+      "offset_from_centre_deg": 0.375,
+      "archive_toi_rows": 0
+    },
+    "349305195": {
+      "ra_deg": 109.372993222833,
+      "dec_deg": -63.2895529202573,
+      "tmag": 14.9879,
+      "rad_rsun_tic": 0.410018,
+      "mass_msun": 0.402743,
+      "teff_k": 3489.0,
+      "dist_pc": 191.597,
+      "gaia_dr3": 5285744233177210496,
+      "twomass": "07172950-6317223",
+      "contratio": 5.04893,
+      "offset_from_centre_deg": 0.405
+    },
+    "349273239": {
+      "ra_deg": 109.137353426355,
+      "dec_deg": -63.1365132644103,
+      "tmag": 13.8078,
+      "rad_rsun_tic": 0.365361,
+      "mass_msun": 0.351932,
+      "teff_k": 3469.0,
+      "dist_pc": 100.236,
+      "gaia_dr3": 5285791001077759488,
+      "twomass": "07163296-6308114",
+      "contratio": 1.02521718,
+      "offset_from_centre_deg": 0.414,
+      "archive_toi_rows": 0
+    },
+    "349272923": {
+      "ra_deg": 109.3192,
+      "dec_deg": -62.6936,
+      "tmag": 14.436,
+      "rad_rsun_tic": 0.381,
+      "mass_msun": 0.392,
+      "teff_k": NaN,
+      "dist_pc": 259.25415,
+      "gaia_dr3": null,
+      "twomass": "07171660-6241368",
+      "contratio": NaN,
+      "offset_from_centre_deg": 0.436
+    },
+    "349268662": {
+      "ra_deg": 108.928166782362,
+      "dec_deg": -62.8780700372972,
+      "tmag": 14.7042,
+      "rad_rsun_tic": 0.433186,
+      "mass_msun": 0.428376,
+      "teff_k": 3520.0,
+      "dist_pc": 187.368,
+      "gaia_dr3": 5285997468745187328,
+      "twomass": "07154275-6252410",
+      "contratio": 0.04698236,
+      "offset_from_centre_deg": 0.503,
+      "archive_toi_rows": 0
+    },
+    "349309664": {
+      "ra_deg": 109.653901951962,
+      "dec_deg": -62.5052460930052,
+      "tmag": 14.825,
+      "rad_rsun_tic": 0.414147,
+      "mass_msun": 0.407357,
+      "teff_k": 3320.0,
+      "dist_pc": 171.618,
+      "gaia_dr3": 5292014683567005824,
+      "twomass": "07183692-6230188",
+      "contratio": 0.03465347,
+      "offset_from_centre_deg": 0.52,
+      "archive_toi_rows": 0
+    },
+    "349268505": {
+      "ra_deg": 108.891922577527,
+      "dec_deg": -63.1415078843923,
+      "tmag": 13.9308,
+      "rad_rsun_tic": 0.400493,
+      "mass_msun": 0.392037,
+      "teff_k": 3434.0,
+      "dist_pc": 116.069,
+      "gaia_dr3": 5285803301864057728,
+      "twomass": "07153405-6308294",
+      "contratio": 0.0121285189,
+      "offset_from_centre_deg": 0.521,
+      "archive_toi_rows": 0
+    },
+    "349481800": {
+      "ra_deg": 110.981090745236,
+      "dec_deg": -63.3166801259023,
+      "tmag": 14.73,
+      "rad_rsun_tic": 0.400847,
+      "mass_msun": 0.392437,
+      "teff_k": 3442.0,
+      "dist_pc": 165.509,
+      "gaia_dr3": 5288720718529490560,
+      "twomass": "07235545-6319000",
+      "contratio": 0.04719572,
+      "offset_from_centre_deg": 0.545,
+      "archive_toi_rows": 0
+    },
+    "349478154": {
+      "ra_deg": 110.582732200005,
+      "dec_deg": -63.4885312790249,
+      "tmag": 14.8201,
+      "rad_rsun_tic": 0.36453,
+      "mass_msun": 0.350975,
+      "teff_k": 3366.0,
+      "dist_pc": 148.854,
+      "gaia_dr3": 5288712369113145344,
+      "twomass": "07221984-6329187",
+      "contratio": 2.52422571,
+      "offset_from_centre_deg": 0.555,
+      "archive_toi_rows": 0
+    },
+    "349519662": {
+      "ra_deg": 111.217423738398,
+      "dec_deg": -63.1586134947424,
+      "tmag": 14.9351,
+      "rad_rsun_tic": 0.4779,
+      "mass_msun": 0.475795,
+      "teff_k": 3400.0,
+      "dist_pc": 218.282,
+      "gaia_dr3": 5288757380370348672,
+      "twomass": "07245216-6309309",
+      "contratio": 0.301731229,
+      "offset_from_centre_deg": 0.574,
+      "archive_toi_rows": 0
+    },
+    "349193749": {
+      "ra_deg": 108.794918106569,
+      "dec_deg": -62.7966413152198,
+      "tmag": 14.9734,
+      "rad_rsun_tic": 0.496698,
+      "mass_msun": 0.494783,
+      "teff_k": 3558.0,
+      "dist_pc": 255.481,
+      "gaia_dr3": 5286001935511179264,
+      "twomass": "07151077-6247478",
+      "contratio": 0.0263618436,
+      "offset_from_centre_deg": 0.585,
+      "archive_toi_rows": 0
+    },
+    "349193983": {
+      "ra_deg": 108.671081288557,
+      "dec_deg": -63.1513526829763,
+      "tmag": 14.8319,
+      "rad_rsun_tic": 0.464396,
+      "mass_msun": 0.461793,
+      "teff_k": 3642.0,
+      "dist_pc": 228.842,
+      "gaia_dr3": 5285802545949777536,
+      "twomass": "07144105-6309048",
+      "contratio": 0.898585737,
+      "offset_from_centre_deg": 0.62,
+      "archive_toi_rows": 0
+    },
+    "349371108": {
+      "ra_deg": 110.043034286661,
+      "dec_deg": -62.3658837401074,
+      "tmag": 13.8232,
+      "rad_rsun_tic": 0.396091,
+      "mass_msun": 0.38706,
+      "teff_k": 3329.0,
+      "dist_pc": 100.79,
+      "gaia_dr3": 5292021796032884608,
+      "twomass": "07201033-6221571",
+      "contratio": 0.017809093,
+      "offset_from_centre_deg": 0.634
+    }
+  },
+  "trio": {
+    "label": "13.7215-trio",
+    "members": [
+      "349309779",
+      "349268662",
+      "349268505"
+    ],
+    "pairs": [
+      {
+        "a": "349309779",
+        "b": "349268662",
+        "separation_deg": 0.3799225665982902,
+        "separation_arcmin": 22.79535399589741
+      },
+      {
+        "a": "349309779",
+        "b": "349268505",
+        "separation_deg": 0.5783794590751643,
+        "separation_arcmin": 34.70276754450986
+      },
+      {
+        "a": "349268662",
+        "b": "349268505",
+        "separation_deg": 0.26395087254661026,
+        "separation_arcmin": 15.837052352796615
+      }
+    ]
+  },
+  "cluster24": {
+    "label": "24d-cluster",
+    "members": [
+      "349408892",
+      "349370907",
+      "349273239"
+    ],
+    "pairs": [
+      {
+        "a": "349408892",
+        "b": "349370907",
+        "separation_deg": 0.6440449471474774,
+        "separation_arcmin": 38.64269682884864
+      },
+      {
+        "a": "349408892",
+        "b": "349273239",
+        "separation_deg": 0.5941641956306161,
+        "separation_arcmin": 35.64985173783696
+      },
+      {
+        "a": "349370907",
+        "b": "349273239",
+        "separation_deg": 0.6039253396790979,
+        "separation_arcmin": 36.235520380745875
+      }
+    ]
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "common_period_days": 13.721522152215222,
+  "members": {
+    "349309779": {
+      "verdict": "BLEND-SUSPECT",
+      "driver_verdict_raw": "BLEND-SUSPECT",
+      "analyze_period": 13.721522152215222,
+      "sde": 16.54660783881112,
+      "t0_btjd": 2151.487472748849,
+      "absolute_phase_fraction": 0.7965600960320499,
+      "duration_hours": 5.976,
+      "orbit_phase": {
+        "ratio": 1.0016,
+        "frac_start": 0.12121212121212122,
+        "frac_boundary": 0.3939393939393939,
+        "R": 0.46,
+        "n": 33,
+        "pileup_flag": false
+      },
+      "persistence": {
+        "usable": 16,
+        "pos": 5,
+        "wmean_pct": -0.17776515182355596,
+        "module": "MIXED",
+        "monsters": [
+          62,
+          68,
+          97
+        ]
+      },
+      "separation_block": null
+    },
+    "349268662": {
+      "verdict": "BLEND-SUSPECT",
+      "driver_verdict_raw": "BLEND-SUSPECT",
+      "analyze_period": 13.721522152215222,
+      "sde": 10.405165185018825,
+      "t0_btjd": 2152.2704990889524,
+      "absolute_phase_fraction": 0.8536256556264656,
+      "duration_hours": 5.976,
+      "orbit_phase": {
+        "ratio": 1.0016,
+        "frac_start": 0.14705882352941177,
+        "frac_boundary": 0.4117647058823529,
+        "R": 0.337,
+        "n": 34,
+        "pileup_flag": false
+      },
+      "persistence": {
+        "usable": 17,
+        "pos": 6,
+        "wmean_pct": 0.014655612635908673,
+        "module": "MIXED",
+        "monsters": [
+          39,
+          61,
+          68,
+          94,
+          96,
+          97
+        ]
+      },
+      "separation_block": null
+    },
+    "349268505": {
+      "verdict": "INCONCLUSIVE",
+      "driver_verdict_raw": "INCONCLUSIVE (stage-gate kill at c)",
+      "analyze_period": 13.721522152215222,
+      "sde": 10.319828116674076,
+      "t0_btjd": 2151.6764950408833,
+      "absolute_phase_fraction": 0.8103357026985237,
+      "duration_hours": 5.976,
+      "orbit_phase": {
+        "ratio": 1.0016,
+        "frac_start": 0.10526315789473684,
+        "frac_boundary": 0.34210526315789475,
+        "R": 0.442,
+        "n": 38,
+        "pileup_flag": false
+      },
+      "persistence": {
+        "usable": 16,
+        "pos": 4,
+        "wmean_pct": -0.08842743137927608,
+        "module": "CONCENTRATED",
+        "monsters": [
+          62,
+          67,
+          68,
+          69,
+          95,
+          97
+        ]
+      },
+      "separation_block": null
+    }
+  },
+  "pairs": [
+    {
+      "a": "349309779",
+      "b": "349268662",
+      "phase_diff_cycles": 0.05706555959441573,
+      "phase_diff_days": 0.7830263401033333,
+      "separation_arcmin": 22.79535399589741
+    },
+    {
+      "a": "349309779",
+      "b": "349268505",
+      "phase_diff_cycles": 0.013775606666473816,
+      "phase_diff_days": 0.18902229203422416,
+      "separation_arcmin": 34.70276754450986
+    },
+    {
+      "a": "349268662",
+      "b": "349268505",
+      "phase_diff_cycles": 0.04328995292794191,
+      "phase_diff_days": 0.5940040480691091,
+      "separation_arcmin": 15.837052352796615
+    }
+  ]
+}
