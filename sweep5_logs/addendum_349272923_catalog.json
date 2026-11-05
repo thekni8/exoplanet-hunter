@@ -1,0 +1,55 @@
+{
+  "tic": "349272923",
+  "purpose": "Post-fix addendum provenance: stage (f) TOI count + TIC contratio verification for the rescued sweep-5 target 11.",
+  "archive_toi_rows": 0,
+  "toi_query": "NASA Exoplanet Archive TAP: SELECT tid FROM toi WHERE tid=349272923 (sweep5_catalog.toi_rows method, retries clean)",
+  "tic_query_method": "Catalogs.query_region at the target's Appendix-A coordinates (RA 109.31924, Dec -62.69357), radius 0.6 arcmin; rows accepted only on TIC ID match + coordinate separation.",
+  "rows_within_0p6_arcmin": [
+    {
+      "ID": "349272923",
+      "sep_arcsec": 0.13,
+      "ra": 109.3192,
+      "dec": -62.6936,
+      "Tmag": 14.436,
+      "rad_rsun": 0.381,
+      "contratio": null,
+      "is_target": true
+    },
+    {
+      "ID": "765398597",
+      "sep_arcsec": 3.88,
+      "Tmag": 19.0247,
+      "contratio": null,
+      "is_target": false
+    },
+    {
+      "ID": "765398599",
+      "sep_arcsec": 13.72,
+      "Tmag": 19.1791,
+      "contratio": null,
+      "is_target": false
+    },
+    {
+      "ID": "765398598",
+      "sep_arcsec": 15.97,
+      "Tmag": 19.5091,
+      "contratio": null,
+      "is_target": false
+    },
+    {
+      "ID": "765398635",
+      "sep_arcsec": 18.7,
+      "Tmag": 19.8136,
+      "contratio": null,
+      "is_target": false
+    },
+    {
+      "ID": "765398596",
+      "sep_arcsec": 31.8,
+      "Tmag": 18.5761,
+      "contratio": null,
+      "is_target": false
+    }
+  ],
+  "conclusion": "TIC carries no contratio for TIC 349272923 (null on the verified target row). An unrestricted neighbourhood query's first row is a different star (TIC 67172680, 1.8 arcmin away, contratio 0.7569) and was NOT used."
+}

@@ -357,6 +357,49 @@ def _with_download_self_heal(step, progress_callback=None,
             raise
 
 
+# ---------------------------------------------------------------------------
+# Stitch hygiene (sweep-5 target-11 fix; SWEEP5_VETTING_REPORT.md App. A)
+# ---------------------------------------------------------------------------
+
+# The only columns the pipeline consumes downstream. Auxiliary columns
+# are stripped before LightCurveCollection.stitch vstacks the curves:
+# mixed-author HLSP sets (eleanor-lite + TASOC) carry a never-used
+# flux_bkg column whose units are incommensurable across families
+# (% vs electron/s), and vstack's unit unification dies on it.
+_STITCH_COLUMNS = ("time", "flux", "flux_err", "quality")
+
+
+def _stitch_corrector(lc):
+    """Per-curve corrector used at BOTH stitch sites (_run_pipeline and
+    _fetch_stitched): normalize, then keep only the columns the pipeline
+    uses, so incompatible auxiliary columns never reach vstack.
+    (Appendix A prescribed select_columns(); lightkurve 2.6 has no such
+    method — keep_columns performs the same reduction.)"""
+    lc = lc.normalize()
+    lc.keep_columns([c for c in _STITCH_COLUMNS if c in lc.columns])
+    return lc
+
+
+def _is_zero_median_product(lc):
+    """True if a product's flux is zero-centred — |median| within a tenth
+    of its own robust scatter. TASOC-class HLSPs publish differential
+    flux (ppm around zero); normalize() divides by the median, so such a
+    product would enter the stitch as garbage, and it is excluded
+    instead (Appendix A's follow-on hazard). Absolute-flux products
+    (SPOC, QLP, TESS-SPOC, eleanor-lite) sit tens-to-hundreds of
+    robust-sigmas from zero and are never flagged."""
+    try:
+        vals = np.asarray(lc.flux.value, dtype=float)
+    except Exception:
+        return False
+    vals = vals[np.isfinite(vals)]
+    if vals.size == 0:
+        return False
+    med = float(np.median(vals))
+    robust_std = 1.4826 * float(np.median(np.abs(vals - med)))
+    return abs(med) <= 0.1 * robust_std
+
+
 def _download_products(sectors_to_fetch, tic_id, progress_callback=None):
     """Download search results ONE product at a time (Stage 5b).
 
@@ -368,6 +411,12 @@ def _download_products(sectors_to_fetch, tic_id, progress_callback=None):
     corrupt -> purge + ONE re-download); a product that still fails is
     SKIPPED with a progress line and the rest carry on. Raises the last
     error only if ZERO products could be downloaded.
+
+    Zero-centred products (TASOC-class: differential flux, median ~ 0)
+    are likewise excluded, with a progress line: normalize() divides by
+    the median, so they cannot be stitched meaningfully. If EVERY
+    downloaded product is zero-centred, that is raised as its own
+    explicit error rather than masquerading as a download failure.
     """
     total = len(sectors_to_fetch)
     collected = []
@@ -398,6 +447,19 @@ def _download_products(sectors_to_fetch, tic_id, progress_callback=None):
             collected.extend(list(item))
         else:
             collected.append(item)
+    usable = [lc for lc in collected if not _is_zero_median_product(lc)]
+    n_zero_median = len(collected) - len(usable)
+    if n_zero_median:
+        _emit(progress_callback,
+              f"Skipping {n_zero_median} zero-centred product(s) "
+              f"(uncalibrated flux, median ~ 0 — cannot be normalized) "
+              f"and continuing with the rest")
+        collected = usable
+    if not collected and n_zero_median:
+        raise RuntimeError(
+            f"All {n_zero_median} downloaded product(s) for TIC {tic_id} "
+            f"are zero-centred (uncalibrated flux, median ~ 0) — no "
+            f"usable light curve to analyze.")
     if not collected:
         if last_error is not None:
             raise last_error
@@ -488,7 +550,7 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
     n_sectors = len(lc_collection)
 
-    lc_raw = (lc_collection.stitch(corrector_func=lambda x: x.normalize())
+    lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
               .remove_nans().remove_outliers(sigma=5.0))
 
     # detrend_window defaults to 101 — the value the original hardcoded here.
@@ -790,7 +852,7 @@ def _fetch_stitched(tic_id, max_sectors=None, progress_callback=None):
     lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
     n_sectors = len(lc_collection)
 
-    lc_raw = (lc_collection.stitch(corrector_func=lambda x: x.normalize())
+    lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
               .remove_nans().remove_outliers(sigma=5.0))
     del lc_collection
     gc.collect()

@@ -809,37 +809,184 @@ explicitly rather than letting them through silently.
 No manual-workaround analysis of this star was attempted, per
 the brief; it remains an un-analyzed target until the fix lands.
 
+*Postscript (2026-11-04): the fix has since been built exactly
+to this shape — column-lean stitch corrector at both call sites
+plus a zero-median-product guard in the download funnel
+(`UNITS_FIX_BUILD_REPORT.md`) — and the star has been run and
+vetted. Its gauntlet is the addendum section immediately below.*
+
+---
+
+## Target 11 of 20 — TIC 349272923 — **INCONCLUSIVE** (addendum: the rescued target, vetted post-fix)
+
+This star never received an in-sweep analysis: it crashed at the
+stitch step on the units fault diagnosed in Appendix A, so it
+carries **no in-sweep persistence stamp** — the only unstamped
+target of the patch. The units fix (above) was built and
+acceptance-tested the same day; its first successful run through
+the sweep's own code path (`analyze_target_json`, R 0.381 R_sun,
+BLS 10,000, cap 20) gave **P = 13.4495 d, SDE = 10.34, refined
+depth 1.196%** — above the 8.5 hit line, and so the full gauntlet
+was run as an addendum under the same pre-set rules.
+
+**Data caveat, stated plainly:** this star has **no SPOC,
+TESS-SPOC or QLP products**. Every stage below ran on the fixed
+pipeline's fallback set — 19 community products downloaded, the
+zero-centred guard excluded the 8 TASOC files, and **11
+GSFC-ELEANOR-LITE products (sectors 1, 3–11, 13; FFI, 1800 s
+cadence)** were analyzed. The evidence base is a community
+pipeline, not SPOC, and it is thin: only 4 of the 11 sector
+ranges yield a usable persistence measurement, and no coverage
+exists beyond sector 13.
+
+Star: Tmag 14.44, TIC radius 0.381 R_sun, 0.392 M_sun, Teff not
+recorded in the TIC row, 259 pc. Position RA 109.31924°,
+Dec −62.69357° — 0.436° from the patch centre. IDs: 2MASS
+07171660-6241368; the TIC row carries no Gaia DR3 identifier.
+
+### Stage by stage
+
+- **(f) Known checks:** Zooniverse Talk **False**. NASA Archive
+  TOI table: **0 rows** (queried post-fix with retries, clean).
+- **(a) Reproduce: exact.** P = 13.4495 d (relative difference
+  3×10⁻⁶ against the build-test run), SDE 10.34, depth 1.196%,
+  nominal Rp 4.55 R_earth, duration **5.976 h — the grid maximum**,
+  as on 10 of this patch's 16 in-sweep hits; 11 sectors,
+  10,754 points.
+- **(b) Odd/even: the driver's kill — and the documented
+  misfire, again.** Machine verdict "likely-eclipsing-binary" on
+  odd **+0.0056%** vs even **+0.1010%** ("94% apart"). But the
+  deepest fold is **8.4% of the 1.196% BLS depth** — squarely in
+  the ratio-rule misfire class this report's own corollaries
+  name (stage (b) fired on fold pairs at ≤16% of BLS depth in
+  4 of 16 cases this sweep; a (b) label under ~20% of BLS depth
+  is uninformative until stage (c) speaks; cf. TIC 349481800,
+  overturned on exactly this structure). The label is therefore
+  not allowed to stand on stage (b) alone; the remaining stages
+  are read on their own evidence.
+- **(c) Double-period: does not sustain the binary label.**
+  Refined 2P = 27.1754 d; eclipse windows **0.0736% / 0.0103%**
+  — no eclipse pair at anything approaching the BLS depth (the
+  deepest window is 6.2% of it). Quadrature delta **−0.013% ±
+  0.013% at −1.0σ**: no ellipsoidal wave. A binary whose only
+  trace is an 18:1 fold ratio on folds at 8% of the swept depth,
+  with no pair and no wave at double period, is not convicted.
+- **(d) Orbit-phase at full weight** (P = 13.4495 d sits in
+  the patch's 13.2–14.3 orbit-adjacent band; P/orbit ratio
+  0.9817): on-data fraction within 1.5 d of a segment boundary
+  **0.40 vs 0.219 by chance**, circular resultant **R = 0.463**,
+  on 10 on-data centres (17 of 27 centres fall in gaps). Both
+  numbers are elevated, but the pre-set pile-up rule (fraction
+  ≥ 0.5 **and** R ≥ 0.4) is **not met** — the test acquits by
+  its own rule, as it did for the trio. Recorded as an elevated
+  diagnostic, not a conviction.
+- **(e) Persistence at cap 20 (post-gate diagnostic):
+  MIXED.** Only **4 of 11 ranges are usable** (sectors 3–8 and
+  11 yield no σ from the short eleanor files). The usable four:
+  sector 1 **+0.353% (0.75σ)**, sector 9 **+2.619% (5.5σ)**,
+  sector 10 **+2.415% (5.2σ)**, sector 13 **+0.028% (0.09σ)**.
+  Weighted mean **+1.051% ± 0.206% (5.1σ)** — real, deep, and in
+  agreement with the BLS depth — but the sector depths are
+  inconsistent with any constant: **χ² p = 4.9×10⁻⁷**, the
+  excess carried almost entirely by the consecutive sectors
+  9–10 at ~+2.5% while sectors 1 and 13 sit at zero. All **5
+  full events are positive** (median event depth 0.698%);
+  **no raw monster sectors**.
+- **Contamination: unmeasurable from the TIC — recorded as
+  such.** The TIC carries **no contratio** for this target:
+  null in the sweep-5 ID-matched catalogue harvest and null
+  again in a post-fix restricted query (0.6′ radius, target row
+  verified by TIC ID and coordinates at 0.13″;
+  `sweep5_logs/addendum_349272923_catalog.json`). The nearest
+  catalogued neighbours within 0.6′ are TIC 765398597 (3.9″,
+  Tmag 19.02) and four more at Tmag 18.6–19.8 — all ≥4.1 mag
+  fainter than the target. No bright contaminator is
+  catalogued; no clean-aperture claim is made either, because
+  the instrument for one (contratio) does not exist here.
+
+### The uncapped tiebreaker — degenerate by construction
+
+Uncapped and cap-20 are **the same dataset** for this star:
+only 11 products exist, all admitted, so the uncapped analyze
+reproduces the cap-20 solution digit for digit and the uncapped
+persistence at the fixed ephemeris is the same MIXED table
+(2/4, +1.051% at 5.1σ). The era split has ranges only in
+sectors ≤13 (4 ranges) — sectors 27–39, 40–59 and ≥60 hold no
+data at all. Era-confinement is therefore **untestable**, and
+this is explicitly *not* the TIC 177163233 configuration: there,
+later sectors existed and were silent. Here the signal lives
+in sectors 9–10 of a year-1-only record, and no later cycle
+was ever observed by an admitted product.
+
+### Verdict
+
+**INCONCLUSIVE** — reclassified from the driver's mechanical
+LIKELY BINARY (raw verdict preserved in the JSON). The chain:
+stage (b)'s kill rests on folds at 8.4% of the BLS depth, the
+misfire class this report documents; stage (c) finds no pair
+and no wave to sustain it; stage (d) acquits by its pre-set
+rule despite elevated numbers; stage (e) finds a real, deep,
+all-events-positive excess (+1.051% at 5.1σ) whose depths are
+grossly inconsistent (χ² p ~ 5×10⁻⁷) and whose entire weight
+sits in two consecutive sectors of a community-pipeline,
+year-1-only record with 4 usable ranges. That profile convicts
+nothing and acquits nothing: not a binary by any measurement
+taken, not a phantom (the excess is in the per-sector
+accounting, not only in the stitch), and under no reading a
+survivor. The grey drawer gains its second sweep-5 member —
+and the patch's last un-analyzed target is closed.
+
 ---
 
 ## Sweep 5 — FINAL tally
 
-- **Targets in patch: 20.** Analyzed: 19. **Failed before
-  analysis: 1** (TIC 349272923, Appendix A).
-- **Hits (SDE ≥ 8.5): 16 of 19 analyzed (84%).**
+**Tally amendment (2026-11-04, post-fix addendum):** the
+counts below were amended the same day, after the units fix
+(Appendix A postscript) let the one failed target — TIC
+349272923 — be analyzed and vetted (addendum section above).
+Amended figures are marked *(amended)*; the originally
+published figures were 19 analyzed / 1 failed, 16 hits,
+1 inconclusive, and a 53-hit five-sweep ledger. Nothing else
+in this report was rewritten.
+
+- **Targets in patch: 20.** Analyzed in-sweep: 19. **Failed
+  before analysis: 1** (TIC 349272923, Appendix A) — analyzed
+  post-fix in the addendum, bringing the patch to **20 of 20
+  analyzed** *(amended)*.
+- **Hits (SDE ≥ 8.5): 17** — 16 of 19 in-sweep (84%) plus the
+  rescued target 11 (P 13.4495 d, SDE 10.34) *(amended)*.
 - **Survivors: 0.**
 - **Convicted: 15** — **11 eclipsing binaries** (TIC 349519662,
   349193983, 349370722, 349370477, 349408892, 349477874,
   349370417, 349370907, 349273239, 349309664, 349193749) and
   **4 blend-suspects** (TIC 349309779, 349268662, 349268505,
   349478154). Phantoms: 0.
-- **Inconclusive: 1** — TIC 349481800 (evolving-starspot
-  profile; driver's mechanical EB label reclassified, see its
-  section).
+- **Inconclusive: 2** *(amended)* — TIC 349481800
+  (evolving-starspot profile; driver's mechanical EB label
+  reclassified, see its section) and **TIC 349272923**
+  (addendum: driver's mechanical EB label reclassified — real
+  deep excess at inconsistent depths, folds evaporated, no
+  pair or wave at 2P, eleanor-lite-only evidence base).
 
-**Combined five-sweep ledger: 53 hits, 0 survivors, 43 convicted
-(26 EB, 9 blends, 8 phantoms), 5 inconclusive** — updating sweeps
-1–4's 37 hits / 28 convicted (15 EB, 5 blends, 8 phantoms) / 4
-inconclusive; the 3 un-vetted sweep-1 hits and the earliest
-reports' two-star class ambiguity (footnoted in the sweep-4
-report) carry forward unchanged. Five patches, 100 targets,
-53 hits — and the count of photometric candidates still standing
-is **zero**. The (RA 95, Dec −64) pointing is next in the queue.
+**Combined five-sweep ledger *(amended)*: 54 hits, 0 survivors,
+43 convicted (26 EB, 9 blends, 8 phantoms), 6 inconclusive** —
+updating sweeps 1–4's 37 hits / 28 convicted (15 EB, 5 blends,
+8 phantoms) / 4 inconclusive; the 3 un-vetted sweep-1 hits and
+the earliest reports' two-star class ambiguity (footnoted in
+the sweep-4 report) carry forward unchanged. Five patches,
+100 targets — all 100 now analyzed — 54 hits, and the count of
+photometric candidates still standing is **zero**. The
+(RA 95, Dec −64) pointing is next in the queue.
 
 **Stamp audit for sweep 5.** The in-sweep stamp's bottom line —
 "not a planet at the swept ephemeris" — is upheld **16/16**;
 "not a planet" now stands **33/33** across sweeps 3–5's fully
 vetted hits (the sweep-2 six were hand-vetted before stamps
-existed). Species resolution this patch: the eleven
+existed). **The rescued target 11 is not in this audit and does
+not change it:** TIC 349272923 crashed before the in-sweep code
+could stamp it, so no stamp exists to uphold or overturn — the
+audit denominator stays 16, and the 33/33 streak is neither
+extended nor broken by its INCONCLUSIVE addendum verdict. Species resolution this patch: the eleven
 fails-persistence stamps resolved to **9 eclipsing binaries,
 2 blend-suspects** (TIC 349268505 and 349478154 — the stamp's
 own species, exact on those two; refined to EB on the other
@@ -889,3 +1036,22 @@ exhibit for TIC 349481800), `sweep5_logs/catalog_rows.json`,
 `sweep5_logs/trio_analysis.json`, `sweep5_logs/diag_349272923.json`.
 DB and discoveries.csv ended the session byte-identical to
 their pre-session md5s (`33b70438…`, `2c8abaae…`).
+
+**Addendum session note (2026-11-04, post-fix).** The rescued
+target's gauntlet ran locally the same day, after the units
+fix: one driver run (94 s wall; downloads cached from the
+build acceptance test), the standard driver history discipline
+(`log_candidate` no-op, no API server, ports untouched), plus
+the TOI TAP count and the restricted-radius TIC contratio
+verification recorded in
+`sweep5_logs/addendum_349272923_catalog.json`. One process
+note: an unrestricted catalogue query's first row is a
+*neighbour* of this star (TIC 67172680, 1.8′ away, contratio
+0.7569) — it was caught by ID/coordinate verification and
+never used; the target's own verified row carries no
+contratio. Verification files added: `vetting_results/
+349272923.json` (+ cap-20 and uncapped persistence sidecars),
+`sweep5_logs/vet_349272923.log`,
+`sweep5_logs/addendum_349272923_catalog.json`. DB and
+discoveries.csv again byte-identical to their pre-session
+md5s (`33b70438…`, `2c8abaae…`).
