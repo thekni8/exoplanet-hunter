@@ -211,7 +211,7 @@ export default function Scanner({ settings, onOpenTarget }) {
 
       <Panel title="Where should we look?">
         <div className="p-3 space-y-3">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="Right Ascension — RA (deg)" range="0 – 360"><input className={inputCls} type="number" step="0.01" min="0" max="360" value={ra} onChange={(e) => setRa(e.target.value)} /></Field>
             <Field label="Declination — Dec (deg)" range="−90 – +90"><input className={inputCls} type="number" step="0.01" min="-90" max="90" value={dec} onChange={(e) => setDec(e.target.value)} /></Field>
             <Field label={`Search radius: ${Number(radius).toFixed(2)}°`} range="0.01 – 1.00°">

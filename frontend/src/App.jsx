@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Activity, BarChart2, BookOpen, Compass, CheckCircle2, History, Radar } from 'lucide-react';
+import { Activity, BarChart2, BookOpen, Compass, CheckCircle2, History, Radar, Menu, X } from 'lucide-react';
 import Scanner from './views/Scanner.jsx';
 import Guide from './views/Guide.jsx';
 import Observatory from './views/Observatory.jsx';
@@ -14,6 +14,11 @@ export default function App() {
   // Stage 4: the Scanner (v1's simple front door) is the home view;
   // the workstation views live under "Advanced tools".
   const [view, setView] = useState('scanner');
+
+  // Mobile shell (≤768px): the sidebar becomes a top bar and this
+  // toggles the nav/settings block under it. Ignored on desktop,
+  // where the sidebar is always visible.
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Global settings (sidebar). These are sent with every analyze run —
   // see the honesty note under the pipeline checkboxes.
@@ -46,7 +51,7 @@ export default function App() {
   ];
 
   const navBtn = (tab) => (
-    <button key={tab.id} onClick={() => setView(tab.id)}
+    <button key={tab.id} onClick={() => { setView(tab.id); setMenuOpen(false); }}
       className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-sm transition-colors ${
         view === tab.id
           ? 'bg-blue-900/30 text-blue-400 border border-blue-800/50'
@@ -57,17 +62,23 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-300 font-sans overflow-hidden">
-      <aside className="w-64 border-r border-zinc-800 bg-zinc-900 flex flex-col flex-shrink-0">
+    <div className="flex flex-col min-[769px]:flex-row h-screen bg-zinc-950 text-zinc-300 font-sans overflow-hidden">
+      <aside className="w-full min-[769px]:w-64 border-b min-[769px]:border-b-0 min-[769px]:border-r border-zinc-800 bg-zinc-900 flex flex-col flex-shrink-0">
         <div className="p-4 border-b border-zinc-800 flex items-center gap-2">
           <Activity className="h-5 w-5 text-blue-500" />
           <span className="font-bold text-sm tracking-tight text-zinc-100 leading-tight">
             Exoplanet Hunter<br />
             <span className="text-[10px] text-zinc-500 font-normal">Terminal Workstation · real TESS data</span>
           </span>
+          <button type="button" aria-label="Toggle navigation menu" aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
+            className="ml-auto min-[769px]:hidden p-2.5 -mr-2 text-zinc-300 hover:text-white">
+            {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+        <div className={`${menuOpen ? 'flex' : 'hidden'} min-[769px]:flex flex-col min-[769px]:flex-1 min-[769px]:min-h-0`}>
+        <nav className="flex-1 max-[768px]:flex-none max-[768px]:max-h-[60vh] overflow-y-auto p-3 space-y-1">
           <div className="text-[10px] font-bold uppercase text-zinc-500 mb-2 mt-1 px-2 tracking-wider">Start here</div>
           {navBtn({ id: 'scanner', label: 'Deep Space Scanner', icon: Radar })}
           {navBtn({ id: 'guide', label: "Beginner's Guide", icon: BookOpen })}
@@ -121,9 +132,10 @@ export default function App() {
           Engine: hunter.py (lightkurve + astropy BLS) via the job-queue API.
           One job runs at a time; history is saved in the app.
         </div>
+        </div>
       </aside>
 
-      <main className="flex-1 flex flex-col h-full overflow-y-auto bg-zinc-950">
+      <main className="flex-1 flex flex-col min-h-0 min-[769px]:h-full overflow-y-auto bg-zinc-950">
         {view === 'scanner' && <Scanner settings={settings} onOpenTarget={openTarget} />}
         {view === 'guide' && <Guide />}
         {view === 'observatory' && <Observatory settings={settings} seed={obsSeed} />}

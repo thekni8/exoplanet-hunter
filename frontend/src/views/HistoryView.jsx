@@ -182,7 +182,7 @@ export default function HistoryView({ onOpenJob }) {
 
   return (
     <div className="p-4 space-y-4 max-w-7xl mx-auto w-full">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-bold text-zinc-200">Run History</h2>
           <p className="text-[11px] text-zinc-500 mt-0.5">Every run through the API, newest first — persisted in the app's database, so it survives restarts.</p>
@@ -200,6 +200,7 @@ export default function HistoryView({ onOpenJob }) {
         ) : runs.length === 0 ? (
           <div className="p-3 text-xs text-zinc-500 font-mono">No runs recorded yet.</div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-xs text-left text-zinc-300 font-mono">
             <thead className="bg-zinc-950 text-zinc-500 uppercase border-b border-zinc-800">
               <tr>
@@ -214,6 +215,7 @@ export default function HistoryView({ onOpenJob }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Panel>
 
@@ -223,6 +225,7 @@ export default function HistoryView({ onOpenJob }) {
         ) : discoveries.length === 0 ? (
           <div className="p-3 text-xs text-zinc-500 font-mono">No hits recorded yet. Runs that don't cross the threshold are treated as noise and are not logged here.</div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-xs text-left text-zinc-300 font-mono">
             <thead className="bg-zinc-950 text-zinc-500 uppercase border-b border-zinc-800">
               <tr>
@@ -239,6 +242,7 @@ export default function HistoryView({ onOpenJob }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Panel>
     </div>

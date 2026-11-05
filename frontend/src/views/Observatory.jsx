@@ -105,11 +105,11 @@ export default function Observatory({ settings, seed }) {
     <div className="p-4 space-y-4 max-w-7xl mx-auto w-full">
       <Panel>
         <div className="p-3 flex flex-wrap items-end gap-3">
-          <div className="w-44"><Field label="Target TIC ID" range="positive whole number"><input className={inputCls} value={tic} onChange={(e) => setTic(e.target.value)} /></Field></div>
-          <div className="w-28"><Field label="Host Radius (R☉)" range="0.1 – 10"><input className={inputCls} type="number" step="0.05" min="0.1" max="10" value={radius} onChange={(e) => setRadius(e.target.value)} /></Field></div>
-          <div className="w-28"><Field label="Min Period (d)" range="0.1 – 100"><input className={inputCls} type="number" step="0.1" min="0.1" max="100" value={minPeriod} onChange={(e) => setMinPeriod(e.target.value)} /></Field></div>
-          <div className="w-28"><Field label="Max Period (d)" range="0.1 – 100"><input className={inputCls} type="number" step="0.5" min="0.1" max="100" value={maxPeriod} onChange={(e) => setMaxPeriod(e.target.value)} /></Field></div>
-          <div className="w-52">
+          <div className="w-full min-[500px]:w-44"><Field label="Target TIC ID" range="positive whole number"><input className={inputCls} value={tic} onChange={(e) => setTic(e.target.value)} /></Field></div>
+          <div className="w-full min-[500px]:w-28"><Field label="Host Radius (R☉)" range="0.1 – 10"><input className={inputCls} type="number" step="0.05" min="0.1" max="10" value={radius} onChange={(e) => setRadius(e.target.value)} /></Field></div>
+          <div className="w-full min-[500px]:w-28"><Field label="Min Period (d)" range="0.1 – 100"><input className={inputCls} type="number" step="0.1" min="0.1" max="100" value={minPeriod} onChange={(e) => setMinPeriod(e.target.value)} /></Field></div>
+          <div className="w-full min-[500px]:w-28"><Field label="Max Period (d)" range="0.1 – 100"><input className={inputCls} type="number" step="0.5" min="0.1" max="100" value={maxPeriod} onChange={(e) => setMaxPeriod(e.target.value)} /></Field></div>
+          <div className="w-full min-[500px]:w-52">
             <Field label={allSectors ? 'Sectors: ALL' : `Sector Cap: ${sectorCap}`} range="1 – 20, or All">
               <div className="flex items-center gap-2">
                 <input type="range" min="1" max="20" step="1" value={sectorCap} disabled={allSectors}
@@ -122,7 +122,7 @@ export default function Observatory({ settings, seed }) {
             </Field>
           </div>
           <button onClick={run} disabled={busy}
-            className="ml-auto bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold py-1.5 px-6 rounded-sm border border-blue-500 flex items-center gap-2">
+            className="ml-auto bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold py-1.5 px-6 rounded-sm border border-blue-500 flex items-center gap-2 max-[768px]:w-full max-[768px]:ml-0 max-[768px]:justify-center max-[768px]:py-2.5">
             <Play className="h-3.5 w-3.5" /> {busy ? 'Running…' : 'Run Analysis'}
           </button>
         </div>

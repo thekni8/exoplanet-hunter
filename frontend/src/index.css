@@ -29,3 +29,12 @@ body {
 input[type="range"] {
   cursor: pointer;
 }
+
+/* Mobile (≤768px): give range sliders a full-size touch target.
+   Desktop rendering is untouched — this only applies under the
+   mobile breakpoint. */
+@media (max-width: 768px) {
+  input[type="range"] {
+    height: 40px;
+  }
+}

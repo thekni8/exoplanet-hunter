@@ -112,7 +112,7 @@ export default function Sweeper({ settings, onOpenTarget }) {
     <div className="p-4 space-y-4 max-w-7xl mx-auto w-full">
       <Panel title="Sweep Parameters">
         <div className="p-3">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="RA (deg)" range="0 – 360"><input className={inputCls} type="number" step="0.01" min="0" max="360" value={ra} onChange={(e) => setRa(e.target.value)} /></Field>
             <Field label="Dec (deg)" range="−90 – +90"><input className={inputCls} type="number" step="0.01" min="-90" max="90" value={dec} onChange={(e) => setDec(e.target.value)} /></Field>
             <Field label="Cone Radius (deg)" range="0.01 – 2"><input className={inputCls} type="number" step="0.05" min="0.01" max="2" value={cone} onChange={(e) => setCone(e.target.value)} /></Field>
@@ -124,10 +124,10 @@ export default function Sweeper({ settings, onOpenTarget }) {
             <Field label="Sector Cap (per star)" range="1 – 20"><input className={inputCls} type="number" step="1" min="1" max="20" value={sectorCap} onChange={(e) => setSectorCap(e.target.value)} /></Field>
             <Field label="BLS Grid Points (per star)" range="1,000 – 100,000"><input className={inputCls} type="number" step="1000" min="1000" max="100000" value={blsPoints} onChange={(e) => setBlsPoints(e.target.value)} /></Field>
           </div>
-          <div className="mt-3 flex items-center justify-between">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <span className="text-[11px] text-zinc-500">The sweep always works through the full screened list — it runs as a background job.</span>
             <button onClick={run} disabled={busy}
-              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold py-1.5 px-6 rounded-sm border border-blue-500 flex items-center gap-2">
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold py-1.5 px-6 rounded-sm border border-blue-500 flex items-center gap-2 max-[768px]:w-full max-[768px]:justify-center max-[768px]:py-2.5">
               <Search className="h-3.5 w-3.5" /> {busy ? 'Sweeping…' : 'Launch Sweep'}
             </button>
           </div>
@@ -144,6 +144,7 @@ export default function Sweeper({ settings, onOpenTarget }) {
               No target crossed the SDE ≥ 8.5 hit threshold in this sweep ({summary.targets_analyzed} analysed, {summary.errors?.length || 0} errors — see progress log).
             </div>
           ) : (
+            <div className="overflow-x-auto">
             <table className="w-full text-xs text-left text-zinc-300 font-mono">
               <thead className="bg-zinc-950 text-zinc-500 uppercase border-b border-zinc-800">
                 <tr>
@@ -159,6 +160,7 @@ export default function Sweeper({ settings, onOpenTarget }) {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </Panel>
       )}

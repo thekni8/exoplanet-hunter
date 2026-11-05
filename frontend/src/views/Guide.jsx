@@ -154,7 +154,7 @@ const CONCEPTS = [
 
 export default function Guide() {
   return (
-    <div className="p-6 lg:p-8 space-y-8 w-full">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-8 w-full">
       <div>
         <h2 className="text-4xl font-bold text-zinc-100 tracking-tight">Beginner’s Guide</h2>
         <p className="text-lg text-zinc-400 mt-3 leading-8">

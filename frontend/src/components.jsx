@@ -88,7 +88,7 @@ export function ProgressLog({ job, pollError }) {
       <div className="max-h-56 overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed text-zinc-400">
         {lines.length === 0 && <div className="text-zinc-600">No progress messages yet.</div>}
         {lines.map((line, i) => (
-          <div key={i} className={i === lines.length - 1 && job.status === 'running' ? 'text-zinc-200' : ''}>
+          <div key={i} className={`whitespace-pre-wrap break-words ${i === lines.length - 1 && job.status === 'running' ? 'text-zinc-200' : ''}`}>
             <span className="text-zinc-600 mr-2">{String(i + 1).padStart(2, '0')}</span>{line}
           </div>
         ))}

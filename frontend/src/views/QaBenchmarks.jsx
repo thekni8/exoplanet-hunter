@@ -70,7 +70,7 @@ export default function QaBenchmarks({ onOpenTarget }) {
 
   return (
     <div className="p-4 space-y-4 max-w-5xl mx-auto w-full">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start min-[769px]:items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-bold text-zinc-200">Verified Mission Standards</h2>
           <p className="text-[11px] text-zinc-500 mt-0.5">
@@ -78,7 +78,7 @@ export default function QaBenchmarks({ onOpenTarget }) {
           </p>
         </div>
         <button onClick={run} disabled={busy}
-          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold py-1.5 px-6 rounded-sm border border-blue-500 flex items-center gap-2">
+          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold py-1.5 px-6 rounded-sm border border-blue-500 flex items-center gap-2 max-[768px]:w-full max-[768px]:justify-center max-[768px]:py-2.5">
           <Play className="h-3.5 w-3.5" /> {busy ? 'Running QA…' : 'Run QA Suite'}
         </button>
       </div>
@@ -136,18 +136,18 @@ export default function QaBenchmarks({ onOpenTarget }) {
             Found a candidate somewhere else? Type its TIC ID and the period you expect — the app re-runs the detection and tells you if it matches.
           </p>
           <div className="flex flex-wrap items-end gap-3">
-            <div className="w-44">
+            <div className="w-full sm:w-44">
               <Field label="TIC ID" range="positive whole number">
                 <input className={inputCls} value={customTic} onChange={(e) => setCustomTic(e.target.value)} placeholder="e.g. 25155310" />
               </Field>
             </div>
-            <div className="w-40">
+            <div className="w-full sm:w-40">
               <Field label="Expected period (days)" range="0.1 – 100">
                 <input className={inputCls} type="number" step="0.0001" min="0.1" max="100" value={customPeriod} onChange={(e) => setCustomPeriod(e.target.value)} placeholder="e.g. 3.2822" />
               </Field>
             </div>
             <button onClick={runCustom} disabled={customBusy}
-              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold py-1.5 px-6 rounded-sm border border-blue-500 flex items-center gap-2">
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold py-1.5 px-6 rounded-sm border border-blue-500 flex items-center gap-2 max-[768px]:w-full max-[768px]:justify-center max-[768px]:py-2.5">
               <Play className="h-3.5 w-3.5" /> {customBusy ? 'Running QA…' : 'Run QA check'}
             </button>
           </div>
