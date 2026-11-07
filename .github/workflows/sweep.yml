@@ -1,0 +1,119 @@
+# Exoplanet Hunter — free sweep runner (GitHub Actions)
+#
+# Why this shape: Hunter's work is batch-shaped — fire a sweep, harvest
+# the results. GitHub Actions standard runners are FREE for public repos
+# (4 vCPU, 16 GB RAM, up to 6 h per job) and run on GitHub's network, so
+# MAST downloads come down clean — no Jio corruption, no Codespaces
+# hours burned. Launch from the Actions tab in a phone browser
+# (workflow_dispatch form); results come back as a downloadable artifact.
+# Runners are disposable, so everything worth keeping lands in
+# sweep-output/ and is uploaded at the end (see sweep_runner.py).
+#
+# Honest limits:
+# - One job caps at 6 h. A 20-star patch took ~2 h on a home Mac with
+#   corrupt-download retries, so a patch fits comfortably.
+# - Keep the volume sane — a few sweeps a week is ordinary project
+#   automation; running it 24/7 would be abusing the free tier.
+# - This reuses the production app unchanged (bash run.sh +
+#   POST /api/sweep, poll GET /api/jobs/{id}); no engine code changes.
+# - Defaults below are the standing small-dwarf recipe (R 0.2-0.5 Rsun,
+#   southern CVZ). For a big-fish patch set min_rad 1.3 / max_rad 2.5.
+name: Hunter sweep (free runner)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ra:
+        description: "Centre RA (deg)"
+        required: true
+        default: "95.0"
+        type: number
+      dec:
+        description: "Centre Dec (deg)"
+        required: true
+        default: "-64.0"
+        type: number
+      cone:
+        description: "Cone radius (deg)"
+        required: false
+        default: "1.0"
+        type: number
+      limit:
+        description: "Max targets"
+        required: false
+        default: "20"
+        type: number
+      min_mag:
+        description: "Tmag min"
+        required: false
+        default: "11.5"
+        type: number
+      max_mag:
+        description: "Tmag max"
+        required: false
+        default: "15"
+        type: number
+      min_rad:
+        description: "Star radius min (Rsun)"
+        required: false
+        default: "0.2"
+        type: number
+      max_rad:
+        description: "Star radius max (Rsun)"
+        required: false
+        default: "0.5"
+        type: number
+      bls_points:
+        description: "BLS grid points"
+        required: false
+        default: "10000"
+        type: number
+      sector_cap:
+        description: "Sectors per star (cap)"
+        required: false
+        default: "20"
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run sweep (starts the real app, drives its API, harvests results)
+        run: >
+          python sweep_runner.py
+          --ra ${{ inputs.ra }}
+          --dec ${{ inputs.dec }}
+          --cone ${{ inputs.cone }}
+          --limit ${{ inputs.limit }}
+          --min-mag ${{ inputs.min_mag }}
+          --max-mag ${{ inputs.max_mag }}
+          --min-rad ${{ inputs.min_rad }}
+          --max-rad ${{ inputs.max_rad }}
+          --bls-points ${{ inputs.bls_points }}
+          --sector-cap ${{ inputs.sector_cap }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hunter-sweep-${{ github.run_number }}
+          path: sweep-output/
+          if-no-files-found: warn
+          retention-days: 90
