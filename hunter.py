@@ -196,6 +196,10 @@ _CONNECTION_CLASS_NAMES = frozenset({
     "IncompleteRead", "ChunkedEncodingError",
     "ConnectionResetError", "ConnectionAbortedError", "BrokenPipeError",
     "TimeoutError", "SocketTimeout", "SSLEOFError",
+    "RemoteServiceError",     # astroquery/MAST transient service failure
+                              # (run #16, 2026-11-09: an unretried
+                              # RemoteServiceError from the TIC cone query
+                              # killed the sweep in 3 minutes)
 })
 
 # Lowercase message fragments that mark a transient connection failure.
