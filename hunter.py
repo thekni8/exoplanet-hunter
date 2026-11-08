@@ -518,6 +518,118 @@ def log_candidate(tic_id, period, sde, depth, planet_re, sectors, star_rad):
 
 
 # ---------------------------------------------------------------------------
+# Product selection + systematic helpers (2026-11-08 upgrade)
+# ---------------------------------------------------------------------------
+
+_AUTHOR_PRIORITY = ("SPOC", "TESS-SPOC", "QLP")
+
+# TESS orbital systematic family (days): the 13.7 d spacecraft orbit and
+# its 6.85 / 27.4 d harmonics. Peaks here are artifacts until vetted, and
+# the family is excluded when the periodogram's noise scale is measured,
+# so the artifact forest stops taxing every real peak's SDE.
+_SYSTEMATIC_PERIODS = (13.7, 6.85, 27.4)
+
+
+def _near_systematic(period):
+    """True if a period sits within 3% of the TESS systematic family."""
+    return any(abs(period - s) <= 0.03 * s for s in _SYSTEMATIC_PERIODS)
+
+
+def _search_author(tic_id, author):
+    """One author's light-curve search for a TIC.
+
+    Returns the SearchResult (possibly empty), or None if the query
+    succeeded with a non-connection error treated as 'no usable
+    result'. Raises requests.exceptions.ConnectionError if the query
+    FAILED (after one internal retry): a failed query is not the same
+    as an empty one, and the caller's self-heal wrapper must get the
+    chance to retry the whole selection rather than the star being
+    silently demoted to worse data (the 308851365 fallback incident
+    during the 2026-11-08 upgrade tests)."""
+    last_exc = None
+    for _attempt in range(2):
+        try:
+            return lk.search_lightcurve(f"TIC {tic_id}", author=author)
+        except Exception as e:
+            if _is_connection_error(e):
+                raise
+            last_exc = e
+            time.sleep(3)
+    raise requests.exceptions.ConnectionError(
+        f"Author query failed for TIC {tic_id} ({author}): {last_exc}")
+
+
+def _select_products(tic_id, max_sectors, progress_callback=None):
+    """Deterministic per-star product selection (2026-11-08).
+
+    Why: the 2026-11-08 TOI-700 control post-mortem. The old path took
+    the first ``max_sectors`` ROWS of one multi-author search (plus a
+    silent unfiltered fallback), so which pipeline's data a star was
+    analyzed on — SPOC 2-minute PDCSAP, TESS-SPOC FFI, QLP, or an HLSP
+    mixture — depended on MAST's row order that day. Identical
+    production code scores TOI-700 c at SDE 42.8 on SPOC products and
+    SDE 7.5 (noise) on the set the Actions runner happened to draw.
+
+    Selection is now explicit and homogeneous per star:
+
+    * query SPOC, TESS-SPOC and QLP separately;
+    * pick ONE author per star — most distinct sectors wins, author
+      priority (SPOC > TESS-SPOC > QLP) breaks ties;
+    * within the author, one product per sector, preferring the
+      120 s cadence over 20 s when both exist;
+    * keep the earliest ``max_sectors`` distinct sectors;
+    * if no named author has products, fall back to an unfiltered
+      search WITH a loud progress warning (never silently).
+
+    Returns a lightkurve SearchResult (possibly a subset).
+    """
+    best = None  # (n_sectors, -priority, author, search, row_indices)
+    for prio, author in enumerate(_AUTHOR_PRIORITY):
+        search = _search_author(tic_id, author)
+        if search is None or len(search) == 0:
+            continue
+        try:
+            table = search.table
+            by_sector = {}
+            for idx in range(len(table)):
+                sector = int(table["sequence_number"][idx])
+                exptime = float(table["exptime"][idx])
+                cur = by_sector.get(sector)
+                if cur is None or (exptime == 120.0
+                                   and float(table["exptime"][cur]) != 120.0):
+                    by_sector[sector] = idx
+            sectors = sorted(by_sector)
+            cand = (len(sectors), -prio, author, search,
+                    [by_sector[s] for s in sectors])
+        except Exception:
+            # Unexpected table shape: degrade to this author's raw rows
+            # rather than failing the star.
+            cand = (0, -prio, author, search, list(range(len(search))))
+        if best is None or (cand[0], cand[1]) > (best[0], best[1]):
+            best = cand
+    if best is not None:
+        _, _, author, search, row_idx = best
+        if max_sectors is not None:
+            row_idx = row_idx[:max_sectors]
+        _emit(progress_callback,
+              f"Products: {author} — {len(row_idx)} sector(s) selected "
+              f"(deterministic selection).")
+        try:
+            return search[row_idx]
+        except Exception:
+            return search
+    _emit(progress_callback,
+          "WARNING: no SPOC/TESS-SPOC/QLP products found — falling back "
+          "to an unfiltered search (mixed HLSP data, reduced reliability).")
+    search = lk.search_lightcurve(f"TIC {tic_id}")
+    if len(search) == 0:
+        raise RuntimeError(f"No mission data found for TIC {tic_id}.")
+    if max_sectors is not None:
+        search = search[:max_sectors]
+    return search
+
+
+# ---------------------------------------------------------------------------
 # Core pipeline (internal: returns scalars + arrays)
 # ---------------------------------------------------------------------------
 
@@ -533,47 +645,137 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     """
     tic_id = str(tic_id).strip()
 
-    def _search():
-        _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
-
-        search = lk.search_lightcurve(f"TIC {tic_id}", author=["SPOC", "TESS-SPOC", "QLP"])
-        if len(search) == 0:
-            search = lk.search_lightcurve(f"TIC {tic_id}")
-        if len(search) == 0:
-            raise RuntimeError(f"No mission data found for TIC {tic_id}.")
-        return search
-
-    search = _with_download_self_heal(_search, progress_callback)
-    sectors_to_fetch = search if max_sectors is None else search[:max_sectors]
+    _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
+    sectors_to_fetch = _with_download_self_heal(
+        lambda: _select_products(tic_id, max_sectors, progress_callback),
+        progress_callback)
     _emit(progress_callback,
-          f"Downloading {len(sectors_to_fetch)} of {len(search)} sector(s) for TIC {tic_id}...")
+          f"Downloading {len(sectors_to_fetch)} sector product(s) for TIC {tic_id}...")
     lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
     n_sectors = len(lc_collection)
 
     lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
               .remove_nans().remove_outliers(sigma=5.0))
 
-    # detrend_window defaults to 101 — the value the original hardcoded here.
-    lc_flat, trend = lc_raw.flatten(window_length=detrend_window, return_trend=True)
+    # --- Detrend window in TIME units (2026-11-08 upgrade) -------------
+    # detrend_window=101 was born on 30-minute data, where 101 points is
+    # ~2.1 days. On SPOC 2-minute data the same 101 points span 3.4
+    # HOURS, so the Savitzky-Golay trend absorbs whole transits
+    # (measured on TOI-700 c: depth 0.095% at a 101-point window vs
+    # 0.173% at a true 2-day window, same data). The window is now
+    # derived from the stitched curve's median cadence, targeting
+    # ~2.0 days at every cadence; the detrend_window argument remains
+    # only as the fallback if the cadence cannot be measured.
+    _times = np.asarray(lc_raw.time.value, dtype=float)
+    _win = detrend_window
+    if _times.size > 10:
+        _dt = float(np.median(np.diff(_times)))
+        if _dt > 0:
+            _target = int(round(2.0 / _dt))
+            _target += (_target % 2 == 0)
+            _win = int(min(max(_target, 31), 4001))
+            _max_odd = int(_times.size) // 2 * 2 - 1
+            if _win > _max_odd:
+                _win = max(31, _max_odd)
+            _emit(progress_callback,
+                  f"Detrend window: {_win} points "
+                  f"(~{_win * _dt:.2f} d at {_dt * 1440.0:.0f}-min cadence).")
+    lc_flat, trend = lc_raw.flatten(window_length=_win, return_trend=True)
     t = lc_flat.time.value
     f = lc_flat.flux.value
 
-    _emit(progress_callback, f"Running BLS ({bls_points:,} grid points) for TIC {tic_id}...")
-    periods = np.linspace(min_p, max_p, bls_points) * u.day
+    # --- BLS v2 (2026-11-08 upgrade) ------------------------------------
+    # * Frequency-uniform grid (3x the requested points, minimum 30k):
+    #   the old linear-in-period grid under-samples long periods over a
+    #   multi-year stitched baseline.
+    # * Robust SDE: median/MAD of the periodogram EXCLUDING the TESS
+    #   13.7 d systematic family, so the artifact forest no longer sets
+    #   the noise scale every real peak is divided by.
+    # * Top-3 distinct peaks are extracted, not just the argmax; the
+    #   headline is the best non-systematic peak when one clears
+    #   SDE 6.5, else the argmax. All three ride along as candidates.
+    # * The headline period is refined on a fine local grid.
+    _n_grid = int(max(bls_points * 3, 30000))
+    _emit(progress_callback, f"Running BLS ({_n_grid:,} grid points) for TIC {tic_id}...")
+    periods = (1.0 / np.linspace(1.0 / max_p, 1.0 / min_p, _n_grid)) * u.day
     durations = np.linspace(0.03, 0.25, 14) * u.day
 
+    def _sde_scale(powers, period_vals):
+        keep = np.ones(len(powers), dtype=bool)
+        for _s in _SYSTEMATIC_PERIODS:
+            keep &= np.abs(period_vals - _s) > 0.03 * _s
+        base = np.asarray(powers, dtype=float)[keep]
+        med = float(np.median(base))
+        mad = float(np.median(np.abs(base - med))) * 1.4826
+        scale = mad if mad > 0 else float(np.std(base))
+        return med, (scale if scale > 0 else 1e-12)
+
     def _bls_best(tt, ff):
-        """Production BLS (unchanged grid + SDE formula) -> best-fit scalars."""
+        """BLS v2 -> (res, period, depth, duration, t0, sde, candidates)."""
         _bls = BoxLeastSquares(tt * u.day, ff)
         _res = _bls.power(periods, durations)
-        _i = int(np.argmax(_res.power))
-        return (_res, float(_res.period[_i].value), float(_res.depth[_i]),
-                float(_res.duration[_i].value),
-                float(_res.transit_time[_i].value),
-                float((_res.power[_i] - np.median(_res.power))
-                      / (np.std(_res.power) + 1e-12)))
+        _pv = np.asarray(_res.period.value, dtype=float)
+        _pw = np.asarray(_res.power, dtype=float)
+        _med, _scale = _sde_scale(_pw, _pv)
+        _work = (_pw - _med) / _scale
+        _cands = []
+        for _k in range(3):
+            _i = int(np.argmax(_work))
+            if not np.isfinite(_work[_i]):
+                break
+            _cands.append({
+                "period": float(_pv[_i]),
+                "sde": float(_work[_i]),
+                "depth": float(_res.depth[_i]),
+                "duration": float(_res.duration[_i].value),
+                "t0": float(_res.transit_time[_i].value),
+                "near_systematic": bool(_near_systematic(float(_pv[_i]))),
+                "detector": "BLS",
+            })
+            _work[np.abs(_pv - _pv[_i]) <= 0.02 * _pv[_i]] = -np.inf
+        if not _cands:
+            _i = int(np.argmax(_pw))
+            _cands = [{
+                "period": float(_pv[_i]),
+                "sde": float((_pw[_i] - _med) / _scale),
+                "depth": float(_res.depth[_i]),
+                "duration": float(_res.duration[_i].value),
+                "t0": float(_res.transit_time[_i].value),
+                "near_systematic": bool(_near_systematic(float(_pv[_i]))),
+                "detector": "BLS",
+            }]
+        _head_idx = 0
+        for _k, _c in enumerate(_cands):
+            if not _c["near_systematic"]:
+                if _c["sde"] >= 6.5:
+                    _head_idx = _k
+                break
+        _head = _cands[_head_idx]
+        # Refine the headline on a fine local grid (+/-1.5%, 800 points).
+        try:
+            _fine = np.linspace(_head["period"] * 0.985,
+                                _head["period"] * 1.015, 800) * u.day
+            _fres = _bls.power(_fine, durations)
+            _fi = int(np.argmax(_fres.power))
+            _fsde = float((_fres.power[_fi] - _med) / _scale)
+            if _fsde >= _head["sde"] - 1.0:
+                _head = {
+                    "period": float(_fres.period[_fi].value),
+                    "sde": _fsde,
+                    "depth": float(_fres.depth[_fi]),
+                    "duration": float(_fres.duration[_fi].value),
+                    "t0": float(_fres.transit_time[_fi].value),
+                    "near_systematic": bool(_near_systematic(
+                        float(_fres.period[_fi].value))),
+                    "detector": "BLS",
+                }
+                _cands[_head_idx] = _head
+        except Exception:
+            pass
+        return (_res, _head["period"], _head["depth"], _head["duration"],
+                _head["t0"], _head["sde"], _cands)
 
-    res, best_period, best_depth, best_duration, t0, sde = _bls_best(t, f)
+    res, best_period, best_depth, best_duration, t0, sde, candidates = _bls_best(t, f)
 
     # --- Depth-recovery pass (2026-11-03 depth fix) -----------------------
     # Autopsy on WASP-126 b (DEPTH_FIX_REPORT.md): lightkurve's flatten
@@ -593,11 +795,73 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     if _transit_mask.mean() <= 0.50:
         _emit(progress_callback,
               "Refining depth: re-detrending with transits masked out of the trend fit...")
-        lc_flat, trend = lc_raw.flatten(window_length=detrend_window,
-                                        return_trend=True, mask=_transit_mask)
-        t = lc_flat.time.value
-        f = lc_flat.flux.value
-        res, best_period, best_depth, best_duration, t0, sde = _bls_best(t, f)
+        try:
+            lc_flat, trend = lc_raw.flatten(window_length=_win,
+                                            return_trend=True, mask=_transit_mask)
+            t = lc_flat.time.value
+            f = lc_flat.flux.value
+            res, best_period, best_depth, best_duration, t0, sde, candidates = _bls_best(t, f)
+        except Exception as _e:
+            # The masked re-flatten can reject the window when the
+            # unmasked trend support is short (seen 2026-11-09 on
+            # TIC 308851365 fallback data). Pass-1 metrics stand —
+            # a failed refinement must never kill the target.
+            _emit(progress_callback,
+                  f"Depth refinement skipped ({_e}); keeping pass-1 result.")
+
+    # --- TLS rescue (2026-11-08 upgrade) -------------------------------
+    # Transit Least Squares fits true transit shapes where BLS fits
+    # boxes (~10-20% more small-planet sensitivity in the literature).
+    # Bounded: it runs ONLY when the BLS headline is sub-threshold but a
+    # non-systematic BLS candidate reached SDE 5 (something may be
+    # there), on a ~10-minute binned curve to bound the cost, and its
+    # candidate is adopted only at SDE >= 10. Any TLS failure leaves
+    # the BLS result untouched. Validated on TOI-700 c (binned SPOC
+    # curve): TLS recovers P 16.053 d at SDE 11.1, depth 0.174%.
+    if sde < 8.5 and any((not c["near_systematic"]) and c["sde"] >= 5.0
+                         for c in candidates):
+        try:
+            from transitleastsquares import transitleastsquares as _tls
+            _emit(progress_callback,
+                  "TLS rescue: BLS headline sub-threshold — running "
+                  "Transit Least Squares on a binned curve...")
+            _w = 10.0 / 1440.0
+            _idx = np.floor((t - t.min()) / _w).astype(int)
+            _cnt = np.bincount(_idx)
+            _tb = np.bincount(_idx, weights=t) / _cnt
+            _fb = np.bincount(_idx, weights=f) / _cnt
+            _ok = np.isfinite(_tb) & np.isfinite(_fb)
+            _mstar = (float(star_radius) if star_radius <= 1.0
+                      else float(star_radius ** 2.3))
+            _model = _tls(_tb[_ok], _fb[_ok])
+            _tres = _model.power(period_min=min_p, period_max=max_p,
+                                 show_progress_bar=False,
+                                 R_star=float(star_radius), M_star=_mstar)
+            _tsde = float(_tres.SDE)
+            _emit(progress_callback,
+                  f"TLS best: P={float(_tres.period):.4f} d, SDE={_tsde:.1f}")
+            if _tsde >= 10.0:
+                _tcand = {
+                    "period": float(_tres.period),
+                    "sde": _tsde,
+                    "depth": float(np.atleast_1d(_tres.depth)[0]),
+                    "duration": float(_tres.duration),
+                    "t0": float(_tres.T0),
+                    "near_systematic": bool(_near_systematic(
+                        float(_tres.period))),
+                    "detector": "TLS",
+                }
+                candidates = [_tcand] + candidates
+                best_period = _tcand["period"]
+                best_depth = _tcand["depth"]
+                best_duration = _tcand["duration"]
+                t0 = _tcand["t0"]
+                sde = _tsde
+                _emit(progress_callback,
+                      f"TLS rescue ADOPTED: P={best_period:.4f} d at "
+                      f"SDE {sde:.1f} replaces the BLS headline.")
+        except Exception as _e:
+            _emit(progress_callback, f"TLS rescue skipped ({_e}).")
 
     planet_radius_re = float(np.sqrt(max(0.0, best_depth)) * star_radius * 109.1)
 
@@ -635,6 +899,10 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         "Star_Radius_Rsun": float(star_radius),
         "Sectors_Analyzed": int(n_sectors),
         "Total_Points": int(len(lc_raw)),
+        # 2026-11-08: top-3 BLS peaks (headline first is NOT guaranteed;
+        # consumers should treat Period/SDE as the headline candidate and
+        # this list as the full peak set for triage).
+        "Candidates": candidates,
         # arrays
         "raw_time": np.asarray(lc_raw.time.value, dtype=float),
         "raw_flux": np.asarray(lc_raw.flux.value, dtype=float),
@@ -761,6 +1029,7 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "host_radius_solar": full["Star_Radius_Rsun"],
             "sectors_analyzed": full["Sectors_Analyzed"],
             "total_points": full["Total_Points"],
+            "candidates": full.get("Candidates", []),
         },
         "raw": {"time": raw_t, "flux": raw_f, "trend_time": trend_t, "trend_flux": trend_f},
         "flattened": {"time": flat_t, "flux": flat_f},
@@ -835,20 +1104,12 @@ def _fetch_stitched(tic_id, max_sectors=None, progress_callback=None):
     as the pre-refactor _fetch_flattened built it, plus the sector
     count. Callers flatten it or extract its arrays as they need.
     """
-    def _search():
-        _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
-
-        search = lk.search_lightcurve(f"TIC {tic_id}", author=["SPOC", "TESS-SPOC", "QLP"])
-        if len(search) == 0:
-            search = lk.search_lightcurve(f"TIC {tic_id}")
-        if len(search) == 0:
-            raise RuntimeError(f"No mission data found for TIC {tic_id}.")
-        return search
-
-    search = _with_download_self_heal(_search, progress_callback)
-    sectors_to_fetch = search if max_sectors is None else search[:max_sectors]
+    _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
+    sectors_to_fetch = _with_download_self_heal(
+        lambda: _select_products(tic_id, max_sectors, progress_callback),
+        progress_callback)
     _emit(progress_callback,
-          f"Downloading {len(sectors_to_fetch)} of {len(search)} sector(s) for TIC {tic_id}...")
+          f"Downloading {len(sectors_to_fetch)} sector product(s) for TIC {tic_id}...")
     lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
     n_sectors = len(lc_collection)
 

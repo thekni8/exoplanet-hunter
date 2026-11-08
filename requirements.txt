@@ -1,6 +1,7 @@
 lightkurve
 astropy
 astroquery
+transitleastsquares
 matplotlib
 pandas
 scipy
