@@ -838,13 +838,14 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
                                  show_progress_bar=False,
                                  R_star=float(star_radius), M_star=_mstar)
             _tsde = float(_tres.SDE)
+            _tdepth = float(np.atleast_1d(_tres.depth)[0])
             _emit(progress_callback,
                   f"TLS best: P={float(_tres.period):.4f} d, SDE={_tsde:.1f}")
-            if _tsde >= 10.0:
+            if _tsde >= 10.0 and 0.0 < _tdepth < 0.05:
                 _tcand = {
                     "period": float(_tres.period),
                     "sde": _tsde,
-                    "depth": float(np.atleast_1d(_tres.depth)[0]),
+                    "depth": _tdepth,
                     "duration": float(_tres.duration),
                     "t0": float(_tres.T0),
                     "near_systematic": bool(_near_systematic(
