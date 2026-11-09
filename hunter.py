@@ -1098,6 +1098,131 @@ def is_already_known_online(tic_id):
 
 
 # ---------------------------------------------------------------------------
+# Skip-known build (2026-11-09): VSX + TOI checks alongside Zooniverse.
+# Batch 4's Zooniverse-only filter skipped 0 of 75 targets (runs
+# #18-#20, skipped_known = 0 in all three) — these two catalogue
+# sources are the added coverage Dev asked for ("filtering out known
+# candidates from Zooniverse and other forums"). Same FAIL-OPEN
+# contract as is_already_known_online: any error = not known.
+# ---------------------------------------------------------------------------
+
+VSX_QUERY_URL = (
+    "https://vsx.aavso.org/index.php?view=query.votable"
+    "&coords={ra}+{dec}&size=0.5&unit=2&order=9"
+)
+_VSX_TR_SPLIT_RE = re.compile(r"<TR\b", re.IGNORECASE)
+_VSX_TD_RE = re.compile(r"<TD[^>]*>(.*?)</TD>", re.IGNORECASE | re.DOTALL)
+_VSX_TAG_RE = re.compile(r"<[^>]+>")
+_VSX_COORD_RE = re.compile(r"(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)")
+VSX_KNOWN_RADIUS_ARCSEC = 30.0
+
+
+def _sep_arcsec(ra1, dec1, ra2, dec2):
+    """Great-circle separation in arcseconds (haversine; degrees in)."""
+    p1, p2 = math.radians(dec1), math.radians(dec2)
+    dp = p2 - p1
+    dl = math.radians(ra2 - ra1)
+    a = (math.sin(dp / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2)
+    return math.degrees(2 * math.asin(min(1.0, math.sqrt(a)))) * 3600.0
+
+
+def is_known_in_vsx(ra, dec):
+    """True if VSX (AAVSO Variable Star Index) lists a variable star
+    within ~30 arcsec of (ra, dec) — the target is already a known
+    variable. The query.votable response is parsed as RAW XML TEXT:
+    astropy's votable table parser crashes/mangles VSX string columns
+    (proven 2026-11-09, Batch 4 triage). Each row's coordinate cell is
+    found with a comma-anchored regex and separations are recomputed
+    locally — the cone response is NOT distance-sorted. Route and
+    layout validated 2026-11-09 on the TIC 308851365 control (its ROT
+    entry recovered at 0.14 arcsec, P 0.75629).
+
+    FAIL-OPEN: any network error, timeout or non-200 returns False.
+    """
+    try:
+        r = requests.get(
+            VSX_QUERY_URL.format(ra=float(ra), dec=float(dec)), timeout=20)
+        if r.status_code != 200:
+            return False
+        for tr in _VSX_TR_SPLIT_RE.split(r.text)[1:]:
+            cells = [_VSX_TAG_RE.sub("", c).strip()
+                     for c in _VSX_TD_RE.findall(tr)]
+            for cell in cells:
+                m = _VSX_COORD_RE.search(cell)
+                if m:
+                    if _sep_arcsec(float(ra), float(dec),
+                                   float(m.group(1)),
+                                   float(m.group(2))) \
+                            <= VSX_KNOWN_RADIUS_ARCSEC:
+                        return True
+                    break  # one coordinate cell per row
+    except Exception:
+        pass
+    return False
+
+
+TOI_TAP_URL = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync"
+_TOI_TIC_CACHE = None  # None = bulk pull not attempted yet this process
+
+
+def _toi_tic_ids():
+    """Bulk-pull the NASA Exoplanet Archive TOI table's TIC IDs ONCE
+    per process and cache them as a set of strings (the TIC column is
+    `tid`; ~7.8k unique IDs). Returns the set, or None when the pull
+    fails — the TOI check is then off for this process (fail-open)
+    instead of being retried per target."""
+    global _TOI_TIC_CACHE
+    if _TOI_TIC_CACHE is not None:
+        return _TOI_TIC_CACHE
+    ids = None
+    try:
+        r = requests.get(
+            TOI_TAP_URL,
+            params={"query": "SELECT tid FROM toi", "format": "csv"},
+            timeout=90)
+        if r.status_code == 200:
+            got = set()
+            for line in r.text.splitlines()[1:]:
+                v = line.split(",")[0].strip().strip('"')
+                if v.endswith(".0"):
+                    v = v[:-2]
+                if v:
+                    got.add(v)
+            if got:
+                ids = got
+    except Exception:
+        ids = None
+    _TOI_TIC_CACHE = ids if ids is not None else set()
+    return ids
+
+
+def is_known_in_toi(tic_id):
+    """True if this TIC hosts a TESS Object of Interest (NASA
+    Exoplanet Archive TOI table). FAIL-OPEN: a failed bulk pull
+    disables the check and returns False."""
+    ids = _toi_tic_ids()
+    if not ids:
+        return False
+    return str(tic_id).strip() in ids
+
+
+def known_skip_source(tic_id, ra=None, dec=None):
+    """Which known source already has this star: "zooniverse", "vsx",
+    "toi", or None — checked in that order (Dev's order, 2026-11-09).
+    VSX needs the target's catalog coordinates; without them it is
+    skipped. Every source is fail-open, so None also covers 'every
+    check failed' — a sweep can never shrink silently on an error."""
+    if is_already_known_online(tic_id):
+        return "zooniverse"
+    if ra is not None and dec is not None and is_known_in_vsx(ra, dec):
+        return "vsx"
+    if is_known_in_toi(tic_id):
+        return "toi"
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Stage 4 (f): Odd/Even eclipsing-binary check (v1's QA Validation Lab)
 # ---------------------------------------------------------------------------
 

@@ -328,6 +328,16 @@ def _run_sweep(job_id, p):
     SDE >= 8.5) — the SDE >= 11 "unflagged signal" bar is presentation
     only, applied by the Scanner UI.
 
+    Skip-known build (2026-11-09): p["skip_known"] runs the
+    already-known check WITHOUT the scanner screen — the check itself
+    is now three-source (hunter.known_skip_source: Zooniverse, then
+    VSX within ~30 arcsec of the catalog coords, then the NASA
+    Exoplanet Archive TOI table by TIC ID), each source fail-open, and
+    the summary counts skips per source (skipped_known_zooniverse /
+    _vsx / _toi; skipped_known remains the total). Batch 4's
+    Zooniverse-only check skipped 0 of 75 targets, which is why the
+    two catalogue sources were added.
+
     Blend-screening integration (2026-11-04): the two vetting stages
     that killed both blend mirages of the first sweeps (TIC 374942698,
     TIC 231096116 — each passed every fold check first) now run INSIDE
@@ -357,6 +367,11 @@ def _run_sweep(job_id, p):
     sector_cap = p.get("sector_cap", 2)
     detrend_window = p.get("detrend_window", 101)
     scanner = bool(p.get("scanner", False))
+    # Skip-known build (2026-11-09): the known check runs when scanner
+    # OR skip_known is set; skip_known alone leaves the catalog screen
+    # (the request's own filters) exactly as requested.
+    skip_known = bool(p.get("skip_known", False))
+    check_known = scanner or skip_known
     if scanner:
         min_mag, max_mag = 13.5, 15.4      # v1 scanner screen
         min_rad, max_rad = 0.2, 1.5
@@ -370,6 +385,9 @@ def _run_sweep(job_id, p):
     if scanner:
         cb("Scanner mode: hunting NEW, unflagged signals (v1 recipe — "
            "faint-dwarf screen, already-known stars skipped via Zooniverse).")
+    if skip_known and not scanner:
+        cb("Known-filter ON: already-known stars skipped via Zooniverse / "
+           "VSX / TOI (requested catalog screen unchanged).")
     cb(f"Querying TIC catalog around RA {ra}, Dec {dec} (radius {cone}°)...")
     coord = SkyCoord(ra=ra * u.deg, dec=dec * u.deg)
     # Stage 5c: healed cone query (deep connection budget) — a bare
@@ -380,6 +398,8 @@ def _run_sweep(job_id, p):
     # the column; when it doesn't, entries record null (no per-star
     # ExoFOP fetches — screen time stays one catalog call).
     has_contratio = "contratio" in tic_catalog.colnames
+    has_radec = ("ra" in tic_catalog.colnames
+                 and "dec" in tic_catalog.colnames)
     mask = (
         (tic_catalog["Tmag"] >= min_mag) & (tic_catalog["Tmag"] <= max_mag) &
         (tic_catalog["rad"] >= min_rad) & (tic_catalog["rad"] <= max_rad)
@@ -390,16 +410,24 @@ def _run_sweep(job_id, p):
 
     analyzed, hits, errors = [], [], []
     skipped_known = 0
+    skipped_by = {"zooniverse": 0, "vsx": 0, "toi": 0}
     for i, row in enumerate(targets, start=1):
         tic_id = str(row["ID"])
         star_rad = float(row["rad"])
         contratio = (_clean_catalog_float(row["contratio"])
                      if has_contratio else None)
-        if scanner and hunter.is_already_known_online(tic_id):
-            skipped_known += 1
-            cb(f"Target {i} of {total}: TIC {tic_id} — already known on "
-               f"Zooniverse, skipping (skipped {skipped_known} so far).")
-            continue
+        if check_known:
+            src = hunter.known_skip_source(
+                tic_id,
+                float(row["ra"]) if has_radec else None,
+                float(row["dec"]) if has_radec else None)
+            if src:
+                skipped_known += 1
+                skipped_by[src] += 1
+                cb(f"Target {i} of {total}: TIC {tic_id} — already known "
+                   f"via {src.upper()}, skipping "
+                   f"(skipped {skipped_known} so far).")
+                continue
         cb(f"Target {i} of {total}: TIC {tic_id} (R* = {star_rad:.2f} R_sun, Tmag = {float(row['Tmag']):.1f})")
         try:
             result = hunter.analyze_target_json(
@@ -435,7 +463,13 @@ def _run_sweep(job_id, p):
                "targets_analyzed": len(analyzed), "hits": hits,
                "errors": errors,
                # Stage 4 (additive): scanner provenance + Zooniverse skips.
-               "scanner": scanner, "skipped_known": skipped_known}
+               # Skip-known build (additive): flag + per-source counters;
+               # skipped_known stays the total (their sum).
+               "scanner": scanner, "skip_known": skip_known,
+               "skipped_known": skipped_known,
+               "skipped_known_zooniverse": skipped_by["zooniverse"],
+               "skipped_known_vsx": skipped_by["vsx"],
+               "skipped_known_toi": skipped_by["toi"]}
     best = max(hits, key=lambda h: h["sde"], default=None)
     update_job(job_id, status="done", finished_at=_now(),
                result_json=json.dumps(summary),
@@ -443,8 +477,10 @@ def _run_sweep(job_id, p):
                sde=(best["sde"] if best else None))
     done_msg = (f"Sweep complete: {len(hits)} hit(s) with SDE >= {HIT_SDE} "
                 f"out of {total} target(s).")
-    if scanner:
-        done_msg += f" Skipped {skipped_known} already-known star(s)."
+    if skipped_known:
+        done_msg += (f" Skipped {skipped_known} already-known star(s) "
+                     f"(Zooniverse {skipped_by['zooniverse']}, "
+                     f"VSX {skipped_by['vsx']}, TOI {skipped_by['toi']}).")
     cb(done_msg)
 
 
@@ -654,6 +690,10 @@ class SweepRequest(BaseModel):
     # Stage 4: v1 Scanner recipe (faint-dwarf screen + Zooniverse
     # already-known skipping). Filters above are ignored when true.
     scanner: bool = False
+    # Skip-known build (2026-11-09): three-source already-known
+    # skipping (Zooniverse + VSX + TOI) WITHOUT the Scanner screen —
+    # the request's own filters above apply unchanged.
+    skip_known: bool = False
 
 
 class OddEvenRequest(BaseModel):

@@ -68,6 +68,9 @@ def main():
     ap.add_argument("--bls-points", type=int, default=10000)
     ap.add_argument("--scanner", action="store_true",
                     help="use the app's Deep Space Scanner defaults instead")
+    ap.add_argument("--skip-known", action="store_true",
+                    help="skip already-known stars (Zooniverse / VSX / TOI) "
+                         "without changing the requested catalog screen")
     ap.add_argument("--max-minutes", type=int, default=315)
     ap.add_argument("--port", type=int, default=8000)
     args = ap.parse_args()
@@ -106,7 +109,7 @@ def main():
             "max_mag": args.max_mag, "min_rad": args.min_rad,
             "max_rad": args.max_rad, "bls_points": args.bls_points,
             "sector_cap": args.sector_cap, "detrend_window": 101,
-            "scanner": args.scanner,
+            "scanner": args.scanner, "skip_known": args.skip_known,
         }
         job = http("POST", f"{base}/api/sweep", payload)
         job_id = job["job_id"]
@@ -144,7 +147,8 @@ def main():
                    f"- Stars requested: {args.limit} | Tmag {args.min_mag}-{args.max_mag}"
                    f" | radius {args.min_rad}-{args.max_rad} Rsun",
                    f"- Sector cap {args.sector_cap} | BLS points {args.bls_points}"
-                   f" | scanner mode: {args.scanner}",
+                   f" | scanner mode: {args.scanner}"
+                   f" | skip-known filter: {args.skip_known}",
                    f"- Job {job_id}: **{status}**",
                    ""]
         if status == "done":
@@ -158,6 +162,12 @@ def main():
                 print(f"discoveries fetch failed: {e}", flush=True)
             hits = result.get("hits") or []
             summary.append(f"Targets analyzed: {result.get('targets_analyzed')}")
+            if result.get("skipped_known") is not None:
+                summary.append(
+                    f"Known-filter skips: {result.get('skipped_known')} "
+                    f"(Zooniverse {result.get('skipped_known_zooniverse')}, "
+                    f"VSX {result.get('skipped_known_vsx')}, "
+                    f"TOI {result.get('skipped_known_toi')})")
             summary.append(f"**Hits (SDE >= 8.5): {len(hits)}**")
             summary.append("")
             for h in hits:
