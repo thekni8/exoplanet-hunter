@@ -73,6 +73,12 @@ on:
         required: false
         default: "20"
         type: number
+    scanner:
+          description: "Scanner filters (v1 screen + skip already-known stars)"
+          required: false
+          default: false
+          type: boolean                
+        
 
 permissions:
   contents: read
@@ -108,6 +114,7 @@ jobs:
           --max-rad ${{ inputs.max_rad }}
           --bls-points ${{ inputs.bls_points }}
           --sector-cap ${{ inputs.sector_cap }}
+          ${{ inputs.scanner && '--scanner' || '' }}
 
       - name: Upload results
         if: always()
