@@ -119,8 +119,8 @@ jobs:
           --max-rad ${{ inputs.max_rad }}
           --bls-points ${{ inputs.bls_points }}
           --sector-cap ${{ inputs.sector_cap }}
-            ${{ inputs.scanner && '--scanner' || '' }}
-            ${{ inputs.skip_known && '--skip-known' || '' }}
+          ${{ inputs.scanner && '--scanner' || '' }}
+          ${{ inputs.skip_known && '--skip-known' || '' }}
           
 
       - name: Upload results
