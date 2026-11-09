@@ -114,7 +114,7 @@ jobs:
           --max-rad ${{ inputs.max_rad }}
           --bls-points ${{ inputs.bls_points }}
           --sector-cap ${{ inputs.sector_cap }}
-          ${{ inputs.scanner && '--scanner' || '' }}
+          --scanner
 
       - name: Upload results
         if: always()
