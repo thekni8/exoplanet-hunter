@@ -79,10 +79,10 @@ on:
           default: false
           type: boolean                
       skip_known:
-      description: "Skip targets already known (Zooniverse/VSX/TOI)"
-      required: false
-      default: false
-      type: boolean
+        description: "Skip targets already known (Zooniverse/VSX/TOI)"
+        required: false
+        default: false
+        type: boolean
         
 
 permissions:
