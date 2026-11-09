@@ -78,6 +78,11 @@ on:
           required: false
           default: false
           type: boolean                
+      skip_known:
+      description: "Skip targets already known (Zooniverse/VSX/TOI)"
+      required: false
+      default: false
+      type: boolean
         
 
 permissions:
@@ -114,7 +119,9 @@ jobs:
           --max-rad ${{ inputs.max_rad }}
           --bls-points ${{ inputs.bls_points }}
           --sector-cap ${{ inputs.sector_cap }}
-          --scanner
+            ${{ inputs.scanner && '--scanner' || '' }}
+            ${{ inputs.skip_known && '--skip-known' || '' }}
+          
 
       - name: Upload results
         if: always()
