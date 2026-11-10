@@ -262,6 +262,9 @@ _PERSISTENCE_LABELS = {
     "CONCENTRATED": "fails-persistence — blend-suspect",
     "MIXED": "patchy",
     "NO USABLE SECTORS": "inconclusive",
+    # 2026-11-10: flattened-flux stamp CONSISTENT but the combined
+    # raw-flux depth is <= 0 / insignificant (pass-2 manufacture guard).
+    "RAW-REFUTED": "raw-refuted",
 }
 
 
@@ -301,6 +304,9 @@ def _run_hit_persistence(entry, tic_id, star_rad, metrics, sector_cap, cb):
         "chi2_p": per.get("chi2_p"),
         "module_verdict": raw_verdict,
         "verdict": label,
+        # 2026-11-10: raw-flux witness numbers (see persistence.py).
+        "raw_weighted_mean_depth_pct": per.get("raw_weighted_mean_depth_pct"),
+        "raw_signif": per.get("raw_signif"),
     }
     if not n_usable:
         cb("↳ persistence: no usable sectors — inconclusive")

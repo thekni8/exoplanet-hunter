@@ -633,6 +633,66 @@ def _select_products(tic_id, max_sectors, progress_callback=None):
     return search
 
 
+# --- Pass-2 raw-flux gate (2026-11-10) ------------------------------------
+# TIC 294873918 post-mortem (candidates-vetting/294873918/VETTING_REPORT.md):
+# the transit-masked re-flatten (pass 2) manufactured a BLS peak at
+# P = 1.5452 d (SDE 53) out of a broad ~1.20 d variability wave — in RAW
+# flux the adopted ephemeris has depth -0.0006%, i.e. no dip at all.
+# Before a pass-2 result may replace pass 1, its ephemeris must show a
+# genuine dip in the unflattened (outlier-cleaned only) stitched flux.
+#
+# The bar: depth > 0 AND significance >= _PASS2_GATE_MIN_SIGNIF, with the
+# significance priced in red noise (out-of-transit flux chunked at the
+# transit-duration timescale, persistence.py style). 3 sigma is the
+# right height for a VETO (not a detector): the artefact measures ~0
+# sigma, a real adopted signal measures far more (TOI-700 c ~15 sigma
+# fixed-ephemeris raw), and a false veto costs nothing — pass 1's
+# metrics simply stand, exactly as when the refinement itself fails.
+_PASS2_GATE_MIN_SIGNIF = 3.0
+
+
+def _raw_fold_depth(t, f, period, t0, duration):
+    """Depth of a candidate ephemeris in UNFLATTENED flux.
+
+    Returns (depth_pct, signif). In-transit = |phase| <= duration/2;
+    baseline = |phase| > duration (a one-duration guard band keeps
+    ingress/egress wings out of the baseline). Depth is the median
+    difference, in percent (the stitched flux is ~1-normalised).
+    Signif uses a chunked red-noise sigma: out-of-transit points are
+    chunked at the transit-duration timescale and
+    sigma = chunk_sigma * sqrt(1/n_events + 1/n_chunks).
+    Unmeasurable configurations return (0.0, 0.0) — the gate then
+    fails closed and pass 1 stands.
+    """
+    t = np.asarray(t, dtype=float)
+    f = np.asarray(f, dtype=float)
+    ok = np.isfinite(t) & np.isfinite(f)
+    t, f = t[ok], f[ok]
+    if len(t) < 200 or period <= 0 or duration <= 0:
+        return 0.0, 0.0
+    phase = ((t - t0 + 0.5 * period) % period) - 0.5 * period
+    in_m = np.abs(phase) <= duration / 2.0
+    out_m = np.abs(phase) > duration
+    if in_m.sum() < 20 or out_m.sum() < 50:
+        return 0.0, 0.0
+    depth_pct = (float(np.median(f[out_m]))
+                 - float(np.median(f[in_m]))) * 100.0
+    t_out, f_out = t[out_m], f[out_m]
+    cid = np.floor((t_out - t_out.min()) / duration).astype(np.int64)
+    cnt = np.bincount(cid)
+    sums = np.bincount(cid, weights=f_out)
+    good = cnt >= 3
+    if good.sum() < 2:
+        return depth_pct, 0.0
+    chunk_means = sums[good] / cnt[good]
+    chunk_sigma_pct = float(np.std(chunk_means, ddof=1)) * 100.0
+    n_events = max(1, len(np.unique(np.round((t[in_m] - t0) / period))))
+    sigma_pct = chunk_sigma_pct * math.sqrt(1.0 / n_events
+                                            + 1.0 / float(good.sum()))
+    signif = depth_pct / sigma_pct if sigma_pct > 0 else 0.0
+    return depth_pct, float(signif)
+
+
 # ---------------------------------------------------------------------------
 # Core pipeline (internal: returns scalars + arrays)
 # ---------------------------------------------------------------------------
@@ -794,17 +854,58 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # too little unmasked curve left to anchor the trend). The 50% line
     # still admits high-duty-cycle signals like TIC 308851365's eclipses
     # (38% masked), whose depth was otherwise left unrecovered.
+    # Pass bookkeeping (2026-11-10): every run records how pass 1 and
+    # pass 2 compared, whether the raw-flux gate vetoed a pass-2
+    # adoption, and whether pass 2's SDE jumped >= 2x over pass 1
+    # (the manufacture signature from the TIC 294873918 autopsy).
+    pass1_sde = float(sde)
+    pass2_sde = None
+    pass2_gate_failed = False
+    sde_jump_flag = False
+    _gate_raw_depth_pct = None
+    _gate_raw_signif = None
+
     _phase1 = ((t - t0 + 0.5 * best_period) % best_period) - 0.5 * best_period
     _transit_mask = np.abs(_phase1) <= (best_duration / 2.0 + 0.02)
     if _transit_mask.mean() <= 0.50:
         _emit(progress_callback,
               "Refining depth: re-detrending with transits masked out of the trend fit...")
         try:
-            lc_flat, trend = lc_raw.flatten(window_length=_win,
-                                            return_trend=True, mask=_transit_mask)
-            t = lc_flat.time.value
-            f = lc_flat.flux.value
-            res, best_period, best_depth, best_duration, t0, sde, candidates = _bls_best(t, f)
+            _lc2, _trend2 = lc_raw.flatten(window_length=_win,
+                                           return_trend=True,
+                                           mask=_transit_mask)
+            _t2 = _lc2.time.value
+            _f2 = _lc2.flux.value
+            (_res2, _per2, _dep2, _dur2, _t02, _sde2,
+             _cand2) = _bls_best(_t2, _f2)
+            pass2_sde = float(_sde2)
+            sde_jump_flag = bool(pass2_sde >= 2.0 * pass1_sde)
+            # --- Raw-flux gate: the pass-2 ephemeris must show a real
+            # dip in the UNFLATTENED flux before it may replace pass 1
+            # (see _raw_fold_depth). A veto keeps pass 1's metrics and
+            # flattened arrays, exactly as a failed refinement does.
+            try:
+                _gate_raw_depth_pct, _gate_raw_signif = _raw_fold_depth(
+                    np.asarray(lc_raw.time.value, dtype=float),
+                    np.asarray(lc_raw.flux.value, dtype=float),
+                    _per2, _t02, _dur2)
+            except Exception as _ge:
+                _emit(progress_callback,
+                      f"Pass-2 raw-flux gate could not run ({_ge}); "
+                      "keeping pass-1 result.")
+            if (_gate_raw_depth_pct is not None
+                    and _gate_raw_depth_pct > 0.0
+                    and (_gate_raw_signif or 0.0) >= _PASS2_GATE_MIN_SIGNIF):
+                res, best_period, best_depth = _res2, _per2, _dep2
+                best_duration, t0, sde = _dur2, _t02, _sde2
+                candidates = _cand2
+                lc_flat, trend, t, f = _lc2, _trend2, _t2, _f2
+            else:
+                pass2_gate_failed = True
+                _emit(progress_callback,
+                      "Pass-2 result REJECTED by the raw-flux gate "
+                      f"(raw depth {_gate_raw_depth_pct}%, signif "
+                      f"{_gate_raw_signif}); keeping pass-1 result.")
         except Exception as _e:
             # The masked re-flatten can reject the window when the
             # unmasked trend support is short (seen 2026-11-09 on
@@ -908,6 +1009,15 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         # consumers should treat Period/SDE as the headline candidate and
         # this list as the full peak set for triage).
         "Candidates": candidates,
+        # 2026-11-10: pass-2 gate bookkeeping (see _raw_fold_depth).
+        # pass2_sde is None when pass 2 never ran (mask > 50% or the
+        # refinement raised); pass2_gate_failed marks a vetoed adoption.
+        "pass1_sde": pass1_sde,
+        "pass2_sde": pass2_sde,
+        "pass2_gate_failed": bool(pass2_gate_failed),
+        "sde_jump_flag": bool(sde_jump_flag),
+        "pass2_raw_depth_pct": _gate_raw_depth_pct,
+        "pass2_raw_signif": _gate_raw_signif,
         # arrays
         "raw_time": np.asarray(lc_raw.time.value, dtype=float),
         "raw_flux": np.asarray(lc_raw.flux.value, dtype=float),
@@ -1035,6 +1145,12 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "sectors_analyzed": full["Sectors_Analyzed"],
             "total_points": full["Total_Points"],
             "candidates": full.get("Candidates", []),
+            "pass1_sde": full.get("pass1_sde"),
+            "pass2_sde": full.get("pass2_sde"),
+            "pass2_gate_failed": full.get("pass2_gate_failed", False),
+            "sde_jump_flag": full.get("sde_jump_flag", False),
+            "pass2_raw_depth_pct": full.get("pass2_raw_depth_pct"),
+            "pass2_raw_signif": full.get("pass2_raw_signif"),
         },
         "raw": {"time": raw_t, "flux": raw_f, "trend_time": trend_t, "trend_flux": trend_f},
         "flattened": {"time": flat_t, "flux": flat_f},

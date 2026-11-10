@@ -189,11 +189,47 @@ def sector_persistence(tic_id, star_radius, period_days, t0_days,
             verdict = "CONCENTRATED"
         else:
             verdict = "MIXED"
+        # --- Raw-depth criterion (2026-11-10) -------------------------
+        # The depths above are measured on the pipeline's FLATTENED
+        # flux, and the pass-2 manufacture (TIC 294873918, raw depth
+        # -0.0006% at its own filed ephemeris) proved a flattened-flux
+        # dip can be pure detrend artefact — the stamp then "confirms"
+        # the same manufactured dip sector by sector. depth_raw_pct,
+        # already measured per sector on the RAW flux, is the
+        # independent witness; combine it with the same inverse-
+        # variance weights (the per-sector sigma prices red noise at
+        # the transit timescale on the same data, so it is the right
+        # noise scale for the raw means too). A CONSISTENT stamp may
+        # not stand when the combined raw depth is <= 0 or
+        # insignificant (< 3 sigma, the hunter._raw_fold_depth bar):
+        # the verdict becomes RAW-REFUTED and the raw numbers ride
+        # along in the record.
+        raw_secs = [s for s in usable_secs
+                    if s["depth_raw_pct"] is not None]
+        raw_wmean = raw_sigma = raw_signif = raw_frac_pos = None
+        if raw_secs:
+            dr = np.array([s["depth_raw_pct"] for s in raw_secs])
+            wr = 1.0 / np.array([s["sigma_pct"] for s in raw_secs]) ** 2
+            raw_wmean = float(np.sum(wr * dr) / np.sum(wr))
+            raw_sigma = float(1.0 / np.sqrt(np.sum(wr)))
+            raw_signif = raw_wmean / raw_sigma if raw_sigma > 0 else None
+            raw_frac_pos = float(np.mean(dr > 0))
+        raw_refuted = False
+        if verdict == "CONSISTENT" and (
+                raw_wmean is None or raw_wmean <= 0.0
+                or raw_signif is None or raw_signif < 3.0):
+            verdict = "RAW-REFUTED"
+            raw_refuted = True
         result.update({
             "n_pos_1p5sigma": n_pos, "frac_pos_1p5sigma": frac_pos,
             "weighted_mean_depth_pct": wmean,
             "weighted_mean_sigma_pct": float(1.0 / np.sqrt(np.sum(w))),
             "chi2": chi2, "dof": dof, "chi2_p": p, "verdict": verdict,
+            "raw_weighted_mean_depth_pct": raw_wmean,
+            "raw_combined_sigma_pct": raw_sigma,
+            "raw_signif": raw_signif,
+            "raw_frac_sectors_positive": raw_frac_pos,
+            "raw_refuted": raw_refuted,
         })
         ev_d = [e["depth_pct"] for e in events_out if "depth_pct" in e]
         if ev_d:
