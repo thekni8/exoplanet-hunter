@@ -464,7 +464,11 @@ def _run_sweep(job_id, p):
                                                       False)),
                      "sde_jump_flag": bool(m.get("sde_jump_flag", False)),
                      "pass2_raw_depth_pct": m.get("pass2_raw_depth_pct"),
-                     "pass2_raw_signif": m.get("pass2_raw_signif")}
+                     "pass2_raw_signif": m.get("pass2_raw_signif"),
+                     # Skip-reason observability (2026-11-11, additive):
+                     # non-null only when the >50% mask guard blocked
+                     # pass 2, so null pass-2 fields explain themselves.
+                     "pass2_skip_reason": m.get("pass2_skip_reason")}
             analyzed.append(entry)
             if entry["pass2_sde"] is not None:
                 gate_counts["targets_with_pass2"] += 1

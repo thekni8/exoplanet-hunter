@@ -864,6 +864,9 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     sde_jump_flag = False
     _gate_raw_depth_pct = None
     _gate_raw_signif = None
+    # Set only when the >50% mask guard blocks pass 2 outright, so the
+    # null pass-2 fields in the harvested JSON explain themselves.
+    pass2_skip_reason = None
 
     _phase1 = ((t - t0 + 0.5 * best_period) % best_period) - 0.5 * best_period
     _transit_mask = np.abs(_phase1) <= (best_duration / 2.0 + 0.02)
@@ -913,6 +916,17 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
             # a failed refinement must never kill the target.
             _emit(progress_callback,
                   f"Depth refinement skipped ({_e}); keeping pass-1 result.")
+    else:
+        # The guard above blocks pass 2 entirely when the pass-1
+        # "transit" would mask more than half the curve. Record WHY
+        # (and say so in the progress log) — a silent skip left
+        # TIC 375034833's null pass-2 fields unexplained in Batch 8.
+        _mask_frac = float(_transit_mask.mean())
+        pass2_skip_reason = f"mask_fraction_{_mask_frac:.2f}_gt_0.50"
+        _emit(progress_callback,
+              "Depth refinement skipped (pass-1 transit mask covers "
+              f"{_mask_frac * 100.0:.0f}% of the curve, > 50%); "
+              "keeping pass-1 result.")
 
     # --- TLS rescue (2026-11-08 upgrade) -------------------------------
     # Transit Least Squares fits true transit shapes where BLS fits
@@ -1018,6 +1032,7 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         "sde_jump_flag": bool(sde_jump_flag),
         "pass2_raw_depth_pct": _gate_raw_depth_pct,
         "pass2_raw_signif": _gate_raw_signif,
+        "pass2_skip_reason": pass2_skip_reason,
         # arrays
         "raw_time": np.asarray(lc_raw.time.value, dtype=float),
         "raw_flux": np.asarray(lc_raw.flux.value, dtype=float),
@@ -1151,6 +1166,7 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "sde_jump_flag": full.get("sde_jump_flag", False),
             "pass2_raw_depth_pct": full.get("pass2_raw_depth_pct"),
             "pass2_raw_signif": full.get("pass2_raw_signif"),
+            "pass2_skip_reason": full.get("pass2_skip_reason"),
         },
         "raw": {"time": raw_t, "flux": raw_f, "trend_time": trend_t, "trend_flux": trend_f},
         "flattened": {"time": flat_t, "flux": flat_f},
