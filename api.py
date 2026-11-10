@@ -415,6 +415,9 @@ def _run_sweep(job_id, p):
     cb(f"Screened {total} target(s); starting sweep (no cap beyond requested limit={limit}).")
 
     analyzed, hits, errors = [], [], []
+    # Gate summary counters (2026-11-10, additive): tallied over every
+    # analyzed target as its entry is built; surfaced as summary["gate"].
+    gate_counts = {"targets_with_pass2": 0, "gate_vetoes": 0, "sde_jumps": 0}
     skipped_known = 0
     skipped_by = {"zooniverse": 0, "vsx": 0, "toi": 0}
     for i, row in enumerate(targets, start=1):
@@ -446,8 +449,29 @@ def _run_sweep(job_id, p):
                      "star_radius_rsun": star_rad, "contratio": contratio,
                      "period_days": m["best_period_days"],
                      "sde": m["sde"], "planet_radius_re": m["planet_radius_earth"],
-                     "sectors_analyzed": m["sectors_analyzed"]}
+                     "sectors_analyzed": m["sectors_analyzed"],
+                     # Gate observability fix (2026-11-10, additive):
+                     # hunter's pass-2 raw-flux gate bookkeeping rides
+                     # along on every analyzed entry (and therefore on
+                     # every hit in result.json). Batch 7's artifacts
+                     # dropped these fields at exactly this projection,
+                     # leaving the gate's first live exercise
+                     # unverifiable. pass2_sde / pass2_raw_* are None
+                     # when pass 2 never ran for the target.
+                     "pass1_sde": m.get("pass1_sde"),
+                     "pass2_sde": m.get("pass2_sde"),
+                     "pass2_gate_failed": bool(m.get("pass2_gate_failed",
+                                                      False)),
+                     "sde_jump_flag": bool(m.get("sde_jump_flag", False)),
+                     "pass2_raw_depth_pct": m.get("pass2_raw_depth_pct"),
+                     "pass2_raw_signif": m.get("pass2_raw_signif")}
             analyzed.append(entry)
+            if entry["pass2_sde"] is not None:
+                gate_counts["targets_with_pass2"] += 1
+            if entry["pass2_gate_failed"]:
+                gate_counts["gate_vetoes"] += 1
+            if entry["sde_jump_flag"]:
+                gate_counts["sde_jumps"] += 1
             if m["sde"] >= HIT_SDE:
                 hits.append(entry)
                 record_discovery(job_id, "sweep", m)
@@ -475,7 +499,12 @@ def _run_sweep(job_id, p):
                "skipped_known": skipped_known,
                "skipped_known_zooniverse": skipped_by["zooniverse"],
                "skipped_known_vsx": skipped_by["vsx"],
-               "skipped_known_toi": skipped_by["toi"]}
+               "skipped_known_toi": skipped_by["toi"],
+               # Gate observability fix (2026-11-10, additive): batch
+               # totals for the pass-2 raw-flux gate — how many targets
+               # ran pass 2, how many pass-2 adoptions it vetoed, and
+               # how many showed the >= 2x SDE-jump manufacture flag.
+               "gate": gate_counts}
     best = max(hits, key=lambda h: h["sde"], default=None)
     update_job(job_id, status="done", finished_at=_now(),
                result_json=json.dumps(summary),
