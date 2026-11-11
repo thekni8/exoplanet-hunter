@@ -75,6 +75,20 @@ THRESHOLDS (set in advance, 2026-11-11 — do not tune per run)
   Harmonic demote: sub-floor fold depth >= 80% of primary depth
   Duration demote: duration > 0.35 x period (eclipse, not transit)
 
+  v1.1 CALIBRATION (2026-11-11 — bulk/CALIBRATION_V1_1.md): v1's flat
+  SDE>=7 rule passed 31.6% of the proof run (451/1,429) — ~40k
+  survivors at 126k scale, which no gauntlet can eat. Survivorship now
+  ALSO requires a pink-noise MES rescore (CDPP at the transit
+  duration, LEO-Vetter style) in one of two tiers: A (periodic:
+  >= 3 events, MES >= 9, >= 2 events individually >= 3 sigma) or
+  B (few-transit: 1-2 events, best event >= 8 sigma, depth <= 1%).
+  On the proof run this yields 23 survivors = 1.61% of searched, and
+  the TOI-700 control survives in Tier B (MES 8.44, single event —
+  sector 1 holds exactly one c transit, so it can never be Tier A
+  in-sector; its periodicity test is the gauntlet's persistence run).
+  Raising SDE alone was measured and rejected: SDE >= 20 still
+  passes 4.3% AND kills the control (SDE 10.26).
+
 DEFAULT STAR WINDOW (and why)
 -----------------------------
   Tmag 10.0-13.5 — the QLP FFI product itself is the ceiling: QLP
@@ -132,6 +146,19 @@ RECORD_FLOOR_SDE = 6.0
 SURVIVOR_SDE = 7.0
 DEPTH_MIN_PCT = 0.02
 DEPTH_EB_PCT = 3.0
+# v1.1 calibration (2026-11-11, tuned ONLY on the sector-1 proof run;
+# see bulk/CALIBRATION_V1_1.md). v1's flat SDE>=7 survivor rule passed
+# 31.6% of searched stars — unusable at 126k scale. Survivors must now
+# ALSO pass a pink-noise MES rescore (LEO-Vetter style, as in
+# Rabtsevich's screen) in one of two tiers:
+TIER_A_MES = 9.0            # periodic tier: MES_pink >= 9 (his floor)
+TIER_A_MIN_EVENTS = 3       # ... with >= 3 observed transit events
+TIER_A_MIN_STRONG = 2       # ... and >= 2 events individually >= 3 sigma
+STRONG_EVENT_SNR = 3.0
+TIER_B_EVENT_SNR = 8.0      # few-transit tier (1-2 events): the best
+                            # single event must stand at >= 8 sigma pink
+TIER_B_MAX_DEPTH_PCT = 1.0  # ... and depth <= 1% (deeper lone dips are
+                            # EB/artifact country; they stay recorded)
 MIN_PERIOD_D = 0.5
 MAX_PERIOD_D = 20.0
 BLS_GRID_POINTS = 12000
@@ -543,6 +570,61 @@ def _odd_even(t, f, period, t0, duration):
     return d_odd, d_even, float(ratio)
 
 
+def _rescore(t, f, period, t0, duration):
+    """Pink-noise MES rescore of a recorded hit (v1.1 calibration).
+
+    Refolds the (already flattened) light curve at the BLS ephemeris and
+    measures the noise the way LEO-Vetter does: CDPP at the transit
+    duration — the std of means of out-of-transit chunks one duration
+    long — so red noise on the transit timescale is priced in, unlike
+    the white-noise fold error. MES = depth / CDPP * sqrt(N_events).
+    Also returns per-event SNRs (an event = >= 1 in-window cadence;
+    QLP FFI is 30-min, so a 1-2 h transit is only 2-4 points) and the
+    folded profile's edge/centre depth ratio (box ~1, V-shape << 1).
+    Returns None when the noise cannot be measured (< 5 chunks)."""
+    phase_t = t - t0
+    events = np.round(phase_t / period)
+    centres = t0 + events * period
+    inwin = np.abs(t - centres) <= 0.5 * duration
+    if inwin.sum() < 3:
+        return None
+    ev_list = [e for e in np.unique(events[inwin])
+               if (inwin & (events == e)).sum() >= 1]
+    if not ev_list:
+        return None
+    phase = ((phase_t / period + 0.5) % 1.0) - 0.5
+    outwin = (~inwin) & (np.abs(phase) < 0.45)
+    if outwin.sum() < 20:
+        return None
+    base = np.median(f[outwin])
+    depth = float(base - np.mean(f[inwin]))
+    dt = float(np.median(np.diff(t)))
+    chunk = max(int(round(duration / dt)), 1)
+    out_idx = np.where(outwin)[0]
+    means = []
+    for seg in np.split(out_idx, np.where(np.diff(out_idx) > chunk)[0] + 1):
+        for i in range(0, len(seg) - chunk + 1, chunk):
+            means.append(np.mean(f[seg[i:i + chunk]]))
+    if len(means) < 5:
+        return None
+    cdpp = float(np.std(means))
+    if cdpp <= 0:
+        return None
+    ev_snr = [float(base - np.mean(f[inwin & (events == e)])) / cdpp
+              for e in ev_list]
+    off = t - centres
+    c_m = inwin & (np.abs(off) <= duration / 6)
+    e_m = inwin & (np.abs(off) > duration / 6)
+    d_c = float(base - np.mean(f[c_m])) if c_m.sum() >= 1 else 0.0
+    d_e = float(base - np.mean(f[e_m])) if e_m.sum() >= 1 else 0.0
+    return {"mes_pink": depth / cdpp * math.sqrt(len(ev_list)),
+            "cdpp_pct": cdpp * 100.0, "n_events": len(ev_list),
+            "n_strong_events": int(sum(1 for s in ev_snr
+                                       if s >= STRONG_EVENT_SNR)),
+            "max_event_snr": float(max(ev_snr)) if ev_snr else 0.0,
+            "v_ratio": (d_e / d_c) if d_c > 0 else 0.0}
+
+
 def _screen_one(args):
     """Worker: screen one star's cached QLP file. Returns a record dict
     (always, with 'status'), so the parent can count every outcome."""
@@ -667,8 +749,29 @@ def _screen_one(args):
         rec["flags"] = flags
         demote = [x for x in flags if x.endswith("_EB")
                   or "HARMONIC" in x or x == "DEPTH_TOO_SHALLOW"]
-        rec["status"] = "demoted" if demote else (
-            "survivor" if sde >= SURVIVOR_SDE else "recorded")
+        # v1.1: pink-noise MES rescore decides survivorship (tiers in
+        # the constants block). SDE >= SURVIVOR_SDE stays a necessary
+        # condition — both currencies must agree.
+        rs = _rescore(t, f, period, t0, duration)
+        if rs is not None:
+            rec.update(rs)
+        tier = None
+        if rs is not None and sde >= SURVIVOR_SDE:
+            if rs["n_events"] >= TIER_A_MIN_EVENTS and \
+                    rs["mes_pink"] >= TIER_A_MES and \
+                    rs["n_strong_events"] >= TIER_A_MIN_STRONG:
+                tier = "A"
+            elif rs["n_events"] < TIER_A_MIN_EVENTS and \
+                    rs["max_event_snr"] >= TIER_B_EVENT_SNR and \
+                    depth * 100.0 <= TIER_B_MAX_DEPTH_PCT:
+                tier = "B"
+        rec["tier"] = tier
+        if demote:
+            rec["status"] = "demoted"
+        elif tier is not None:
+            rec["status"] = "survivor"
+        else:
+            rec["status"] = "recorded"
         return rec
     except Exception as e:
         rec["status"] = "error"
@@ -710,7 +813,7 @@ def main(argv=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     logf = open(out_dir / "run.log", "a")
     run_t0 = time.time()
-    summary = {"tool": "bulk_screen v1", "sector": args.sector,
+    summary = {"tool": "bulk_screen v1.1", "sector": args.sector,
                "product": PRODUCT,
                "window": {"min_mag": args.min_mag, "max_mag": args.max_mag,
                           "min_rad": args.min_rad, "max_rad": args.max_rad},
@@ -719,7 +822,12 @@ def main(argv=None):
                               "depth_min_pct": DEPTH_MIN_PCT,
                               "depth_eb_pct": DEPTH_EB_PCT,
                               "period_range_d": [MIN_PERIOD_D,
-                                                 MAX_PERIOD_D]},
+                                                 MAX_PERIOD_D],
+                              "tier_a_mes": TIER_A_MES,
+                              "tier_a_min_events": TIER_A_MIN_EVENTS,
+                              "tier_a_min_strong": TIER_A_MIN_STRONG,
+                              "tier_b_event_snr": TIER_B_EVENT_SNR,
+                              "tier_b_max_depth_pct": TIER_B_MAX_DEPTH_PCT},
                "control_tic": args.control_tic}
 
     # 1 — star list ------------------------------------------------------
@@ -792,6 +900,9 @@ def main(argv=None):
     for r in survivors:
         r["control"] = bool(args.control_tic
                             and r["tic"] == str(args.control_tic))
+    summary["survivor_tiers"] = {
+        t: sum(1 for r in survivors if r.get("tier") == t)
+        for t in ("A", "B")}
     novel, zoo_known = annotate_survivors_zooniverse(survivors, logf)
     summary["zooniverse_known_survivors"] = [r["tic"] for r in zoo_known]
 
@@ -800,7 +911,9 @@ def main(argv=None):
                 "depth_percent", "sde", "sector", "product", "ra", "dec",
                 "tmag", "radius_rsun", "flags", "odd_even_ratio",
                 "secondary_depth_percent", "near_systematic", "control",
-                "status", "known_source", "alt_peaks")
+                "status", "known_source", "alt_peaks", "mes_pink",
+                "cdpp_pct", "n_events", "n_strong_events",
+                "max_event_snr", "v_ratio", "tier")
         return {k: rec.get(k) for k in keys if rec.get(k) is not None}
 
     with open(out_dir / "survivors.jsonl", "w") as fh:
@@ -825,6 +938,8 @@ def main(argv=None):
                 "sde": crec["sde"], "period_days": crec.get("period_days"),
                 "depth_percent": crec.get("depth_percent"),
                 "status": crec["status"], "rank_by_sde": rank,
+                "mes_pink": crec.get("mes_pink"),
+                "tier": crec.get("tier"),
                 "caught_as_survivor": crec["status"] == "survivor"}
         log(f"CONTROL {args.control_tic}: {summary['control']}", logf)
 
