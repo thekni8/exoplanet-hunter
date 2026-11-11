@@ -111,10 +111,24 @@ novel-survivor claims, and its SDE + rank are reported in the summary.
 If the screen cannot see a known real signal, the screen is broken and
 the run says so.
 
+STAR LIST — TARGET-LIST METHOD (v1.2, 2026-11-11)
+-------------------------------------------------
+--target-list builds the list the way Rabtsevich did (teardown §1):
+the sector's QLP target-list CSV (archive.stsci.edu/hlsps/qlp/
+target_lists/sXXXX.csv; sector 98 = 628,730 unique TICs, re-verified
+locally) + batched TIC 8.2 lookups by ID (batches of 5,000) for
+Tmag/radius, window applied locally. Raw CSV and enriched metadata
+are cached under bulk/cache/target_lists/ and the metadata cache is
+appended batch-by-batch, so a cold sector build is resumable; warm
+builds are instant. His recount rule (Tmag <= 11.5, no radius cut —
+use --min-mag 0 --max-mag 11.5 and require_radius off via the API)
+reproduces his 126,246 for sector 98.
+
 USAGE
 -----
   python bulk_screen.py --sector 1 --ra 97.0969 --dec -65.5793 \
       --cone 6 --control-tic 150428135 --out-dir bulk/run_s0001
+  python bulk_screen.py --sector 98 --target-list --out-dir bulk/run_s0098
   python bulk_screen.py --stars-file sample.csv --sector 1 ...
 
 Outputs in --out-dir: survivors.jsonl, screen_hits.jsonl (all recorded
@@ -241,6 +255,131 @@ def cone_star_list(ra, dec, cone_deg, min_mag, max_mag, min_rad, max_rad,
         f"in window (Tmag {min_mag}-{max_mag}, R {min_rad}-{max_rad})",
         logf)
     return stars
+
+
+TARGET_LIST_URL = ("https://archive.stsci.edu/hlsps/qlp/"
+                   "target_lists/s{sec:04d}.csv")
+TIC_BATCH = 5000  # Rabtsevich's deposited recount used batches of 5,000
+
+
+def _tic_batch(ids):
+    """One batched TIC 8.2 lookup (Catalogs.query_criteria by ID list).
+    Returns {tic: {ra, dec, tmag, radius}}; NaNs become None."""
+    from astroquery.mast import Catalogs
+
+    def _f(v):
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return None
+        return None if math.isnan(x) else x
+
+    tab = Catalogs.query_criteria(catalog="Tic",
+                                  ID=[int(i) for i in ids])
+    out = {}
+    for row in tab:
+        out[str(row["ID"])] = {"ra": _f(row["ra"]), "dec": _f(row["dec"]),
+                               "tmag": _f(row["Tmag"]),
+                               "radius": _f(row["rad"])}
+    return out
+
+
+def target_list_star_list(sector, min_mag, max_mag, min_rad, max_rad,
+                          cache_dir, logf=None, require_radius=True,
+                          limit_ids=None, workers=3):
+    """Sector target-list method — how Rabtsevich built his 126k list
+    (teardown §1, recounted and verified there):
+
+    1. The sector's QLP target list (TIC_ID, RA, DEC for every star QLP
+       extracted that sector) is a plain CSV at archive.stsci.edu.
+    2. Tmag / radius come from batched TIC 8.2 lookups by ID
+       (query_criteria, batches of 5,000 — his deposited batch size).
+    3. The window is applied locally.
+
+    Both downloads are cached under <cache_dir>/target_lists/: the raw
+    CSV (sXXXX.csv) and the enriched metadata (sXXXX_tic.csv), the
+    latter appended batch-by-batch so an interrupted build RESUMES —
+    a full sector is ~470-630k IDs and a lookup batch takes ~0.5-2 min
+    through the proxy, so a cold build is a long, cache-building job,
+    not a per-run cost. Returns (stars, stats)."""
+    import urllib.request
+    tl_dir = Path(cache_dir) / "target_lists"
+    tl_dir.mkdir(parents=True, exist_ok=True)
+    raw_path = tl_dir / f"s{sector:04d}.csv"
+    if not raw_path.exists():
+        url = TARGET_LIST_URL.format(sec=sector)
+        log(f"target list: downloading {url}", logf)
+        urllib.request.urlretrieve(url, raw_path)
+    ids, seen = [], set()
+    with open(raw_path) as fh:
+        fh.readline()  # '#TIC_ID,RA,DEC'
+        for line in fh:
+            tic = line.split(",", 1)[0].strip()
+            if tic and tic not in seen:
+                seen.add(tic)
+                ids.append(str(int(tic)))
+    if limit_ids:
+        ids = ids[:limit_ids]
+    stats = {"sector": sector, "target_list_ids": len(ids)}
+    log(f"target list s{sector:04d}: {len(ids)} unique TIC IDs", logf)
+
+    meta_path = tl_dir / f"s{sector:04d}_tic.csv"
+    meta = {}
+    if meta_path.exists():
+        with open(meta_path) as fh:
+            for row in csv.DictReader(fh):
+                meta[row["tic"]] = {
+                    "ra": float(row["ra"]) if row["ra"] else None,
+                    "dec": float(row["dec"]) if row["dec"] else None,
+                    "tmag": float(row["tmag"]) if row["tmag"] else None,
+                    "radius": (float(row["radius"]) if row["radius"]
+                               else None)}
+    todo = [tid for tid in ids if tid not in meta]
+    if todo:
+        batches = [todo[i:i + TIC_BATCH]
+                   for i in range(0, len(todo), TIC_BATCH)]
+        log(f"target list: {len(todo)} IDs need TIC metadata "
+            f"({len(batches)} batches of {TIC_BATCH})", logf)
+        fh = open(meta_path, "a", newline="")
+        w = csv.writer(fh)
+        if meta_path.stat().st_size == 0:
+            w.writerow(["tic", "ra", "dec", "tmag", "radius"])
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for got in ex.map(_tic_batch, batches):
+                meta.update(got)
+                for tic, m in got.items():
+                    w.writerow([tic, m["ra"], m["dec"], m["tmag"],
+                                m["radius"]])
+                fh.flush()
+                done += 1
+                log(f"target list: batch {done}/{len(batches)} cached "
+                    f"({len(meta)} IDs enriched)", logf)
+        fh.close()
+    stats["tic_enriched"] = len(meta)
+
+    stars, n_no_tmag, n_no_rad = [], 0, 0
+    for tid in ids:
+        m = meta.get(tid)
+        if m is None or m["tmag"] is None:
+            n_no_tmag += 1
+            continue
+        if not (min_mag <= m["tmag"] <= max_mag):
+            continue
+        if m["radius"] is None:
+            n_no_rad += 1
+            if require_radius:
+                continue
+        elif not (min_rad <= m["radius"] <= max_rad):
+            continue
+        stars.append({"tic": tid, "ra": m["ra"], "dec": m["dec"],
+                      "tmag": m["tmag"], "radius": m["radius"]})
+    stats.update({"in_window": len(stars), "missing_tmag": n_no_tmag,
+                  "missing_radius_in_mag_window": n_no_rad})
+    log(f"target list: {len(stars)} stars in window (Tmag {min_mag}-"
+        f"{max_mag}, R {min_rad}-{max_rad}); {n_no_tmag} no-Tmag, "
+        f"{n_no_rad} no-radius in mag window", logf)
+    return stars, stats
 
 
 def file_star_list(path):
@@ -792,6 +931,9 @@ def main(argv=None):
                     help="cone radius in degrees (with --ra/--dec)")
     ap.add_argument("--stars-file", default=None,
                     help="CSV tic,ra,dec,tmag,radius instead of a cone")
+    ap.add_argument("--target-list", action="store_true",
+                    help="build the star list from the sector's QLP "
+                         "target list + batched TIC lookups (cached)")
     ap.add_argument("--min-mag", type=float, default=10.0)
     ap.add_argument("--max-mag", type=float, default=13.5)
     ap.add_argument("--min-rad", type=float, default=0.2)
@@ -813,7 +955,7 @@ def main(argv=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     logf = open(out_dir / "run.log", "a")
     run_t0 = time.time()
-    summary = {"tool": "bulk_screen v1.1", "sector": args.sector,
+    summary = {"tool": "bulk_screen v1.2", "sector": args.sector,
                "product": PRODUCT,
                "window": {"min_mag": args.min_mag, "max_mag": args.max_mag,
                           "min_rad": args.min_rad, "max_rad": args.max_rad},
@@ -831,7 +973,12 @@ def main(argv=None):
                "control_tic": args.control_tic}
 
     # 1 — star list ------------------------------------------------------
-    if args.stars_file:
+    if args.target_list:
+        stars, tl_stats = target_list_star_list(
+            args.sector, args.min_mag, args.max_mag, args.min_rad,
+            args.max_rad, args.cache_dir, logf)
+        summary["target_list"] = tl_stats
+    elif args.stars_file:
         stars = file_star_list(args.stars_file)
     else:
         if args.ra is None or args.dec is None:
