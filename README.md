@@ -147,6 +147,23 @@ The QA Benchmarks page re-runs this class of check against TOI-114, Pi Mensae c 
 
 ---
 
+## 🧪 The vetting gauntlet — how a hit earns belief
+
+A sweep hit (SDE ≥ 8.5) is a suspicion, not a candidate. Desk checks run it through the gauntlet in order (the staged runner is `vet_star2.py`); a kill at any stage ends the run:
+
+1. **Reproduce** — re-analyze the star; a hit that doesn't reproduce is a pipeline phantom.
+2. **Odd/even + double-period** — alternating eclipse depths, or an ellipsoidal wave at twice the period, mark an eclipsing binary.
+3. **Sector persistence** (`persistence.py`) — the filed dip must show sector by sector at a consistent depth. The stamp is graded on raw flux too: a dip that exists only in flattened flux is vetoed to **RAW-REFUTED** (the TIC 294873918 lesson — the transit-masked second pass can manufacture a dip out of broad variability, and the stamp must not re-grade its own artefact).
+4. **Holdout prediction** (`holdout_test.py`, added 2026-11-11) — leave-one-sector-out, after the Pavel Rabtsevich / TIC 4206066 (TOI-7930) playbook: fold the star's sectors into groups, refit the ephemeris *without* one group, and require the refined ephemeris to predict that group's dips in **raw** flux at ≥ 3σ in a majority of folds, with no fold showing a significant opposite signal. Stamps: `HOLDOUT-PASS` / `HOLDOUT-FAIL` / `HOLDOUT-INSUFFICIENT-DATA`. A pass proves **predictive periodicity only** — a clean eclipsing binary passes this test (control TIC 308851365 does) — so it complements the raw-flux, shape and imaging gates and never replaces them.
+5. **Centroid / difference imaging** — mandatory before any discovery claim or filing; a dip that doesn't come from the target's pixels is a blend, whatever the folds say.
+
+```bash
+# Holdout desk check at a filed ephemeris (period d, T0 in BTJD, duration h)
+python holdout_test.py TIC PERIOD T0_BTJD DURATION_HOURS --out holdout_TIC.json
+```
+
+---
+
 ## ⚠️ Known limitations — stated plainly
 
 - **Transit depth and planet radius read low.** For WASP-126 b the engine measures a depth of ~0.204% and a planet radius of ~6.4 R⊕ against catalog values of ~0.940% and ~10.7 R⊕. Periods and SDE scores are trustworthy; absolute depths/radii are under-recovered and **under investigation** — treat planet sizes as approximate, lower-bound estimates.
@@ -168,6 +185,8 @@ The QA Benchmarks page re-runs this class of check against TOI-114, Pi Mensae c 
 ```
 exoplanet-hunter/
 ├── hunter.py            # the engine: analyze / sweep / odd-even test (real TESS data)
+├── persistence.py       # sector-persistence stamp (incl. the RAW-REFUTED raw-flux veto)
+├── holdout_test.py      # leave-one-sector-out holdout prediction test (HOLDOUT-* stamps)
 ├── api.py               # FastAPI job-queue API + SQLite history & discoveries
 ├── run.sh               # one-command start (installs deps visibly, serves :8000)
 ├── requirements.txt

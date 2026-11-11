@@ -1,0 +1,130 @@
+{
+  "tic": "150428135",
+  "period_days": 16.0511,
+  "t0_btjd": 1340.042,
+  "duration_hours": 4.392,
+  "n_sectors_total": 16,
+  "sectors": [
+    1,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    13,
+    27,
+    28,
+    30,
+    31,
+    33
+  ],
+  "criteria": {
+    "min_usable_folds": 3,
+    "min_total_full_events": 3,
+    "fold_signif_bar": 3.0,
+    "opposite_bar": -3.0,
+    "pass_rule": "strict majority of usable folds >= bar AND combined >= bar AND no fold <= opposite bar"
+  },
+  "folds": [
+    {
+      "fold": 0,
+      "held_out_sectors": [
+        1,
+        3,
+        4,
+        5
+      ],
+      "tmin": 1325.2954950150029,
+      "tmax": 1464.1456999538314,
+      "n_raw_points": 62075,
+      "usable": true,
+      "reason": null,
+      "refined_period_days": 16.05218611574548,
+      "refined_t0_btjd": 1468.4697508429706,
+      "events_in_span": 6,
+      "full_events": 4,
+      "depth_pct": 0.057697296142578125,
+      "signif": 5.971046034715824,
+      "n_chunks_out": 487,
+      "sigma_pct": 0.009662845639963998
+    },
+    {
+      "fold": 1,
+      "held_out_sectors": [
+        6,
+        7,
+        8,
+        9
+      ],
+      "tmin": 1468.2721108429705,
+      "tmax": 1568.4750845635463,
+      "n_raw_points": 59042,
+      "usable": true,
+      "reason": null,
+      "refined_period_days": 16.05146322701094,
+      "refined_t0_btjd": 1340.085555015003,
+      "events_in_span": 6,
+      "full_events": 5,
+      "depth_pct": 0.037091970443725586,
+      "signif": 3.658442335417552,
+      "n_chunks_out": 453,
+      "sigma_pct": 0.010138733111804573
+    },
+    {
+      "fold": 2,
+      "held_out_sectors": [
+        10,
+        11,
+        13,
+        27
+      ],
+      "tmin": 1569.4375795183723,
+      "tmax": 2060.6425076361975,
+      "n_raw_points": 61618,
+      "usable": true,
+      "reason": null,
+      "refined_period_days": 16.051704182688052,
+      "refined_t0_btjd": 1340.085555015003,
+      "events_in_span": 6,
+      "full_events": 4,
+      "depth_pct": 0.06143450736999512,
+      "signif": 4.443886221736285,
+      "n_chunks_out": 476,
+      "sigma_pct": 0.013824500517025353
+    },
+    {
+      "fold": 3,
+      "held_out_sectors": [
+        28,
+        30,
+        31,
+        33
+      ],
+      "tmin": 2061.8501420739476,
+      "tmax": 2227.573423461953,
+      "n_raw_points": 62347,
+      "usable": true,
+      "reason": null,
+      "refined_period_days": 16.050981337358305,
+      "refined_t0_btjd": 1340.085555015003,
+      "events_in_span": 7,
+      "full_events": 5,
+      "depth_pct": 0.0449061393737793,
+      "signif": 4.695591746264797,
+      "n_chunks_out": 473,
+      "sigma_pct": 0.009563467567107126
+    }
+  ],
+  "n_folds": 4,
+  "n_usable_folds": 4,
+  "total_full_events_held_out": 18,
+  "folds_at_or_above_bar": 4,
+  "folds_opposite": 0,
+  "combined_depth_pct": 0.04893458414836606,
+  "combined_signif": 9.362295783634702,
+  "verdict": "HOLDOUT-PASS"
+}
