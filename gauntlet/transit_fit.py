@@ -109,13 +109,16 @@ def load_data(data_dir, qlp_sectors, tesscut_sectors, period, t0,
                         exp_time_d=exp_s / 86400.0,
                         supersample=supersample.get(sec,
                                                     supersample_default)))
-    # per-sector: median-normalise, sigma-clip 5 sigma (MAD), sigma from
-    # out-of-transit MAD
+    # per-sector: median-normalise, asymmetric sigma-clip 5 sigma (MAD),
+    # sigma from out-of-transit MAD. The lower cut is floored at 10%
+    # below the median (2026-11-14, TIC 139526205 — same fix as
+    # rawflux_check.py): a symmetric 5-sigma cut deletes real transits
+    # on quiet stars before the fit, biasing depth / Rp low.
     for d in out:
         d['f'] = d['f'] / np.median(d['f'])
         med = np.median(d['f'])
         mad = 1.4826 * np.median(np.abs(d['f'] - med))
-        keep = np.abs(d['f'] - med) < 5 * mad
+        keep = (d['f'] < med + 5 * mad) & (d['f'] > med - max(5 * mad, 0.10))
         d['t'], d['f'] = d['t'][keep], d['f'][keep]
         ph = (((d['t'] - t0) / period + 0.5) % 1.0) - 0.5
         oot = np.abs(ph) > 0.08
