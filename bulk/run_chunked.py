@@ -27,15 +27,24 @@ proven pieces differently:
 Trade-off, stated plainly: known TOI/VSX stars inside a slice consume
 download+compute before being removed at the survivor stage (~25%
 extra compute), in exchange for the run actually finishing.
+
+Recipes: the run is driven by a YAML recipe (bulk/recipes/*.yaml)
+— sector, target window, tag, slice size, workers. See
+bulk/recipe.py for the schema. CLI flags override the recipe;
+--sector may come from either. The recipe's window is verified
+against the target-list window file before any slice runs.
 """
 import argparse, csv, json, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from bulk.recipe import (RecipeError, apply_overrides, default_recipe_path,
+                         load_recipe)
 BULK = ROOT / "bulk"
-SECTOR = None  # set in main() from --sector
+SECTOR = None  # set in main() from recipe / --sector
 RUN = None  # set in main() from --sector
+RECIPE = None  # resolved recipe dict, set in main()
 N_STARS = 0  # set by build_slices()
 CHUNKS = None  # set in main()
 def _find_py():
@@ -51,11 +60,19 @@ def _find_py():
 
 
 PY = _find_py()
-SLICE = 1250  # was 5000 (2026-11-12): S98 light curves are 200-s
-# cadence, 24,165 points/star vs 1,281 in S1 — a 5,000-star slice
-# needs ~1.5-2 h of screen time, longer than the VM usually lives
-# (20-100 min between replacements). 1,250-star slices screen in
-# ~20-30 min, so a checkpoint lands inside one VM lifetime.
+# Default slice size (stars per checkpoint). Overridden by the recipe's
+# slice_size (2026-11-12: S98 light curves are 200-s cadence, 24,165
+# points/star vs 1,281 in S1 — a 5,000-star slice needs ~1.5-2 h of
+# screen time, longer than the VM usually lives (20-100 min between
+# replacements). 1,250-star slices screen in ~20-30 min, so a
+# checkpoint lands inside one VM lifetime).
+SLICE = 1250
+
+
+def _window_path():
+    tag = RECIPE["tag"] if RECIPE else "window_default"
+    return (BULK / "cache" / "target_lists" /
+            f"s{SECTOR:04d}_{tag}.json")
 
 
 def log(msg):
@@ -68,8 +85,16 @@ def log(msg):
 def build_slices():
     global N_STARS
     CHUNKS.mkdir(parents=True, exist_ok=True)
-    win = json.loads((BULK / "cache" / "target_lists" /
-                      f"s{SECTOR:04d}_window_default.json").read_text())
+    wpath = _window_path()
+    if not wpath.exists():
+        raise SystemExit(
+            f"target-list window file not found: {wpath}\n"
+            f"Build it first with the same recipe:\n"
+            f"  python bulk/build_target_list.py "
+            f"--recipe {RECIPE.get('_file', '')} "
+            f"--sector {SECTOR}")
+    win = json.loads(wpath.read_text())
+    _verify_window(win)
     tics = win["tics"]
     N_STARS = len(tics)
     tic_set = set(tics)
@@ -94,6 +119,30 @@ def build_slices():
     return slices
 
 
+def _verify_window(win):
+    """The window file records the params it was built with
+    (stats.window). They must match the recipe — otherwise we'd screen
+    a different star set than the recipe says. Legacy window files
+    without stats.window get a warning, not a refusal."""
+    recorded = (win.get("stats") or {}).get("window")
+    if not recorded:
+        log("WARNING: window file has no recorded build params; "
+            "cannot verify it matches the recipe")
+        return
+    want = RECIPE["window"]
+    mismatches = [f"{k}: recipe={want[k]!r} window-file={recorded.get(k)!r}"
+                  for k in ("min_mag", "max_mag", "min_rad", "max_rad",
+                            "require_radius", "limit_ids")
+                  if recorded.get(k) != want[k]]
+    if mismatches:
+        raise SystemExit(
+            "recipe/window mismatch — refusing to screen the wrong "
+            "star set:\n  " + "\n  ".join(mismatches) + "\n"
+            "Rebuild the target list with the same recipe:\n"
+            f"  python bulk/build_target_list.py "
+            f"--recipe {RECIPE.get('_file', '')} --sector {SECTOR}")
+
+
 def chunk_ok(out):
     """A slice counts as done only if its summary exists AND the screen
     did not mostly fail. Lesson 2026-11-11: chunk_00 'completed' with
@@ -113,14 +162,52 @@ def chunk_ok(out):
 
 
 def main():
-    global RUN, CHUNKS, SECTOR
+    global RUN, CHUNKS, SECTOR, RECIPE, SLICE
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sector", type=int, required=True)
+    ap.add_argument("--recipe", default=str(default_recipe_path()),
+                    help="YAML recipe file (default: bulk/recipes/default.yaml)")
+    ap.add_argument("--sector", type=int, default=None,
+                    help="TESS sector (overrides the recipe)")
+    ap.add_argument("--min-mag", type=float, default=None)
+    ap.add_argument("--max-mag", type=float, default=None)
+    ap.add_argument("--min-rad", type=float, default=None)
+    ap.add_argument("--max-rad", type=float, default=None)
+    ap.add_argument("--require-radius",
+                    action=argparse.BooleanOptionalAction, default=None)
+    ap.add_argument("--limit-ids", type=int, default=None)
+    ap.add_argument("--tag", default=None)
+    ap.add_argument("--slice-size", type=int, default=None)
+    ap.add_argument("--dl-workers", type=int, default=None)
+    ap.add_argument("--workers", type=int, default=None)
     args = ap.parse_args()
-    SECTOR = args.sector
+    try:
+        recipe = load_recipe(args.recipe)
+        recipe = apply_overrides(recipe, {
+            "sector": args.sector, "min_mag": args.min_mag,
+            "max_mag": args.max_mag, "min_rad": args.min_rad,
+            "max_rad": args.max_rad,
+            "require_radius": args.require_radius,
+            "limit_ids": args.limit_ids, "tag": args.tag,
+            "slice_size": args.slice_size,
+            "dl_workers": args.dl_workers, "workers": args.workers,
+        })
+    except RecipeError as exc:
+        ap.error(str(exc))
+    SECTOR = recipe["sector"]
+    if SECTOR is None:
+        ap.error("--sector is required (or set sector: in the recipe)")
+    RECIPE = recipe
+    SLICE = recipe["slice_size"]
     RUN = BULK / f"run_s{SECTOR:04d}"
     CHUNKS = RUN / "chunks"
     RUN.mkdir(parents=True, exist_ok=True)
+    log(f"recipe: {recipe['_file']} (sector {SECTOR}, "
+        f"window Tmag {recipe['window']['min_mag']}-"
+        f"{recipe['window']['max_mag']}, R "
+        f"{recipe['window']['min_rad']}-"
+        f"{recipe['window']['max_rad']}, tag {recipe['tag']}, "
+        f"slice {SLICE}, dl-workers {recipe['dl_workers']}, "
+        f"workers {recipe['workers'] or 'default'})")
     slices = build_slices()
     log(f"{len(slices)} slices")
     t_start = time.time()
@@ -130,12 +217,14 @@ def main():
             log(f"slice {i}: valid checkpoint exists, skipping")
             continue
         log(f"slice {i}: screening {sl.name} -> {out.name}")
-        r = subprocess.run(
-            [PY, str(ROOT / "bulk_screen.py"), "--sector", str(SECTOR),
-             "--stars-file", str(sl), "--skip-filter",
-             "--cache-dir", str(BULK / "cache"),
-             "--out-dir", str(out)],
-            capture_output=True, text=True)
+        cmd = [PY, str(ROOT / "bulk_screen.py"), "--sector", str(SECTOR),
+               "--stars-file", str(sl), "--skip-filter",
+               "--cache-dir", str(BULK / "cache"),
+               "--out-dir", str(out),
+               "--dl-workers", str(recipe["dl_workers"])]
+        if recipe["workers"] is not None:
+            cmd += ["--workers", str(recipe["workers"])]
+        r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
             log(f"slice {i}: FAILED rc={r.returncode}\n"
                 f"{r.stdout[-1500:]}\n{r.stderr[-1500:]}")
@@ -206,6 +295,9 @@ def main():
     summary = {
         "tool": "bulk_screen v1.2 chunked driver (run_chunked)",
         "sector": SECTOR, "stars_in": N_STARS,
+        "recipe": {"file": RECIPE["_file"],
+                   "params": {k: v for k, v in RECIPE.items()
+                              if not k.startswith("_")}},
         "known_filter": {"mode": "survivor-stage (chunked resilience)",
                          "toi_removed": n_toi, "vsx_removed": n_vsx,
                          "zooniverse_removed": agg["zooniverse_known"]},

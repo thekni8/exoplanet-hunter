@@ -1,0 +1,17 @@
+# Smoke-test recipe — exercises the whole driver cheaply.
+# Sector 1, first 2,000 TIC ids only, small slices. Use it to prove
+# a fresh machine/setup works before committing to a full sector:
+#   python bulk/build_target_list.py --recipe bulk/recipes/smoke.yaml
+#   python bulk/run_chunked.py --recipe bulk/recipes/smoke.yaml
+sector: 1
+window:
+  min_mag: 10.0
+  max_mag: 13.5
+  min_rad: 0.2
+  max_rad: 0.8
+  require_radius: true
+  limit_ids: 2000
+tag: window_smoke
+slice_size: 500
+dl_workers: 8
+workers: null
