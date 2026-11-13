@@ -1,0 +1,33 @@
+{
+  "input_survivors": 14732,
+  "after_period_exclusion": 447,
+  "after_shape_cuts": 114,
+  "after_duration_cut": 42,
+  "after_mes_cut": 2,
+  "recalibrated": 2,
+  "rules": {
+    "sys_bands_days": [
+      [
+        13.2,
+        15.0
+      ],
+      [
+        7.0,
+        7.4
+      ],
+      [
+        0.98,
+        1.02
+      ]
+    ],
+    "depth_max_percent": 1.0,
+    "odd_even_range": [
+      0.7,
+      1.43
+    ],
+    "secondary_max_percent": 0.3,
+    "duration_frac_max": 0.08,
+    "mes_min": 20.0,
+    "mes_gap_note": "re-derived from the S97 post-duration MES gap; see run_s0097/recalibrated/mes_gap.txt"
+  }
+}

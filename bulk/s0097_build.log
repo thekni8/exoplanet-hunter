@@ -1,0 +1,98 @@
+[04:29:23] target list s0097: 387831 unique TIC IDs
+[04:29:23] target list: 387831 IDs need TIC metadata (78 batches of 5000)
+[04:29:49] target list: batch 1/78 cached (5000 IDs enriched)
+[04:29:50] target list: batch 2/78 cached (10000 IDs enriched)
+[04:30:00] target list: batch 3/78 cached (15000 IDs enriched)
+[04:30:52] target list: batch 4/78 cached (20000 IDs enriched)
+[04:30:52] target list: batch 5/78 cached (25000 IDs enriched)
+[04:30:52] target list: batch 6/78 cached (30000 IDs enriched)
+[04:30:55] target list: batch 7/78 cached (35000 IDs enriched)
+[04:30:58] target list: batch 8/78 cached (40000 IDs enriched)
+[04:31:19] target list: batch 9/78 cached (45000 IDs enriched)
+[04:31:19] target list: batch 10/78 cached (50000 IDs enriched)
+[04:31:19] target list: batch 11/78 cached (55000 IDs enriched)
+[04:31:31] target list: batch 12/78 cached (60000 IDs enriched)
+[04:31:31] target list: batch 13/78 cached (65000 IDs enriched)
+[04:31:37] target list: batch 14/78 cached (70000 IDs enriched)
+[04:31:50] target list: batch 15/78 cached (75000 IDs enriched)
+[04:31:51] target list: batch 16/78 cached (80000 IDs enriched)
+[04:31:55] target list: batch 17/78 cached (85000 IDs enriched)
+[04:32:10] target list: batch 18/78 cached (90000 IDs enriched)
+[04:32:19] target list: batch 19/78 cached (95000 IDs enriched)
+[04:32:40] target list: batch 20/78 cached (100000 IDs enriched)
+[04:32:40] target list: batch 21/78 cached (105000 IDs enriched)
+[04:32:40] target list: batch 22/78 cached (110000 IDs enriched)
+[04:32:49] target list: batch 23/78 cached (115000 IDs enriched)
+[04:33:01] target list: batch 24/78 cached (120000 IDs enriched)
+[04:33:01] target list: batch 25/78 cached (125000 IDs enriched)
+[04:33:02] target list: batch 26/78 cached (130000 IDs enriched)
+[04:33:14] target list: batch 27/78 cached (135000 IDs enriched)
+[04:33:14] target list: batch 28/78 cached (140000 IDs enriched)
+[04:33:14] target list: batch 29/78 cached (145000 IDs enriched)
+[04:33:21] target list: batch 30/78 cached (150000 IDs enriched)
+[04:33:29] target list: batch 31/78 cached (155000 IDs enriched)
+[04:33:29] target list: batch 32/78 cached (160000 IDs enriched)
+[04:33:36] target list: batch 33/78 cached (165000 IDs enriched)
+[04:33:51] target list: batch 34/78 cached (170000 IDs enriched)
+[04:33:51] target list: batch 35/78 cached (175000 IDs enriched)
+[04:33:52] target list: batch 36/78 cached (180000 IDs enriched)
+[04:33:52] target list: batch 37/78 cached (185000 IDs enriched)
+[04:33:59] target list: batch 38/78 cached (190000 IDs enriched)
+[04:34:00] target list: batch 39/78 cached (195000 IDs enriched)
+[04:34:00] target list: batch 40/78 cached (200000 IDs enriched)
+[04:34:15] target list: batch 41/78 cached (205000 IDs enriched)
+[04:34:20] target list: batch 42/78 cached (210000 IDs enriched)
+[04:34:20] target list: batch 43/78 cached (215000 IDs enriched)
+[04:34:48] target list: batch 44/78 cached (220000 IDs enriched)
+[04:34:48] target list: batch 45/78 cached (225000 IDs enriched)
+[04:34:48] target list: batch 46/78 cached (230000 IDs enriched)
+[04:35:03] target list: batch 47/78 cached (235000 IDs enriched)
+[04:35:03] target list: batch 48/78 cached (240000 IDs enriched)
+[04:35:03] target list: batch 49/78 cached (245000 IDs enriched)
+[04:35:14] target list: batch 50/78 cached (250000 IDs enriched)
+[04:35:15] target list: batch 51/78 cached (255000 IDs enriched)
+[04:35:15] target list: batch 52/78 cached (260000 IDs enriched)
+[04:35:25] target list: batch 53/78 cached (265000 IDs enriched)
+[04:35:25] target list: batch 54/78 cached (270000 IDs enriched)
+[04:35:25] target list: batch 55/78 cached (275000 IDs enriched)
+[04:35:35] target list: batch 56/78 cached (280000 IDs enriched)
+[04:35:35] target list: batch 57/78 cached (285000 IDs enriched)
+[04:35:35] target list: batch 58/78 cached (290000 IDs enriched)
+[04:36:20] target list: batch 59/78 cached (295000 IDs enriched)
+[04:36:20] target list: batch 60/78 cached (300000 IDs enriched)
+[04:36:21] target list: batch 61/78 cached (305000 IDs enriched)
+[04:36:36] target list: batch 62/78 cached (310000 IDs enriched)
+[04:36:47] target list: batch 63/78 cached (315000 IDs enriched)
+[04:36:47] target list: batch 64/78 cached (320000 IDs enriched)
+[04:36:53] target list: batch 65/78 cached (325000 IDs enriched)
+[04:37:00] target list: batch 66/78 cached (330000 IDs enriched)
+[04:37:00] target list: batch 67/78 cached (335000 IDs enriched)
+[04:37:01] target list: batch 68/78 cached (340000 IDs enriched)
+[04:37:17] target list: batch 69/78 cached (345000 IDs enriched)
+[04:37:17] target list: batch 70/78 cached (350000 IDs enriched)
+[04:37:17] target list: batch 71/78 cached (355000 IDs enriched)
+[04:37:45] target list: batch 72/78 cached (360000 IDs enriched)
+[04:37:45] target list: batch 73/78 cached (365000 IDs enriched)
+[04:37:45] target list: batch 74/78 cached (370000 IDs enriched)
+[04:37:57] target list: batch 75/78 cached (375000 IDs enriched)
+[04:37:57] target list: batch 76/78 cached (380000 IDs enriched)
+[04:38:06] target list: batch 77/78 cached (385000 IDs enriched)
+[04:38:10] target list: batch 78/78 cached (387831 IDs enriched)
+[04:38:10] target list: 35400 stars in window (Tmag 10.0-13.5, R 0.2-0.8); 0 no-Tmag, 20721 no-radius in mag window
+{
+ "sector": 97,
+ "target_list_ids": 387831,
+ "tic_enriched": 387831,
+ "in_window": 35400,
+ "missing_tmag": 0,
+ "missing_radius_in_mag_window": 20721,
+ "window": {
+  "min_mag": 10.0,
+  "max_mag": 13.5,
+  "min_rad": 0.2,
+  "max_rad": 0.8,
+  "require_radius": true,
+  "limit_ids": null
+ }
+}
+wrote /home/hatch/workspace/exoplanet-hunter/bulk/cache/target_lists/s0097_window_default.json
