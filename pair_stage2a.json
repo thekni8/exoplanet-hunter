@@ -1,0 +1,87 @@
+{
+ "31315594": {
+  "best_period": 0.5726069042761711,
+  "best_depth": 0.1077288876454076,
+  "best_duration_d": 0.152,
+  "t0_btjd": 2256.7508704672914,
+  "sde_like": 25.080486746815104,
+  "n_points": 30649,
+  "sectors_used": [
+   {
+    "sector": 35,
+    "author": "QLP"
+   },
+   {
+    "sector": 62,
+    "author": "QLP"
+   },
+   {
+    "sector": 88,
+    "author": "QLP"
+   },
+   {
+    "sector": 96,
+    "author": "QLP"
+   }
+  ]
+ },
+ "31315605": {
+  "best_period": 0.5726069042761711,
+  "best_depth": 0.0027041803094690273,
+  "best_duration_d": 0.152,
+  "t0_btjd": 1354.3244083618242,
+  "sde_like": 20.17967306031702,
+  "n_points": 5853,
+  "sectors_used": [
+   {
+    "sector": 2,
+    "author": "QLP"
+   },
+   {
+    "sector": 8,
+    "author": "QLP"
+   },
+   {
+    "sector": 11,
+    "author": "QLP"
+   },
+   {
+    "sector": 32,
+    "author": "QLP"
+   }
+  ]
+ },
+ "31315574": {
+  "best_period": 0.5726069042761711,
+  "best_depth": 0.04076554754307466,
+  "best_duration_d": 0.152,
+  "t0_btjd": 1354.3284060621397,
+  "sde_like": 16.56810227654018,
+  "n_points": 13209,
+  "sectors_used": [
+   {
+    "sector": 35,
+    "author": "QLP"
+   },
+   {
+    "sector": 62,
+    "author": "QLP"
+   },
+   {
+    "sector": 2,
+    "author": "QLP"
+   },
+   {
+    "sector": 8,
+    "author": "QLP"
+   }
+  ]
+ },
+ "common_ephemeris": {
+  "P_common_d": 0.5726069042761711,
+  "T0_btjd": 1354.3284060621397,
+  "chosen_from_C_bls": 0.5726069042761711,
+  "vsx_period_d": 0.5725948,
+  "frac_diff_vs_vsx": 2.1139340020472213e-05
+ }
+}

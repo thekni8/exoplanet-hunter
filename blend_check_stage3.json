@@ -1,0 +1,230 @@
+{
+ "31": {
+  "n_cadences": 3445,
+  "n_in": 337,
+  "n_out": 969,
+  "target_pix": [
+   6.788340834356814,
+   6.523578114216878
+  ],
+  "neigh_pix": [
+   6.84316122454922,
+   9.078576973426967
+  ],
+  "pix_sep": 2.55558690827483,
+  "diff_centroid_offset_to_target_arcsec": 54.70174478163616,
+  "diff_centroid_offset_to_neighbour_arcsec": 1.2266114931866987,
+  "diff_centroid_ra_dec": [
+   99.39884299543331,
+   -67.73534416864797
+  ],
+  "diff_peak_offset_to_target_arcsec": 52.28068611218802,
+  "diff_peak_offset_to_neighbour_arcsec": 3.6949275511226998,
+  "diff_peak_value_e_s": 136.35317993164062,
+  "in_out_centroid_shift_arcsec": 0.6138193418337816,
+  "out_centroid_offset_to_target_arcsec": 61.22207013222017,
+  "in_centroid_offset_to_target_arcsec": 60.937558709052226,
+  "depth_tight_r0.75_pct": [
+   1.1991678879165857,
+   1.1166419417760642
+  ],
+  "depth_standard_r2.0_pct": [
+   6.46679641467559,
+   6.1546031142597935
+  ],
+  "depth_neighbour_r1.5_pct": [
+   45.22522431539873,
+   43.11544640986846
+  ]
+ },
+ "39": {
+  "n_cadences": 3865,
+  "n_in": 386,
+  "n_out": 1084,
+  "target_pix": [
+   6.9972045884038465,
+   6.68000731320287
+  ],
+  "neigh_pix": [
+   5.509119818395874,
+   8.757350899831723
+  ],
+  "pix_sep": 2.5553380714961587,
+  "diff_centroid_offset_to_target_arcsec": 49.54543018361906,
+  "diff_centroid_offset_to_neighbour_arcsec": 4.2653774947794805,
+  "diff_centroid_ra_dec": [
+   99.4019621050184,
+   -67.73615347313583
+  ],
+  "diff_peak_offset_to_target_arcsec": 64.368802065037,
+  "diff_peak_offset_to_neighbour_arcsec": 11.855865642542474,
+  "diff_peak_value_e_s": 83.76078796386719,
+  "in_out_centroid_shift_arcsec": 1.183543615524258,
+  "out_centroid_offset_to_target_arcsec": 56.41805068863925,
+  "in_centroid_offset_to_target_arcsec": 56.7789245068208,
+  "depth_tight_r0.75_pct": [
+   2.351911125648498,
+   2.2581296938120943
+  ],
+  "depth_standard_r2.0_pct": [
+   9.356313684121275,
+   9.00814656376201
+  ],
+  "depth_neighbour_r1.5_pct": [
+   37.9977482582472,
+   36.711352457362935
+  ]
+ },
+ "63": {
+  "n_cadences": 10942,
+  "n_in": 1087,
+  "n_out": 3059,
+  "target_pix": [
+   6.049029560468646,
+   6.804457603347703
+  ],
+  "neigh_pix": [
+   7.705914105576657,
+   8.763302894225188
+  ],
+  "pix_sep": 2.565607388009841,
+  "diff_centroid_offset_to_target_arcsec": 53.75210512310361,
+  "diff_centroid_offset_to_neighbour_arcsec": 2.72556410963339,
+  "diff_centroid_ra_dec": [
+   99.40092285133166,
+   -67.73470961787292
+  ],
+  "diff_peak_offset_to_target_arcsec": 61.5388553750473,
+  "diff_peak_offset_to_neighbour_arcsec": 7.920387711415195,
+  "diff_peak_value_e_s": 97.91041564941406,
+  "in_out_centroid_shift_arcsec": 0.4020975338885081,
+  "out_centroid_offset_to_target_arcsec": 48.15662486829554,
+  "in_centroid_offset_to_target_arcsec": 47.803753258095135,
+  "depth_tight_r0.75_pct": [
+   1.3265878832245726,
+   1.1486712490925033
+  ],
+  "depth_standard_r2.0_pct": [
+   6.302684651659218,
+   6.1054980670457
+  ],
+  "depth_neighbour_r1.5_pct": [
+   37.09076294922083,
+   35.986232514857996
+  ]
+ },
+ "67": {
+  "n_cadences": 11490,
+  "n_in": 1165,
+  "n_out": 3217,
+  "target_pix": [
+   6.5323018100087,
+   6.392099217224712
+  ],
+  "neigh_pix": [
+   4.1378099106501995,
+   7.3246887647732315
+  ],
+  "pix_sep": 2.569691561314359,
+  "diff_centroid_offset_to_target_arcsec": 52.589580543012055,
+  "diff_centroid_offset_to_neighbour_arcsec": 6.8228119804959855,
+  "diff_centroid_ra_dec": [
+   99.39789403011376,
+   -67.73708127512053
+  ],
+  "diff_peak_offset_to_target_arcsec": 54.468106207896184,
+  "diff_peak_offset_to_neighbour_arcsec": 7.431335739085437,
+  "diff_peak_value_e_s": 92.78327941894531,
+  "in_out_centroid_shift_arcsec": 0.6778228622004845,
+  "out_centroid_offset_to_target_arcsec": 139.07787959325518,
+  "in_centroid_offset_to_target_arcsec": 139.62933517050288,
+  "depth_tight_r0.75_pct": [
+   2.699944201995763,
+   2.8057538364289147
+  ],
+  "depth_standard_r2.0_pct": [
+   8.644726395009672,
+   8.594600626655247
+  ],
+  "depth_neighbour_r1.5_pct": [
+   39.575561672361836,
+   39.33148379093188
+  ]
+ },
+ "88": {
+  "n_cadences": 11625,
+  "n_in": 1176,
+  "n_out": 3265,
+  "target_pix": [
+   6.219648089630958,
+   6.208687778750587
+  ],
+  "neigh_pix": [
+   8.762342643942297,
+   6.006693910142569
+  ],
+  "pix_sep": 2.5507052200283304,
+  "diff_centroid_offset_to_target_arcsec": 56.20585672664152,
+  "diff_centroid_offset_to_neighbour_arcsec": 2.9363153017915704,
+  "diff_centroid_ra_dec": [
+   99.39896473565787,
+   -67.73455889525606
+  ],
+  "diff_peak_offset_to_target_arcsec": 58.746788014279254,
+  "diff_peak_offset_to_neighbour_arcsec": 5.008333368111513,
+  "diff_peak_value_e_s": 109.80712890625,
+  "in_out_centroid_shift_arcsec": 0.390917509687049,
+  "out_centroid_offset_to_target_arcsec": 66.52579769888949,
+  "in_centroid_offset_to_target_arcsec": 66.73122238561051,
+  "depth_tight_r0.75_pct": [
+   0.21923297081485327,
+   0.27192129050549463
+  ],
+  "depth_standard_r2.0_pct": [
+   8.108378618125013,
+   8.742917403594086
+  ],
+  "depth_neighbour_r1.5_pct": [
+   43.95360509758041,
+   46.86461281537528
+  ]
+ },
+ "96": {
+  "n_cadences": 10730,
+  "n_in": 1073,
+  "n_out": 3015,
+  "target_pix": [
+   6.99599269686561,
+   6.529876772733797
+  ],
+  "neigh_pix": [
+   9.284750266198735,
+   7.666359065452905
+  ],
+  "pix_sep": 2.5553870964775096,
+  "diff_centroid_offset_to_target_arcsec": 52.06497383479498,
+  "diff_centroid_offset_to_neighbour_arcsec": 4.354583058752584,
+  "diff_centroid_ra_dec": [
+   99.39917675370181,
+   -67.73651044708939
+  ],
+  "diff_peak_offset_to_target_arcsec": 52.2850800172229,
+  "diff_peak_offset_to_neighbour_arcsec": 9.26001430426019,
+  "diff_peak_value_e_s": 90.560302734375,
+  "in_out_centroid_shift_arcsec": 0.6430094303790541,
+  "out_centroid_offset_to_target_arcsec": 38.813501031793315,
+  "in_centroid_offset_to_target_arcsec": 38.17083853293821,
+  "depth_tight_r0.75_pct": [
+   1.4904688169380842,
+   1.3022329517824671
+  ],
+  "depth_standard_r2.0_pct": [
+   4.65993541307691,
+   4.192624923657496
+  ],
+  "depth_neighbour_r1.5_pct": [
+   35.3181908212143,
+   34.84791477521224
+  ]
+ }
+}

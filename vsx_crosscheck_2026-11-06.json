@@ -1,0 +1,456 @@
+{
+  "batch": "VSX cross-check 2026-11-06",
+  "vsx_route_primary": "VizieR B/vsx \u2014 FAILED from this VM (proxy drop, 2026-11-06)",
+  "vsx_route_used": "VSX website query.votable cone service (vsx.aavso.org), validated on the TIC 308851365 control entry (ROT, P 0.75629 recovered exactly)",
+  "stars": [
+    {
+      "tic": "167367406",
+      "our_type": "EW (contact binary)",
+      "our_period_d": 0.43461,
+      "our_period_note": "orbital period, twin-eclipse reading; photometric cycle 0.21731 d",
+      "tic_row": {
+        "ID": "167367406",
+        "ra": 99.4320261122082,
+        "dec": -67.743880749249,
+        "Tmag": 14.2054,
+        "GAIA": "5280333334596470400",
+        "GAIAmag": 15.3689,
+        "Vmag": 16.235,
+        "rad": 0.38876,
+        "mass": 0.378736,
+        "Teff": 3542.0,
+        "contratio": 0.197288513
+      },
+      "id_verified": true,
+      "vsx_route": "VSX website query.votable (robust re-fetch)",
+      "vsx_query_url": "https://vsx.aavso.org/index.php?view=query.votable&coords=99.4320261122082+-67.743880749249&size=0.5&unit=2&order=9",
+      "vsx_entries_within_30arcsec": [],
+      "vsx_same_star_entries": [],
+      "secondary": {
+        "catalogue": "Gaia DR3 (archive TAP via HTTPS sync endpoint)",
+        "gaia_source_within_10arcsec": [
+          {
+            "source_id": 5280333334596470400,
+            "sep_arcsec": 0.04,
+            "phot_g_mean_mag": 15.353328
+          },
+          {
+            "source_id": 5280333334594800000,
+            "sep_arcsec": 2.61,
+            "phot_g_mean_mag": 20.690481
+          },
+          {
+            "source_id": 5280333330298269056,
+            "sep_arcsec": 6.32,
+            "phot_g_mean_mag": 17.727589
+          }
+        ],
+        "dr3_counterpart_source_id": 5280333334596470400,
+        "dr3_counterpart_sep_arcsec": 0.04,
+        "vari_classifier_result": null,
+        "vari_eclipsing_binary": null,
+        "present_as_variable": false
+      },
+      "classification": "ABSENT EVERYWHERE CHECKED"
+    },
+    {
+      "tic": "231124169",
+      "our_type": "EB (twin eclipsing binary)",
+      "our_period_d": 2.91396,
+      "our_period_note": "double-period fold; ellipsoidal +0.871% @ 92 sigma",
+      "tic_row": {
+        "ID": "231124169",
+        "ra": 69.6331927476445,
+        "dec": -70.6228859738618,
+        "Tmag": 13.4071,
+        "GAIA": "4654856560096208512",
+        "GAIAmag": 14.5722,
+        "Vmag": 15.61,
+        "rad": 0.442181,
+        "mass": 0.438149,
+        "Teff": 3494.0,
+        "contratio": 0.05634856
+      },
+      "id_verified": true,
+      "vsx_route": "VSX website query.votable (robust re-fetch)",
+      "vsx_query_url": "https://vsx.aavso.org/index.php?view=query.votable&coords=69.6331927476445+-70.6228859738618&size=0.5&unit=2&order=9",
+      "vsx_entries_within_30arcsec": [],
+      "vsx_same_star_entries": [],
+      "secondary": {
+        "catalogue": "Gaia DR3 (archive TAP via HTTPS sync endpoint)",
+        "gaia_source_within_10arcsec": [
+          {
+            "source_id": 4654856560096208512,
+            "sep_arcsec": 0.56,
+            "phot_g_mean_mag": 14.552384
+          },
+          {
+            "source_id": 4654856560096208384,
+            "sep_arcsec": 4.72,
+            "phot_g_mean_mag": 17.221767
+          },
+          {
+            "source_id": 4654856555795364224,
+            "sep_arcsec": 6.05,
+            "phot_g_mean_mag": 20.622446
+          }
+        ],
+        "dr3_counterpart_source_id": 4654856560096208512,
+        "dr3_counterpart_sep_arcsec": 0.56,
+        "vari_classifier_result": null,
+        "vari_eclipsing_binary": null,
+        "present_as_variable": false
+      },
+      "classification": "ABSENT EVERYWHERE CHECKED"
+    },
+    {
+      "tic": "149975388",
+      "our_type": "EB",
+      "our_period_d": 28.38,
+      "our_period_note": "double-period fold 2P (BLS half-period 14.0768 d); wave +0.53% @ 17 sigma",
+      "tic_row": {
+        "ID": "149975388",
+        "ra": 90.3657541646955,
+        "dec": -64.7750123346286,
+        "Tmag": 14.8483,
+        "GAIA": "5477506418344494976",
+        "GAIAmag": 15.9834,
+        "Vmag": 16.958,
+        "rad": 0.410074,
+        "mass": 0.402806,
+        "Teff": 3556.0,
+        "contratio": 0.0381902643
+      },
+      "id_verified": true,
+      "vsx_route": "VSX website query.votable (robust re-fetch)",
+      "vsx_query_url": "https://vsx.aavso.org/index.php?view=query.votable&coords=90.3657541646955+-64.7750123346286&size=0.5&unit=2&order=9",
+      "vsx_entries_within_30arcsec": [],
+      "vsx_same_star_entries": [],
+      "secondary": {
+        "catalogue": "Gaia DR3 (archive TAP via HTTPS sync endpoint)",
+        "gaia_source_within_10arcsec": [
+          {
+            "source_id": 5477506418344494976,
+            "sep_arcsec": 0.92,
+            "phot_g_mean_mag": 15.961836
+          },
+          {
+            "source_id": 5477506418341250176,
+            "sep_arcsec": 5.22,
+            "phot_g_mean_mag": 20.090145
+          }
+        ],
+        "dr3_counterpart_source_id": 5477506418344494976,
+        "dr3_counterpart_sep_arcsec": 0.92,
+        "vari_classifier_result": null,
+        "vari_eclipsing_binary": null,
+        "present_as_variable": false
+      },
+      "classification": "ABSENT EVERYWHERE CHECKED"
+    },
+    {
+      "tic": "149914431",
+      "our_type": "EB",
+      "our_period_d": 27.45,
+      "our_period_note": "double-period fold 2P (BLS half-period 13.7264 d); wave +0.58% @ 23 sigma",
+      "tic_row": {
+        "ID": "149914431",
+        "ra": 88.1773720828847,
+        "dec": -65.3004483801966,
+        "Tmag": 14.6362,
+        "GAIA": "4755920984553548800",
+        "GAIAmag": 15.7695,
+        "Vmag": 16.804,
+        "rad": 0.497868,
+        "mass": 0.495945,
+        "Teff": 3551.0,
+        "contratio": 0.118720531
+      },
+      "id_verified": true,
+      "classification": "IN VSX, DISAGREES",
+      "vsx_route": "VSX website query.votable (robust re-fetch)",
+      "vsx_query_url": "https://vsx.aavso.org/index.php?view=query.votable&coords=88.1773720828847+-65.3004483801966&size=0.5&unit=2&order=9",
+      "vsx_entries_within_30arcsec": [
+        {
+          "auid": null,
+          "name": "Gaia DR3 4755920984553548800",
+          "const": "Dor",
+          "ra_deg": 88.17737,
+          "dec_deg": -65.30045,
+          "sep_arcsec": 0.01,
+          "var_type": "ROT",
+          "max_mag": 15.73,
+          "max_passband": "G",
+          "min_mag": 15.76,
+          "min_passband": "G",
+          "mag_range": "15.73-15.76 G",
+          "period_d": 0.0,
+          "epoch": 0.0,
+          "spec_type": "M",
+          "discoverer": "Gaia collaboration"
+        }
+      ],
+      "vsx_same_star_entries": [
+        {
+          "auid": null,
+          "name": "Gaia DR3 4755920984553548800",
+          "const": "Dor",
+          "ra_deg": 88.17737,
+          "dec_deg": -65.30045,
+          "sep_arcsec": 0.01,
+          "var_type": "ROT",
+          "max_mag": 15.73,
+          "max_passband": "G",
+          "min_mag": 15.76,
+          "min_passband": "G",
+          "mag_range": "15.73-15.76 G",
+          "period_d": 0.0,
+          "epoch": 0.0,
+          "spec_type": "M",
+          "discoverer": "Gaia collaboration"
+        }
+      ],
+      "filed_vs_ours": {
+        "type_eb_family": false,
+        "period_relation": "no period filed"
+      }
+    },
+    {
+      "tic": "294671352",
+      "our_type": "EB",
+      "our_period_d": 26.2545,
+      "our_period_note": "odd/even fold at 26.25450 d; sweep 13.1286 d is half-period alias",
+      "tic_row": {
+        "ID": "294671352",
+        "ra": 70.6979560801122,
+        "dec": -69.5542162452414,
+        "Tmag": 14.6772,
+        "GAIA": "4655030622248269696",
+        "GAIAmag": 15.8432,
+        "Vmag": 16.8608,
+        "rad": 0.365247,
+        "mass": 0.3518,
+        "Teff": 3498.0,
+        "contratio": 0.272229373
+      },
+      "id_verified": true,
+      "vsx_route": "VSX website query.votable (robust re-fetch)",
+      "vsx_query_url": "https://vsx.aavso.org/index.php?view=query.votable&coords=70.6979560801122+-69.5542162452414&size=0.5&unit=2&order=9",
+      "vsx_entries_within_30arcsec": [],
+      "vsx_same_star_entries": [],
+      "secondary": {
+        "catalogue": "Gaia DR3 (archive TAP via HTTPS sync endpoint)",
+        "gaia_source_within_10arcsec": [
+          {
+            "source_id": 4655030622248269696,
+            "sep_arcsec": 0.97,
+            "phot_g_mean_mag": 15.822893
+          },
+          {
+            "source_id": 4655030622259787136,
+            "sep_arcsec": 3.98,
+            "phot_g_mean_mag": 20.843546
+          },
+          {
+            "source_id": 4655030622228401536,
+            "sep_arcsec": 6.94,
+            "phot_g_mean_mag": 16.970093
+          },
+          {
+            "source_id": 4655030626526483200,
+            "sep_arcsec": 9.33,
+            "phot_g_mean_mag": 20.917204
+          },
+          {
+            "source_id": 4655030622259702144,
+            "sep_arcsec": 9.43,
+            "phot_g_mean_mag": 20.600756
+          }
+        ],
+        "dr3_counterpart_source_id": 4655030622248269696,
+        "dr3_counterpart_sep_arcsec": 0.97,
+        "vari_classifier_result": null,
+        "vari_eclipsing_binary": null,
+        "present_as_variable": false
+      },
+      "classification": "ABSENT EVERYWHERE CHECKED"
+    },
+    {
+      "tic": "294782870",
+      "our_type": "EB",
+      "our_period_d": 49.04,
+      "our_period_note": "present/absent alternation at 49.04 d fold (2 x 24.52220 d); fold-depth caveat on record",
+      "tic_row": {
+        "ID": "294782870",
+        "ra": 71.3318787252848,
+        "dec": -69.7211993130525,
+        "Tmag": 14.4404,
+        "GAIA": "4655013274865673984",
+        "GAIAmag": 15.6072,
+        "Vmag": 16.616,
+        "rad": 0.367899,
+        "mass": 0.354853,
+        "Teff": 3499.0,
+        "contratio": 0.187308058
+      },
+      "id_verified": true,
+      "classification": "ABSENT EVERYWHERE CHECKED",
+      "vsx_route": "VSX website query.votable (robust re-fetch)",
+      "vsx_query_url": "https://vsx.aavso.org/index.php?view=query.votable&coords=71.3318787252848+-69.7211993130525&size=0.5&unit=2&order=9",
+      "vsx_entries_within_30arcsec": [
+        {
+          "auid": null,
+          "name": "Gaia DR3 4655014752334420992",
+          "const": "Dor",
+          "ra_deg": 71.32717,
+          "dec_deg": -69.71742,
+          "sep_arcsec": 14.82,
+          "var_type": "E",
+          "max_mag": 17.72,
+          "max_passband": "G",
+          "min_mag": 18.08,
+          "min_passband": "G",
+          "mag_range": "17.72-18.08 G",
+          "period_d": 1.44199,
+          "epoch": 0.0,
+          "spec_type": null,
+          "discoverer": "Gaia collaboration"
+        }
+      ],
+      "vsx_same_star_entries": [],
+      "secondary": {
+        "catalogue": "Gaia DR3 (archive TAP via HTTPS sync endpoint)",
+        "gaia_source_within_10arcsec": [
+          {
+            "source_id": 4655013274865673984,
+            "sep_arcsec": 0.56,
+            "phot_g_mean_mag": 15.583699
+          },
+          {
+            "source_id": 4655013270593074432,
+            "sep_arcsec": 4.64,
+            "phot_g_mean_mag": 19.834541
+          },
+          {
+            "source_id": 4655013270559940864,
+            "sep_arcsec": 7.44,
+            "phot_g_mean_mag": 18.904282
+          }
+        ],
+        "dr3_counterpart_source_id": 4655013274865673984,
+        "dr3_counterpart_sep_arcsec": 0.56,
+        "vari_classifier_result": null,
+        "vari_eclipsing_binary": null,
+        "present_as_variable": false
+      }
+    },
+    {
+      "tic": "276791802",
+      "our_type": "LIKELY BINARY",
+      "our_period_d": 27.4587,
+      "our_period_note": "wave +0.211% @ 10.0 sigma at 27.4587 d",
+      "tic_row": {
+        "ID": "276791802",
+        "ra": 83.1596519724117,
+        "dec": -68.3311913474735,
+        "Tmag": 14.6256,
+        "GAIA": "4658560333740278656",
+        "GAIAmag": 15.7851,
+        "Vmag": 16.816,
+        "rad": 0.478786,
+        "mass": 0.476703,
+        "Teff": 3529.0,
+        "contratio": 0.231918886
+      },
+      "id_verified": true,
+      "classification": "ABSENT EVERYWHERE CHECKED",
+      "vsx_route": "VSX website query.votable (robust re-fetch)",
+      "vsx_query_url": "https://vsx.aavso.org/index.php?view=query.votable&coords=83.1596519724117+-68.3311913474735&size=0.5&unit=2&order=9",
+      "vsx_entries_within_30arcsec": [
+        {
+          "auid": null,
+          "name": "Gaia DR3 4658560333718885376",
+          "const": "Dor",
+          "ra_deg": 83.1407,
+          "dec_deg": -68.32918,
+          "sep_arcsec": 26.21,
+          "var_type": "E",
+          "max_mag": 19.13,
+          "max_passband": "G",
+          "min_mag": 19.49,
+          "min_passband": "G",
+          "mag_range": "19.13-19.49 G",
+          "period_d": 39.65,
+          "epoch": 0.0,
+          "spec_type": null,
+          "discoverer": "Gaia collaboration"
+        },
+        {
+          "auid": null,
+          "name": "Gaia DR3 4658560260708534528",
+          "const": "Dor",
+          "ra_deg": 83.17857,
+          "dec_deg": -68.3338,
+          "sep_arcsec": 26.84,
+          "var_type": "E",
+          "max_mag": 17.83,
+          "max_passband": "G",
+          "min_mag": 18.14,
+          "min_passband": "G",
+          "mag_range": "17.83-18.14 G",
+          "period_d": 1.67352,
+          "epoch": 0.0,
+          "spec_type": null,
+          "discoverer": "Gaia collaboration"
+        }
+      ],
+      "vsx_same_star_entries": [],
+      "secondary": {
+        "catalogue": "Gaia DR3 (archive TAP via HTTPS sync endpoint)",
+        "gaia_source_within_10arcsec": [
+          {
+            "source_id": 4658560333740278656,
+            "sep_arcsec": 0.83,
+            "phot_g_mean_mag": 15.762874
+          },
+          {
+            "source_id": 4658560329456921728,
+            "sep_arcsec": 3.25,
+            "phot_g_mean_mag": 20.126722
+          },
+          {
+            "source_id": 4658560333718906368,
+            "sep_arcsec": 3.52,
+            "phot_g_mean_mag": 20.872644
+          },
+          {
+            "source_id": 4658560333740278912,
+            "sep_arcsec": 3.65,
+            "phot_g_mean_mag": 19.66188
+          },
+          {
+            "source_id": 4658560333740279424,
+            "sep_arcsec": 6.51,
+            "phot_g_mean_mag": 18.310316
+          },
+          {
+            "source_id": 4658560333718899584,
+            "sep_arcsec": 8.01,
+            "phot_g_mean_mag": 20.812952
+          },
+          {
+            "source_id": 4658560333740277760,
+            "sep_arcsec": 8.17,
+            "phot_g_mean_mag": 19.290712
+          }
+        ],
+        "dr3_counterpart_source_id": 4658560333740278656,
+        "dr3_counterpart_sep_arcsec": 0.83,
+        "vari_classifier_result": null,
+        "vari_eclipsing_binary": null,
+        "present_as_variable": false
+      }
+    }
+  ],
+  "secondary_route": "Gaia DR3 archive TAP via plain HTTPS sync endpoint (astroquery session failed SSL through this VM's proxy on 2026-11-06)"
+}

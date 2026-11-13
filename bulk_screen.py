@@ -778,7 +778,19 @@ def _screen_one(args):
         with fits.open(path, memmap=True) as hdul:
             data = hdul[1].data
             t = np.asarray(data["TIME"], dtype=float)
-            flux = np.asarray(data["KSPSAP_FLUX"], dtype=float)
+            # Flux column differs by QLP HLSP version: older sectors
+            # (e.g. S1) carry KSPSAP_FLUX; newer ones (e.g. S98) dropped
+            # it for SYS_RM_FLUX (the systematics-removed flux — the
+            # column Rabtsevich's S98 screen used) with DET_FLUX as the
+            # plain detrended fallback. Lesson 2026-11-11: chunk_00 of
+            # the S98 run errored on all 5,000 stars with
+            # KeyError KSPSAP_FLUX before this fallback existed.
+            cols = data.columns.names
+            fcol = next((c for c in ("KSPSAP_FLUX", "SYS_RM_FLUX",
+                                     "DET_FLUX") if c in cols), None)
+            if fcol is None:
+                raise KeyError(f"no known flux column in {cols}")
+            flux = np.asarray(data[fcol], dtype=float)
             qual = np.asarray(data["QUALITY"], dtype=int)
         # Quality mask = lightkurve's TESS DEFAULT bitmask (17087), NOT
         # quality==0. Lesson (proof-run smoke test, 2026-11-11): TOI-700
