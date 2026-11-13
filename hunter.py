@@ -748,17 +748,26 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     t = lc_flat.time.value
     f = lc_flat.flux.value
 
-    # --- BLS v2 (2026-11-08 upgrade) ------------------------------------
+    # --- BLS v2 (2026-11-08 upgrade; multi-peak refinement 2026-11-13) --
     # * Frequency-uniform grid (3x the requested points, minimum 30k):
     #   the old linear-in-period grid under-samples long periods over a
     #   multi-year stitched baseline.
     # * Robust SDE: median/MAD of the periodogram EXCLUDING the TESS
     #   13.7 d systematic family, so the artifact forest no longer sets
     #   the noise scale every real peak is divided by.
-    # * Top-3 distinct peaks are extracted, not just the argmax; the
-    #   headline is the best non-systematic peak when one clears
-    #   SDE 6.5, else the argmax. All three ride along as candidates.
-    # * The headline period is refined on a fine local grid.
+    # * Top-15 distinct peaks are extracted (sub-harmonics masked) and
+    #   EACH is refined on the fine grid — not just the headline. The
+    #   coarse grid cannot stay coherent over a multi-year baseline at
+    #   long periods (measured 7-18x too coarse at 10-16 d over 1007 d),
+    #   so a true period can smear BELOW its own P/2 alias coarsely
+    #   while refining far above it (TOI-700 c: coarse SDE 19.7 vs alias
+    #   48.3; refined 258 vs 106). Refining only the headline locked in
+    #   the alias and hid the second planet. Harmonic families are
+    #   de-duplicated on the REFINED values; the headline is the best
+    #   refined non-systematic peak when one clears SDE 6.5, else the
+    #   best refined peak overall. The top-3 refined distinct signals
+    #   ride along as refined_signals so second planets survive to the
+    #   ledger.
     _n_grid = int(max(bls_points * 3, 30000))
     _emit(progress_callback, f"Running BLS ({_n_grid:,} grid points) for TIC {tic_id}...")
     periods = (1.0 / np.linspace(1.0 / max_p, 1.0 / min_p, _n_grid)) * u.day
@@ -775,15 +784,60 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         return med, (scale if scale > 0 else 1e-12)
 
     def _bls_best(tt, ff):
-        """BLS v2 -> (res, period, depth, duration, t0, sde, candidates)."""
+        """BLS v2 -> (res, period, depth, duration, t0, sde, candidates,
+        refined_signals). candidates and refined_signals are both the
+        top-3 refined DISTINCT signals (same list at this stage; they
+        diverge later only because TLS rescue prepends to candidates)."""
         _bls = BoxLeastSquares(tt * u.day, ff)
         _res = _bls.power(periods, durations)
         _pv = np.asarray(_res.period.value, dtype=float)
         _pw = np.asarray(_res.power, dtype=float)
         _med, _scale = _sde_scale(_pw, _pv)
         _work = (_pw - _med) / _scale
+
+        def _refine_one(_cand):
+            """Refine one candidate on the fine local grid (+/-1.5%,
+            800 points) — the old headline-only refinement, factored
+            out so every extracted peak gets the same treatment. Adopts
+            the refined values only if the refined SDE is no more than
+            1.0 below the coarse SDE; otherwise (or on any failure) the
+            coarse values stand, exactly as before."""
+            try:
+                _fine = np.linspace(_cand["period"] * 0.985,
+                                    _cand["period"] * 1.015, 800) * u.day
+                _fres = _bls.power(_fine, durations)
+                _fi = int(np.argmax(_fres.power))
+                _fsde = float((_fres.power[_fi] - _med) / _scale)
+                if _fsde >= _cand["sde"] - 1.0:
+                    return {
+                        "period": float(_fres.period[_fi].value),
+                        "sde": _fsde,
+                        "depth": float(_fres.depth[_fi]),
+                        "duration": float(_fres.duration[_fi].value),
+                        "t0": float(_fres.transit_time[_fi].value),
+                        "near_systematic": bool(_near_systematic(
+                            float(_fres.period[_fi].value))),
+                        "detector": "BLS",
+                    }
+            except Exception:
+                pass
+            return _cand
+
+        # Extract the top 15 peaks, masking each accepted peak's
+        # SUB-harmonics (P/2, P/3, P/4) as well as the peak itself: a
+        # signal at P also peaks at P/2, P/3... (every other/third
+        # transit still folds), so those are the same signal, not new
+        # ones. Multiples (2P, 3P) are deliberately NOT masked here:
+        # when the coarse grid smears a true period below its own P/2
+        # alias, the alias is accepted first and masking 2P would kill
+        # the true period itself (TOI-700 c: alias 8.026 d accepted,
+        # true 16.051 d = 2P). Multiples are de-duplicated AFTER
+        # refinement instead, when the true fundamental is known.
+        # N=15 is measured, not guessed: on TOI-700, planet b ranks
+        # 15th (pass 1) / 12th (pass 2) at coarse SDE ~13, so N=10
+        # would miss it on both passes.
         _cands = []
-        for _k in range(3):
+        for _k in range(15):
             _i = int(np.argmax(_work))
             if not np.isfinite(_work[_i]):
                 break
@@ -796,7 +850,9 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
                 "near_systematic": bool(_near_systematic(float(_pv[_i]))),
                 "detector": "BLS",
             })
-            _work[np.abs(_pv - _pv[_i]) <= 0.02 * _pv[_i]] = -np.inf
+            for _q in (1.0, 0.5, 1.0 / 3.0, 0.25):
+                _hp = float(_pv[_i]) * _q
+                _work[np.abs(_pv - _hp) <= 0.02 * _hp] = -np.inf
         if not _cands:
             _i = int(np.argmax(_pw))
             _cands = [{
@@ -808,6 +864,39 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
                 "near_systematic": bool(_near_systematic(float(_pv[_i]))),
                 "detector": "BLS",
             }]
+        # Refine every extracted peak, then de-duplicate harmonic
+        # families on the REFINED values: sort by refined SDE and
+        # greedily accept, dropping any peak whose period is a small
+        # rational multiple (m/n, m,n <= 8) of an accepted signal.
+        # Doing this after refinement is what rescues smeared true
+        # periods: the alias refines to 106 while the true period
+        # refines to 258, so the true period is accepted first and the
+        # alias drops as its P/2 harmonic. The wide ratio set matters:
+        # a strong signal's 4:3, P/5 and P/7 aliases refine to SDE
+        # 40-50 on TOI-700 and would otherwise crowd out the real
+        # second planet. The window is TIGHT (+/-0.2%) because refined
+        # periods are precise to ~0.01% — a wide window would kill real
+        # near-resonant planets (TOI-700 b/c sit 0.54% from 8:5).
+        # Known limitation: a genuine companion within 0.2% of a small
+        # rational ratio (e.g. an exact-resonance chain) is deduped.
+        _refined = [_refine_one(_c) for _c in _cands]
+        _refined.sort(key=lambda _c: _c["sde"], reverse=True)
+        _ratios = sorted({m / n for m in range(1, 9)
+                          for n in range(1, 9)})
+        _distinct = []
+        for _c in _refined:
+            _dup = False
+            for _a in _distinct:
+                _ratio = _c["period"] / _a["period"]
+                for _r in _ratios:
+                    if abs(_ratio - _r) <= 0.002 * _r:
+                        _dup = True
+                        break
+                if _dup:
+                    break
+            if not _dup:
+                _distinct.append(_c)
+        _cands = _distinct[:3]
         _head_idx = 0
         for _k, _c in enumerate(_cands):
             if not _c["near_systematic"]:
@@ -815,31 +904,12 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
                     _head_idx = _k
                 break
         _head = _cands[_head_idx]
-        # Refine the headline on a fine local grid (+/-1.5%, 800 points).
-        try:
-            _fine = np.linspace(_head["period"] * 0.985,
-                                _head["period"] * 1.015, 800) * u.day
-            _fres = _bls.power(_fine, durations)
-            _fi = int(np.argmax(_fres.power))
-            _fsde = float((_fres.power[_fi] - _med) / _scale)
-            if _fsde >= _head["sde"] - 1.0:
-                _head = {
-                    "period": float(_fres.period[_fi].value),
-                    "sde": _fsde,
-                    "depth": float(_fres.depth[_fi]),
-                    "duration": float(_fres.duration[_fi].value),
-                    "t0": float(_fres.transit_time[_fi].value),
-                    "near_systematic": bool(_near_systematic(
-                        float(_fres.period[_fi].value))),
-                    "detector": "BLS",
-                }
-                _cands[_head_idx] = _head
-        except Exception:
-            pass
         return (_res, _head["period"], _head["depth"], _head["duration"],
-                _head["t0"], _head["sde"], _cands)
+                _head["t0"], _head["sde"], _cands,
+                [dict(_c) for _c in _cands])
 
-    res, best_period, best_depth, best_duration, t0, sde, candidates = _bls_best(t, f)
+    (res, best_period, best_depth, best_duration, t0, sde, candidates,
+     refined_signals) = _bls_best(t, f)
 
     # --- Depth-recovery pass (2026-11-03 depth fix) -----------------------
     # Autopsy on WASP-126 b (DEPTH_FIX_REPORT.md): lightkurve's flatten
@@ -868,6 +938,11 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # null pass-2 fields in the harvested JSON explain themselves.
     pass2_skip_reason = None
 
+    # The mask is built from the REFINED pass-1 headline (Fix 4,
+    # 2026-11-13): since _bls_best now returns the refined multi-peak
+    # headline, the mask anchors on the true period rather than a
+    # coarse alias, so the real transits are masked out of the trend
+    # fit even when the coarse grid smeared them.
     _phase1 = ((t - t0 + 0.5 * best_period) % best_period) - 0.5 * best_period
     _transit_mask = np.abs(_phase1) <= (best_duration / 2.0 + 0.02)
     if _transit_mask.mean() <= 0.50:
@@ -880,7 +955,7 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
             _t2 = _lc2.time.value
             _f2 = _lc2.flux.value
             (_res2, _per2, _dep2, _dur2, _t02, _sde2,
-             _cand2) = _bls_best(_t2, _f2)
+             _cand2, _ref2) = _bls_best(_t2, _f2)
             pass2_sde = float(_sde2)
             sde_jump_flag = bool(pass2_sde >= 2.0 * pass1_sde)
             # --- Raw-flux gate: the pass-2 ephemeris must show a real
@@ -902,6 +977,7 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
                 res, best_period, best_depth = _res2, _per2, _dep2
                 best_duration, t0, sde = _dur2, _t02, _sde2
                 candidates = _cand2
+                refined_signals = _ref2
                 lc_flat, trend, t, f = _lc2, _trend2, _t2, _f2
             else:
                 pass2_gate_failed = True
@@ -1021,8 +1097,16 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         "Total_Points": int(len(lc_raw)),
         # 2026-11-08: top-3 BLS peaks (headline first is NOT guaranteed;
         # consumers should treat Period/SDE as the headline candidate and
-        # this list as the full peak set for triage).
+        # this list as the full peak set for triage). Since 2026-11-13
+        # these are the top-3 REFINED distinct signals (harmonic families
+        # de-duplicated on refined values); TLS rescue may prepend a TLS
+        # candidate, so this list is the triage list, not pure BLS.
         "Candidates": candidates,
+        # 2026-11-13: top-3 refined distinct BLS signals (period, SDE,
+        # depth, duration, t0) — the same list as Candidates at the BLS
+        # stage, but never touched by TLS rescue, so it always records
+        # the pure BLS multi-signal result (second planets survive here).
+        "refined_signals": refined_signals,
         # 2026-11-10: pass-2 gate bookkeeping (see _raw_fold_depth).
         # pass2_sde is None when pass 2 never ran (mask > 50% or the
         # refinement raised); pass2_gate_failed marks a vetoed adoption.
@@ -1160,6 +1244,7 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "sectors_analyzed": full["Sectors_Analyzed"],
             "total_points": full["Total_Points"],
             "candidates": full.get("Candidates", []),
+            "refined_signals": full.get("refined_signals", []),
             "pass1_sde": full.get("pass1_sde"),
             "pass2_sde": full.get("pass2_sde"),
             "pass2_gate_failed": full.get("pass2_gate_failed", False),
