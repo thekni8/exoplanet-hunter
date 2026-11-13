@@ -1,0 +1,38 @@
+# Golden validation suite — runs on every push and pull request.
+#
+# The suite (tests/run_golden.py) proves the pipeline still works:
+# recipe loader + persistence-stamp unit tests (no downloads), then the
+# pipeline end to end on known objects — TOI-700 c, WASP-126 b, and
+# the known eclipsing binary TIC 308851365 — with capped sectors so
+# the MAST downloads stay in the tens of MB.
+#
+# A red run here is a real signal: do not "fix" it by loosening a
+# threshold. Find what changed in the search, the stamp, or the data.
+name: golden
+
+on:
+  push:
+    branches: [main, standardize/**]
+  pull_request:
+    branches: [main]
+
+jobs:
+  golden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run golden suite
+        run: python tests/run_golden.py
