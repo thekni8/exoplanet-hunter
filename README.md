@@ -162,6 +162,8 @@ A sweep hit (SDE ≥ 8.5) is a suspicion, not a candidate. Desk checks run it th
 python holdout_test.py TIC PERIOD T0_BTJD DURATION_HOURS --out holdout_TIC.json
 ```
 
+The full desk-check tooling (raw-flux check + trapezoid shape gate, refined-ephemeris folds, holdout drivers, TESSCut extraction, difference imaging, formal transit fit) lives in [`gauntlet/`](gauntlet/) — see its [README](gauntlet/README.md).
+
 ---
 
 ## ⚠️ Known limitations — stated plainly
@@ -187,6 +189,7 @@ exoplanet-hunter/
 ├── hunter.py            # the engine: analyze / sweep / odd-even test (real TESS data)
 ├── persistence.py       # sector-persistence stamp (incl. the RAW-REFUTED raw-flux veto)
 ├── holdout_test.py      # leave-one-sector-out holdout prediction test (HOLDOUT-* stamps)
+├── gauntlet/            # vetting desk-check tools: raw-flux check, imaging, fit (see gauntlet/README.md)
 ├── api.py               # FastAPI job-queue API + SQLite history & discoveries
 ├── run.sh               # one-command start (installs deps visibly, serves :8000)
 ├── requirements.txt
