@@ -5,7 +5,7 @@ Exoplanet Hunter — local CLI engine (Dev's original, reconciled).
 This is Dev's local ``hunter.py`` — the version that lived only on his own
 machine and was never committed to GitHub — rebuilt to his exact spec:
 same function signatures, defaults, CLI flags, QA benchmarks, and
-discoveries.csv / PNG behaviour. See STAGE1_REPORT.md for the reconciliation
+discoveries.csv / PNG behaviour. See archive/reports/STAGE1_REPORT.md for the reconciliation
 notes.
 
 Behaviour preserved from the original:
@@ -21,7 +21,7 @@ Behaviour preserved from the original:
     Streamlit app (removed 2026-11-02), which purged on every run.
   * ``sweep_sky`` calls ``analyze_target`` per star (so sweep targets are
     also logged to discoveries.csv and get a full PNG each — a known issue
-    in the original design, preserved deliberately; see STAGE1_REPORT.md).
+    in the original design, preserved deliberately; see archive/reports/STAGE1_REPORT.md).
   * ``run_qa`` benchmarks TOI-114 / Pi Mensae c / WASP-126 b at
     bls_points=10000 with 1–2 sectors; PASS if |recovered - expected| < 0.05 d.
   * No CLI arguments -> interactive ``terminal_menu()``.
@@ -87,7 +87,7 @@ SELFHEAL_REPORT.md). They change nothing on the happy path:
       (NaN removal, 5-sigma clip, median-normalized to brightness %)
       and stride-downsampled for the frontend. It imports the one
       advantage of Gemini's pilot Colab QA
-      (gemini_pilot_qa_odd_even.py) — the raw-data view that exposes
+      (archive/scripts/gemini_pilot_qa_odd_even.py) — the raw-data view that exposes
       stormy light curves the flattened numeric test can iron flat
       (TIC 294665246) — while the numeric verdict stays the judge,
       byte-for-byte unchanged. A failed raw fetch degrades to

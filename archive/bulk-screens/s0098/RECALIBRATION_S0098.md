@@ -70,7 +70,7 @@ Tier A (periodic, ≥3 events); no Tier B candidate survived.
   `run_s0098/recalibrated/rejected_audit.jsonl` (stage of removal).
 
 ## Files
-- Script: `bulk/recalibrate_s0098.py`
+- Script: `archive/bulk-screens/s0098/recalibrate_s0098.py`
 - List: `bulk/run_s0098/recalibrated/survivors_v13.jsonl`
 - Summary: `bulk/run_s0098/recalibrated/summary_v13.json`
 - Funnel log: `bulk/run_s0098/recalibrated/funnel_v13.txt`

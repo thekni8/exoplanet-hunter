@@ -2,7 +2,8 @@
 
 Sector is a CLI argument (--sector N); all paths derive from it.
 The sector-98 run used run_s0098_chunked.py, kept as-is for that
-closed run. This file is the same logic, parametrized.
+closed run at archive/bulk-screens/s0098/run_s0098_chunked.py.
+This file is the same logic, parametrized.
 
 Why this exists (2026-11-11): the monolithic run died TWICE in its
 serial all-sky VSX-tile filter stage when the VM was replaced

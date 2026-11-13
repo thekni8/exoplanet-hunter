@@ -143,13 +143,13 @@ The pipeline was verified end-to-end against **WASP-126 b** (TIC 25155310), a kn
 | Signal strength (SDE) | **≈ 21.9** — far above the 8.5 discovery bar |
 | Odd/even fake-check | Odd dips **0.0852%** vs even dips **0.0813%** deep (ratio 0.955, ~4.5% apart) → verdict **planet-like** ✓, as a real planet should be |
 
-The QA Benchmarks page re-runs this class of check against TOI-114, Pi Mensae c and WASP-126 b on demand. Per-stage build reports with full test evidence are in this repo (`STAGE1_REPORT.md` … `STAGE4_REPORT.md`, `RANGE_LABELS_REPORT.md`).
+The QA Benchmarks page re-runs this class of check against TOI-114, Pi Mensae c and WASP-126 b on demand. Per-stage build reports with full test evidence are in this repo (`archive/reports/STAGE1_REPORT.md` … `archive/reports/STAGE4_REPORT.md`, `archive/reports/RANGE_LABELS_REPORT.md`).
 
 ---
 
 ## 🧪 The vetting gauntlet — how a hit earns belief
 
-A sweep hit (SDE ≥ 8.5) is a suspicion, not a candidate. Desk checks run it through the gauntlet in order (the staged runner is `vet_star2.py`); a kill at any stage ends the run:
+A sweep hit (SDE ≥ 8.5) is a suspicion, not a candidate. Desk checks run it through the gauntlet in order (the staged runner is the `gauntlet/` toolset — see `gauntlet/README.md`; the old `vet_star2.py` runner is archived at `archive/scripts/vet_star2.py`); a kill at any stage ends the run:
 
 1. **Reproduce** — re-analyze the star; a hit that doesn't reproduce is a pipeline phantom.
 2. **Odd/even + double-period** — alternating eclipse depths, or an ellipsoidal wave at twice the period, mark an eclipsing binary.

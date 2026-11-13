@@ -17,7 +17,7 @@ Usage:
   neighbour_fold.py TARGET_TIC NEIGHBOUR_TIC --period P --t0 T0 \\
       --duration DUR --workdir work/TIC [--max-sectors 6]
 
-Generalised from neighbour_fold_s98.py (2026-11-13): the hardcoded
+Generalised from archive/scripts/neighbour_fold_s98.py (2026-11-13): the hardcoded
 REFINED dict became CLI arguments; fold_depth moved to common.py.
 The search order, sector dedupe, retry ladder, flux-column selection
 and output schema are unchanged.

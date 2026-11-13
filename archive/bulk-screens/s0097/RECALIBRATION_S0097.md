@@ -1,6 +1,6 @@
 # Recalibration — sector 97 (v1.3 FINAL)
 
-**Date:** 2026-11-14 ~00:45 IST. **Code:** `bulk/recalibrate_s0097.py`
+**Date:** 2026-11-14 ~00:45 IST. **Code:** `archive/bulk-screens/s0097/recalibrate_s0097.py`
 (+ `--stop-after-duration` / `--mes-min`). **Input:**
 `bulk/run_s0097/survivors.jsonl` (14,732 post TOI/VSX/Zooniverse).
 **First look:** `bulk/run_s0097/analysis_first_look.txt`.
@@ -82,7 +82,7 @@ First-look findings (`analyze_s0097_hits.py` on 35,374 screen hits):
 
 ## Files
 
-- `bulk/recalibrate_s0097.py`, `bulk/analyze_s0097_hits.py`
+- `archive/bulk-screens/s0097/recalibrate_s0097.py`, `archive/bulk-screens/s0097/analyze_s0097_hits.py`
 - `bulk/run_s0097/recalibrated/{survivors_v13.jsonl, summary_v13.json,
   rejected_audit.jsonl, mes_gap.txt}`
 - `bulk/run_s0097/analysis_first_look.txt`
