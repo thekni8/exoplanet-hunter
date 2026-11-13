@@ -9,8 +9,10 @@ Method = the raw-flux stage of the TIC 294873918 vetting:
   product set (the _select_products rule: most sectors wins, priority
   SPOC > TESS-SPOC > QLP, earliest N) to recover the FILED ephemeris
   (t0, duration at the filed period) and the pass-1 vs pass-2 behaviour;
-* fold the RAW flux (per-sector median-normalised, robust 5-sigma clip,
-  NO transit-scale detrend) at the filed period + recovered ephemeris
+* fold the RAW flux (per-sector median-normalised, asymmetric 5-sigma
+  clip with the lower cut floored at 10% below the median so deep
+  transits on quiet stars survive, NO transit-scale detrend) at the
+  filed period + recovered ephemeris
   and measure the dip: primary = filed-duration window, medians,
   chunked red-noise significance (persistence.py style); secondary =
   stage2-style 0.15-phase window for comparability with the 294873918
@@ -150,7 +152,13 @@ def load_stitched(pfx, secs):
     t = np.concatenate(ts); f = np.concatenate(fs)
     o = np.argsort(t); t, f = t[o], f[o]
     med = np.median(f); sig = 1.4826 * np.median(np.abs(f - med))
-    keep = np.abs(f - med) < 5 * sig
+    # Asymmetric clip (2026-11-14, TIC 139526205): the lower cut is
+    # floored at 10% below the median. A symmetric 5-sigma cut deletes
+    # real transits on quiet stars — a 6% eclipse on a 0.08%-MAD star
+    # is 75 sigma, so every in-transit point was clipped and the star
+    # read as refuted; even a 0.5% transit loses most of its points.
+    # Genuine outliers (excursions >> 10%) are still clipped both sides.
+    keep = (f < med + 5 * sig) & (f > med - max(5 * sig, 0.10))
     return t[keep], f[keep], spans
 
 
