@@ -460,6 +460,28 @@ def _recentre(xs, ys, DUR):
     return xs - x0, x0
 
 
+def _core_base_masks(xs, DUR, hw):
+    """Core (|x| <= DUR/4) and baseline masks for the shape fit.
+
+    The strict baseline is |x| > 2*DUR — outside a V-shaped transit,
+    whose T14 can reach ~2x the BLS box width. But for short periods
+    the fit window is capped at 0.3*P, so when DUR >= 0.15*P the
+    strict baseline lies outside the window entirely and the gate
+    reports 'unmeasured' on a strong signal (TIC 308851365: P 0.757 d,
+    BLS DUR 0.249 d on 30-min data — zero strict baseline bins).
+    Fallback: the outer 20% of the window (|x| > 0.8*hw) — still
+    outside the transit for any T14 < 0.24*P, and a transit wider
+    than a quarter of its own period is not a transit. The fallback
+    only activates when the strict baseline has fewer than 2 bins,
+    so no previously measured verdict changes.
+    """
+    core = np.abs(xs) <= DUR / 4.0
+    base = np.abs(xs) > 2.0 * DUR
+    if base.sum() < 2:
+        base = np.abs(xs) > 0.8 * hw
+    return core, base
+
+
 def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
     """Fit a symmetric trapezoid to the folded raw flux and judge
     shape + density. Two passes: a coarse pass at DUR/10 bins
@@ -488,8 +510,7 @@ def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
         out.update({'verdict': 'unmeasured',
                     'reason': 'no bins near T0'})
         return out
-    core = np.abs(xs1) <= DUR / 4.0
-    base = np.abs(xs1) > 2.0 * DUR
+    core, base = _core_base_masks(xs1, DUR, hw)
     if core.sum() < 2 or base.sum() < 2:
         out.update({'verdict': 'unmeasured',
                     'reason': 'no core/baseline bins'})
@@ -522,8 +543,7 @@ def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
     # which would dilute a +-DUR/2 core with baseline), with a
     # profile-based significance so we never judge the shape of a
     # dip the binned fold itself cannot see (< 3 sigma).
-    core = np.abs(xs) <= DUR / 4.0
-    base = np.abs(xs) > 2.0 * DUR
+    core, base = _core_base_masks(xs, DUR, hw)
     if core.sum() < 2 or base.sum() < 2:
         out.update({'verdict': 'unmeasured',
                     'reason': 'no core/baseline bins'})
