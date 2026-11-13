@@ -32,28 +32,42 @@ import lightkurve as lk  # noqa: E402
 
 
 def _sector_ranges(tic_id, max_sectors, progress_callback=None):
-    """Mirror _run_pipeline's search/download; return per-product
-    {sector, tmin, tmax} in collection order (downloads are cached)."""
+    """Sector time ranges from the pipeline's OWN product selection.
+
+    (2026-11-13 fix — Gemini review + parent verification.) The old
+    code sliced the first ``max_sectors`` ROWS of one multi-author
+    search, which (a) could pick different products than the pipeline
+    analysed (its ranges then sliced the wrong time windows out of
+    the stitched flux), and (b) counted one sector TWICE when both
+    20 s and 120 s products exist (TOI-700: 20 ranges covering only
+    16 distinct sectors, sectors 27/28/30/31 graded twice). Now the
+    ranges come from hunter._select_products — one author per star,
+    most sectors wins, SPOC > TESS-SPOC > QLP, one product per sector
+    preferring 120 s — so the stamp grades exactly the data the
+    pipeline ran on. The post-download dedupe below is a safety net
+    for _select_products' unfiltered-fallback path only; it keeps
+    the first range per sector.
+    """
     tic_id = str(tic_id)
 
-    def _search():
-        s = lk.search_lightcurve(f"TIC {tic_id}",
-                                 author=["SPOC", "TESS-SPOC", "QLP"])
-        if len(s) == 0:
-            s = lk.search_lightcurve(f"TIC {tic_id}")
-        if len(s) == 0:
-            raise RuntimeError(f"No mission data found for TIC {tic_id}.")
-        return s
+    def _select():
+        return hunter._select_products(tic_id, max_sectors,
+                                       progress_callback)
 
-    search = hunter._with_download_self_heal(_search, progress_callback)
-    sub = search if max_sectors is None else search[:max_sectors]
-    coll = hunter._download_products(sub, tic_id, progress_callback)
+    search = hunter._with_download_self_heal(_select, progress_callback)
+    coll = hunter._download_products(search, tic_id, progress_callback)
     ranges = []
+    seen_sectors = set()
     for lc in coll:
         t = np.asarray(lc.time.value, dtype=float)
         t = t[np.isfinite(t)]
         sector = lc.meta.get("SECTOR")
-        ranges.append({"sector": int(sector) if sector is not None else None,
+        sector = int(sector) if sector is not None else None
+        if sector is not None:
+            if sector in seen_sectors:
+                continue
+            seen_sectors.add(sector)
+        ranges.append({"sector": sector,
                        "tmin": float(t.min()), "tmax": float(t.max())})
     del coll
     gc.collect()
