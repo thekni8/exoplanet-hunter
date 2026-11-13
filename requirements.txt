@@ -1,10 +1,28 @@
-lightkurve
-astropy
-astroquery
-transitleastsquares
-matplotlib
-pandas
-scipy
-numpy
-fastapi
-uvicorn
+# Exoplanet Hunter — direct dependencies, PINNED.
+# Versions are the ones in the working venv (Python 3.12.3, verified
+# 2026-11-14). Pinned so any agent on any machine reproduces the same
+# environment: `python -m venv .venv && .venv/bin/pip install -r requirements.txt`
+# Do not unpin without re-running the golden suite (tests/).
+
+# --- science stack ---
+lightkurve==2.6.0
+astropy==8.0.2
+astroquery==0.4.11
+transitleastsquares==2.2.0
+matplotlib==3.11.2
+pandas==2.3.3
+scipy==1.18.1
+numpy==2.5.4
+
+# --- transit fitting (gauntlet/transit_fit.py; conditional imports) ---
+batman-package==2.5.3
+emcee==3.1.6
+
+# --- HTTP / config ---
+requests==2.34.2
+PyYAML==6.0.3
+
+# --- API (api.py + frontend) ---
+fastapi==0.162.0
+uvicorn==0.54.0
+pydantic==2.14.2
