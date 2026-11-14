@@ -110,6 +110,42 @@ class TestBulkProfile(unittest.TestCase):
             bulk_screen.set_calibration(previous)
 
 
+class TestV1Gate(unittest.TestCase):
+    def test_v1_allows_its_sectors(self):
+        for sector in (96, 97, 98):
+            bulk_screen.enforce_v1_gate("bulk_v1", sector,
+                                        allow_v1=False)
+
+    def test_v1_refuses_new_sectors(self):
+        with self.assertRaises(CalibrationError):
+            bulk_screen.enforce_v1_gate("bulk_v1", 99,
+                                        allow_v1=False)
+
+    def test_allow_v1_overrides_the_gate(self):
+        bulk_screen.enforce_v1_gate("bulk_v1", 99, allow_v1=True)
+
+    def test_v2_has_no_gate(self):
+        bulk_screen.enforce_v1_gate("bulk_v2", 99, allow_v1=False)
+
+    def test_main_refuses_a_gated_sector_before_any_work(self):
+        # The CLI gate fires right after arg parsing: a refused
+        # run downloads nothing and does not even create its
+        # out dir. (main() switches the module to the requested
+        # calibration, so restore it — the suite runs other
+        # modules in this process.)
+        previous = bulk_screen.CALIBRATION_VERSION
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                out = Path(td) / "out"
+                with self.assertRaises(SystemExit) as cm:
+                    bulk_screen.main(["--sector", "99",
+                                      "--out-dir", str(out)])
+                self.assertEqual(cm.exception.code, 2)
+                self.assertFalse(out.exists())
+        finally:
+            bulk_screen.set_calibration(previous)
+
+
 class TestDeepDrift(unittest.TestCase):
     def test_deep_profile_matches_hunter_constants(self):
         p = load_profile("deep_v1")
