@@ -74,6 +74,40 @@ AUTHORS = [('GSFC-ELEANOR-LITE', 'elc'), ('QLP', 'qlp'),
 PRIO = {'spoc': 0, 'tspc': 1, 'qlp': 2}  # production priority order
 
 
+def select_pipeline_set(sets, sector_cap=20):
+    """Pick the pipeline set for the raw-flux check (F-14).
+
+    `sets` maps a pipeline prefix ('spoc', 'tspc', 'qlp') to the
+    sorted list of sectors with downloaded npz files (from
+    download_author). The rule mirrors hunter._select_products:
+    most sectors wins, pipeline priority (SPOC > TESS-SPOC >
+    QLP) breaks ties; the returned sector list is capped at
+    `sector_cap` (the --sector-cap default, 20).
+
+    Returns (prefix, sectors); (None, []) when no pipeline has
+    sectors. Extracted from main() unchanged so the rule is
+    testable against hunter's — the two implementations must
+    agree, or the gauntlet checks a different product set than
+    the pipeline searched (tests/test_product_selection.py).
+
+    Known edge (documented, not fixed): the COUNT is capped
+    too — len(sets[pfx][:sector_cap]) — so two authors with
+    more than sector_cap sectors tie at the cap and priority
+    decides, while hunter counts all sectors and would pick
+    the author with more. Agreement holds when every author's
+    sector count is at or below the cap.
+    """
+    cand = []
+    for pfx in ('spoc', 'tspc', 'qlp'):
+        if pfx in sets and sets[pfx]:
+            cand.append((len(sets[pfx][:sector_cap]), -PRIO[pfx],
+                         pfx))
+    if not cand:
+        return None, []
+    pfx = max(cand)[2]
+    return pfx, list(sets[pfx][:sector_cap])
+
+
 def download_author(author, pfx, no_download=False):
     """One npz per sector (earliest products; SPOC prefers 120 s rows)."""
     if no_download:
@@ -738,12 +772,7 @@ def main(argv=None):
             sets[pfx] = secs
 
     # pipeline-selected set: most sectors (cap 20), priority breaks ties
-    cand = []
-    for pfx in ('spoc', 'tspc', 'qlp'):
-        if pfx in sets:
-            cand.append((len(sets[pfx][:SECTOR_CAP]), -PRIO[pfx], pfx))
-    PIPE_PFX = max(cand)[2] if cand else None
-    PIPE_SECS = sets[PIPE_PFX][:SECTOR_CAP] if PIPE_PFX else []
+    PIPE_PFX, PIPE_SECS = select_pipeline_set(sets, SECTOR_CAP)
     print(f'pipeline set: {PIPE_PFX} sectors {PIPE_SECS}', flush=True)
 
 
