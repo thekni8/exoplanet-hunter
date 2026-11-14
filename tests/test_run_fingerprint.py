@@ -121,6 +121,38 @@ class TestRunFingerprint(unittest.TestCase):
         self.assertIsNotNone(
             m["environment"]["requirements_lock_sha256"])
 
+    def test_waivers_change_full_fingerprint_not_resume(self):
+        # F-5: a waiver changes a verdict's interpretation, so
+        # it moves the FULL fingerprint — but waivers change no
+        # computation, so the RESUME fingerprint must not move
+        # (a waived re-run still resumes).
+        waivers = {"holdout": "single-sector target"}
+        base = prov.fingerprint_block(
+            calibration_versions={"bulk": "v1"})
+        self.assertIsNone(
+            base["components"]["waivers_hash"])
+        waived = prov.fingerprint_block(
+            calibration_versions={"bulk": "v1"},
+            waivers=waivers)
+        self.assertEqual(
+            waived["components"]["waivers_hash"],
+            prov.waivers_hash(waivers))
+        self.assertNotEqual(waived["full"], base["full"])
+        self.assertEqual(waived["resume"], base["resume"])
+        # build_manifest carries it through.
+        m = prov.build_manifest("test-run-1", {"bulk": "v1"},
+                                waivers=waivers)
+        self.assertEqual(
+            m["fingerprint"]["components"]["waivers_hash"],
+            prov.waivers_hash(waivers))
+        # The dict and list forms hash identically.
+        self.assertEqual(
+            prov.waivers_hash(waivers),
+            prov.waivers_hash([{"stage": "holdout",
+                                "reason": "single-sector target"}]))
+        self.assertIsNone(prov.waivers_hash(None))
+        self.assertIsNone(prov.waivers_hash({}))
+
 
 class TestResumeFingerprintCheck(unittest.TestCase):
     def test_resume_refuses_tampered_resume_fingerprint(self):

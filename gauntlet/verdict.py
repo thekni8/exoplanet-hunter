@@ -32,9 +32,12 @@ from validation import validate_verdict  # noqa: E402
 try:
     from gauntlet.stage_result import aggregate_verdict  # noqa: E402
     from gauntlet.stage_result import (  # noqa: E402
+        apply_waivers as _apply_waivers)
+    from gauntlet.stage_result import (  # noqa: E402
         normalize_waivers as _norm_waivers)
 except ImportError:  # run as a plain script from the gauntlet dir
     from stage_result import aggregate_verdict  # noqa: E402
+    from stage_result import apply_waivers as _apply_waivers  # noqa: E402
     from stage_result import normalize_waivers as _norm_waivers  # noqa: E402
 
 CALIBRATION_VERSION = "gauntlet_v2"
@@ -76,6 +79,12 @@ def build_verdict(tic, filed, stage_results, imaging=None,
                                             policy=policy)
     if verdict_note is None:
         verdict_note = note
+    # F-5: stamp the waiver reasons onto the results, so the
+    # record's stages carry the full waiver story (code +
+    # reason) — and record the waiver code + the waivers hash
+    # on the verdict itself.
+    stamped = _apply_waivers(stage_results, waivers, policy)
+    by_stage = {r.stage: r for r in stamped}
     header = _prov.provenance_header(
         run_id if run_id is not None else _prov.new_run_id("gauntlet"),
         CALIBRATION_MAP)
@@ -84,7 +93,7 @@ def build_verdict(tic, filed, stage_results, imaging=None,
         "filed": dict(filed),
         "final_verdict": final_verdict,
         "verdict_note": verdict_note,
-        "stages": {r.stage: r.to_dict() for r in stage_results},
+        "stages": {r.stage: r.to_dict() for r in stamped},
     }
     # Optional keys are OMITTED when absent, not nulled:
     # ephemeris_used is type object in the schema (not nullable).
@@ -93,9 +102,13 @@ def build_verdict(tic, filed, stage_results, imaging=None,
     if imaging is not None:
         record["imaging"] = dict(imaging)
     if waivers:
+        norm = _norm_waivers(waivers)
         record["waivers"] = [
-            {"stage": s, "reason": r}
-            for s, r in sorted(_norm_waivers(waivers).items())]
+            {"stage": s, "reason": r,
+             **({"code": by_stage[s].waiver_code}
+                if by_stage[s].waiver_code else {})}
+            for s, r in sorted(norm.items())]
+        record["waivers_hash"] = _prov.waivers_hash(norm)
     record.update(header)
     if extra:
         record.update({k: v for k, v in extra.items()

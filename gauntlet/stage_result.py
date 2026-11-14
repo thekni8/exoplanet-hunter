@@ -65,7 +65,7 @@ its adapter.)
 into a final verdict; `gauntlet/verdict.py:build_verdict`
 assembles and validates the verdict record.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 
 import provenance as _provenance
@@ -145,6 +145,28 @@ _FAIL_VERDICT = {
     "transit_fit": "EB",
 }
 
+# Waiver reason CODES (F-5): the structural reasons a stage may
+# be waived, per stage. The code lives on the StageResult
+# (attached by the producer — the adapter that knows WHY the
+# stage does not apply); the per-target REASON is supplied by
+# the caller at aggregation time and stamped onto the result by
+# apply_waivers. A waiver is valid only when the result carries
+# a code from this map — a bare inconclusive with a plausible
+# reason is not waivable (that was the hole: any reason string
+# waived any inconclusive stage).
+#
+# These live in CODE, not in gauntlet_v2: the calibration
+# profile cannot be restructured (only the F-1 edit was
+# permitted), and the codes are structural facts about the
+# stages, not thresholds. Tests may extend this map for
+# registered test stages (like STAGE_REGISTRY) — and must
+# remove their entries afterwards.
+WAIVER_CODES = {
+    "holdout": {"single_sector"},
+    "clean_refold": {"not_bulk_survivor"},
+    "pixel_check": {"period_lt_8d"},
+}
+
 
 @dataclass(frozen=True)
 class StageResult:
@@ -184,6 +206,16 @@ class StageResult:
     input_hashes: dict = field(default_factory=dict)
     warnings: list = field(default_factory=list)
     execution_status: str = EXEC_COMPLETED
+    # --- waiver (F-5) ---
+    # waiver_code: the structural reason this stage may be
+    # waived, from WAIVER_CODES — attached by the producer
+    # (adapter) when it knows why the stage does not apply.
+    # waiver_reason: the caller's per-target reason for waiving
+    # it, stamped by apply_waivers. A code without a reason is
+    # a waivable stage that has not been waived; a reason
+    # without a code is invalid (see __post_init__).
+    waiver_code: str | None = None
+    waiver_reason: str | None = None
 
     def __post_init__(self):
         if self.status not in STATUSES:
@@ -212,6 +244,26 @@ class StageResult:
                 f"stage {self.stage!r} with execution 'skipped' "
                 f"must have status 'unmeasured' or "
                 f"'not_applicable', not {self.status!r}")
+        # Waiver fields belong only to a waivable status: a pass
+        # needs no waiver, a fail or unmeasured can never be
+        # waived. And a waiver reason without a code is exactly
+        # the hole F-5 closes — the code is what makes the
+        # waiver structural rather than a plausible sentence.
+        if (self.waiver_code is not None
+                or self.waiver_reason is not None) \
+                and self.status not in (STATUS_INCONCLUSIVE,
+                                        STATUS_NOT_APPLICABLE):
+            raise ValueError(
+                f"stage {self.stage!r} with status "
+                f"{self.status!r} cannot carry a waiver "
+                f"(code/reason) — only inconclusive or "
+                f"not_applicable may be waived")
+        if self.waiver_reason is not None \
+                and self.waiver_code is None:
+            raise ValueError(
+                f"stage {self.stage!r} carries a waiver reason "
+                f"but no waiver code — a reason without a code "
+                f"is not a waiver")
 
     @property
     def is_pass(self):
@@ -239,7 +291,7 @@ class StageResult:
              "warnings": list(self.warnings)}
         for k in ("value", "uncertainty", "threshold",
                   "detection_limit", "n_transits", "tool_version",
-                  "config_hash"):
+                  "config_hash", "waiver_code", "waiver_reason"):
             v = getattr(self, k)
             if v is not None:
                 d[k] = v
@@ -266,7 +318,9 @@ class StageResult:
                    input_hashes=dict(d.get("input_hashes") or {}),
                    warnings=list(d.get("warnings") or []),
                    execution_status=d.get("execution_status",
-                                          EXEC_COMPLETED))
+                                          EXEC_COMPLETED),
+                   waiver_code=d.get("waiver_code"),
+                   waiver_reason=d.get("waiver_reason"))
 
 
 def _prov(prov):
@@ -478,7 +532,13 @@ def holdout_result(verdict, prov=None):
     HOLDOUT-PASS -> PASS (predictive periodicity only — a clean
     EB passes too, which is why holdout is one stage among many).
     HOLDOUT-FAIL -> FAIL. HOLDOUT-INSUFFICIENT-DATA or None ->
-    UNMEASURED.
+    UNMEASURED. HOLDOUT-NOT-APPLICABLE -> NOT_APPLICABLE with
+    waiver code single_sector: the target has one sector, so no
+    held-out sector EXISTS — a structural gap, not a failed
+    measurement. The caller supplies that native verdict (it
+    knows the sector count; holdout_test.py itself still returns
+    HOLDOUT-INSUFFICIENT-DATA for too-few-folds, which stays
+    UNMEASURED and is never waivable).
     """
     if verdict == "HOLDOUT-PASS":
         return StageResult(
@@ -490,6 +550,11 @@ def holdout_result(verdict, prov=None):
             "holdout", STATUS_FAIL,
             "held-out sector does not show the transit",
             _prov(prov), {})
+    if verdict == "HOLDOUT-NOT-APPLICABLE":
+        return StageResult(
+            "holdout", STATUS_NOT_APPLICABLE,
+            "single-sector target: no held-out sector exists",
+            _prov(prov), {}, waiver_code="single_sector")
     return StageResult(
         "holdout", STATUS_UNMEASURED,
         "insufficient data for a holdout test", _prov(prov), {})
@@ -753,7 +818,13 @@ def validate_waivers(results, waivers, policy=None):
         be waived);
       * the stage is in the policy's waiver allowlist
         (policy["waivers"] — the policy gates WHAT may be
-        waived; the run supplies the per-target reason).
+        waived; the run supplies the per-target reason);
+      * the stage's result carries a waiver CODE from
+        WAIVER_CODES (F-5) — the producer's structural reason
+        the stage does not apply. A bare inconclusive with a
+        plausible reason string is NOT waivable: the code is
+        what separates a structural gap from an undecided
+        measurement.
     Returns the normalized {stage: reason} dict. Raises
     ValueError on the first invalid waiver — an invalid waiver
     is a caller bug, and failing loud beats promoting a
@@ -786,7 +857,31 @@ def validate_waivers(results, waivers, policy=None):
                 f"policy's waiver allowlist — the policy waives "
                 f"stages explicitly, per-stage, and {stage!r} "
                 f"is not among them")
+        codes = WAIVER_CODES.get(stage) or set()
+        if result.waiver_code not in codes:
+            raise ValueError(
+                f"stage {stage!r} carries no valid waiver code "
+                f"(got {result.waiver_code!r}, need one of "
+                f"{sorted(codes)}) — a waiver needs the "
+                f"producer's structural reason, not just a "
+                f"reason string")
     return waived
+
+
+def apply_waivers(results, waivers, policy=None):
+    """Validate waivers (validate_waivers) and stamp the
+    per-target reason onto each waived StageResult (via
+    dataclasses.replace — the results are frozen). Returns the
+    new results list; the input list is untouched. The code is
+    already on the result (the producer attached it); this
+    stamps only the reason, so a verdict record's stages carry
+    the full waiver story (code + reason) and the filing gate
+    can detect waivers from the results alone."""
+    waived = validate_waivers(results, waivers, policy)
+    if not waived:
+        return list(results)
+    return [replace(r, waiver_reason=waived[r.stage])
+            if r.stage in waived else r for r in results]
 
 
 def aggregate_verdict(results, imaging=None, waivers=None,
@@ -797,7 +892,9 @@ def aggregate_verdict(results, imaging=None, waivers=None,
     Order of decision (first match wins):
       0. Waivers are validated against the decision policy
          (validate_waivers) — an invalid waiver raises
-         ValueError before any verdict is decided.
+         ValueError before any verdict is decided. A waiver
+         needs the stage in the policy allowlist AND a waiver
+         code on the result (F-5).
       1. Any FAIL -> the kill verdict of the FIRST failing stage
          in vetting-manual order.
       2. Imaging localises the source OFF-target -> BLEND.

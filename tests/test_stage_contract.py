@@ -21,6 +21,7 @@ from gauntlet.stage_result import (EXEC_COMPLETED, EXEC_ERROR,  # noqa: E402
                                    EXEC_NOT_STARTED, EXEC_SKIPPED,
                                    REQUIRED_STAGES, STATUSES,
                                    StageResult, aggregate_verdict,
+                                   apply_waivers,
                                    clean_refold_result,
                                    holdout_result,
                                    load_decision_policy,
@@ -382,7 +383,8 @@ class TestPromotionMatrix(unittest.TestCase):
         # the note names the waiver.
         results = _all_pass()
         _replace(results, "holdout", StageResult("holdout", "not_applicable",
-                                 "single-sector target", PROV))
+                                 "single-sector target", PROV,
+                                 waiver_code="single_sector"))
         verdict, note = aggregate_verdict(
             results, IMAGING_ON,
             waivers={"holdout": "single-sector target: no "
@@ -546,10 +548,13 @@ class TestBuildVerdict(unittest.TestCase):
     def test_build_verdict_records_waivers(self):
         # A waived holdout promotes AND is recorded on the
         # verdict, with its reason — the record is the audit
-        # trail for the waiver.
+        # trail for the waiver. F-5: the record also carries
+        # the waiver CODE and the waivers hash, and the waived
+        # stage itself carries code + reason.
         results = _all_pass()
         _replace(results, "holdout", StageResult("holdout", "not_applicable",
-                                 "single-sector target", PROV))
+                                 "single-sector target", PROV,
+                                 waiver_code="single_sector"))
         rec = build_verdict(
             "238620464", FILED, results,
             imaging=dict(IMAGING_ON), run_id="test-run-1",
@@ -559,7 +564,17 @@ class TestBuildVerdict(unittest.TestCase):
         self.assertEqual(rec["waivers"], [
             {"stage": "holdout",
              "reason": "single-sector target: no held-out "
-                       "sector exists"}])
+                       "sector exists",
+             "code": "single_sector"}])
+        self.assertEqual(rec["stages"]["holdout"]["waiver_code"],
+                         "single_sector")
+        self.assertEqual(rec["stages"]["holdout"]["waiver_reason"],
+                         "single-sector target: no held-out "
+                         "sector exists")
+        import provenance as _prov
+        self.assertEqual(rec["waivers_hash"], _prov.waivers_hash(
+            {"holdout": "single-sector target: no held-out "
+                        "sector exists"}))
 
     def test_build_verdict_rejects_invalid_waiver(self):
         # A waiver for a stage the policy does not allowlist is
@@ -629,8 +644,11 @@ class TestWaivers(unittest.TestCase):
     def _one_inconclusive(self, stage="holdout"):
         results = _all_pass()
         idx = REQUIRED_STAGES.index(stage)
+        # F-5: a waivable inconclusive carries its code — a bare
+        # inconclusive is no longer waivable (that was the hole).
         results[idx] = StageResult(stage, "inconclusive",
-                                   "ambiguous", PROV)
+                                   "ambiguous", PROV,
+                                   waiver_code="single_sector")
         return results
 
     def test_inconclusive_waiver_promotes(self):
@@ -700,6 +718,103 @@ class TestWaivers(unittest.TestCase):
             self._one_inconclusive(), [
                 {"stage": "holdout", "reason": "single-sector"}])
         self.assertEqual(out, {"holdout": "single-sector"})
+
+
+class TestWaiverHardening(unittest.TestCase):
+    """F-5: a waiver needs the producer's structural CODE on the
+    result, not just a plausible reason string — and the waiver
+    is stamped onto the result it waives."""
+
+    def _bare_inconclusive(self, stage="holdout"):
+        results = _all_pass()
+        _replace(results, stage, StageResult(
+            stage, "inconclusive", "ambiguous", PROV))
+        return results
+
+    def test_code_less_inconclusive_refused(self):
+        # The hole F-5 closes: an inconclusive stage with NO
+        # code cannot be waived, however plausible the reason.
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                self._bare_inconclusive(), IMAGING_ON,
+                waivers={"holdout": "single-sector target"})
+
+    def test_code_less_not_applicable_refused(self):
+        results = _all_pass()
+        _replace(results, "holdout", StageResult(
+            "holdout", "not_applicable",
+            "single-sector target", PROV))
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                results, IMAGING_ON,
+                waivers={"holdout": "single-sector target"})
+
+    def test_wrong_code_refused(self):
+        # A code from another stage's set does not waive this
+        # one: period_lt_8d is a pixel_check code, not holdout's.
+        results = _all_pass()
+        _replace(results, "holdout", StageResult(
+            "holdout", "inconclusive", "ambiguous", PROV,
+            waiver_code="period_lt_8d"))
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                results, IMAGING_ON,
+                waivers={"holdout": "single-sector target"})
+
+    def test_apply_waivers_stamps_reason(self):
+        results = self._bare_inconclusive()
+        _replace(results, "holdout", StageResult(
+            "holdout", "inconclusive", "ambiguous", PROV,
+            waiver_code="single_sector"))
+        stamped = apply_waivers(
+            results, {"holdout": "single-sector target"})
+        by_stage = {r.stage: r for r in stamped}
+        self.assertEqual(by_stage["holdout"].waiver_reason,
+                         "single-sector target")
+        self.assertEqual(by_stage["holdout"].waiver_code,
+                         "single_sector")
+        # The input list is untouched (results are frozen).
+        self.assertIsNone(
+            {r.stage: r for r in results}["holdout"].waiver_reason)
+        # Other stages carry no waiver.
+        self.assertIsNone(by_stage["shape"].waiver_reason)
+
+    def test_waiver_fields_rejected_on_pass(self):
+        with self.assertRaises(ValueError):
+            StageResult("holdout", "pass", "ok", PROV,
+                        waiver_code="single_sector")
+        with self.assertRaises(ValueError):
+            StageResult("holdout", "pass", "ok", PROV,
+                        waiver_reason="no need")
+
+    def test_waiver_reason_without_code_rejected(self):
+        with self.assertRaises(ValueError):
+            StageResult("holdout", "inconclusive", "ambiguous",
+                        PROV, waiver_reason="trust me")
+
+    def test_holdout_not_applicable_adapter(self):
+        # The structural single-sector case maps to
+        # NOT_APPLICABLE + code; too-few-folds stays UNMEASURED
+        # and is never waivable.
+        r = holdout_result("HOLDOUT-NOT-APPLICABLE", PROV)
+        self.assertEqual(r.status, "not_applicable")
+        self.assertEqual(r.waiver_code, "single_sector")
+        r = holdout_result("HOLDOUT-INSUFFICIENT-DATA", PROV)
+        self.assertEqual(r.status, "unmeasured")
+        self.assertIsNone(r.waiver_code)
+
+    def test_waiver_fields_round_trip(self):
+        r = StageResult("holdout", "not_applicable",
+                        "single-sector target", PROV,
+                        waiver_code="single_sector",
+                        waiver_reason="one sector only")
+        r2 = StageResult.from_dict(r.to_dict())
+        self.assertEqual(r2.waiver_code, "single_sector")
+        self.assertEqual(r2.waiver_reason, "one sector only")
+        # Unwaived results omit the fields entirely.
+        d = StageResult("shape", "pass", "ok", PROV).to_dict()
+        self.assertNotIn("waiver_code", d)
+        self.assertNotIn("waiver_reason", d)
 
 
 class TestDecisionPolicy(unittest.TestCase):

@@ -265,11 +265,29 @@ def env_hash(root=None):
         }).encode("utf-8")).hexdigest()
 
 
+def waivers_hash(waivers):
+    """sha256 over the normalised {stage: reason} waiver map
+    (F-5). A waiver changes a verdict's interpretation — which
+    gaps were accepted and why — so it belongs in the run
+    fingerprint (FULL only: waivers change no computation, so
+    they are NOT a resume-fingerprint key). None when no
+    waivers were applied. Accepts the dict form or the verdict
+    record's list-of-dicts form."""
+    if not waivers:
+        return None
+    if isinstance(waivers, dict):
+        norm = dict(waivers)
+    else:
+        norm = {w["stage"]: w["reason"] for w in waivers}
+    return hashlib.sha256(
+        canonical_json(norm).encode("utf-8")).hexdigest()
+
+
 def run_fingerprint_components(root=None, calibration_versions=None,
                                recipe=None, recipe_hash_value=None,
                                window_file=None, input_ids=None,
                                code_fingerprint=None,
-                               git_sha_value=None):
+                               git_sha_value=None, waivers=None):
     """Collect the run-fingerprint components dict. Callers pass
     what they know; the rest is measured here (code fingerprint,
     git SHA, dirty flag, env hash). `recipe` is the resolved
@@ -301,6 +319,12 @@ def run_fingerprint_components(root=None, calibration_versions=None,
         "git_sha": (git_sha_value if git_sha_value is not None
                     else git_sha()),
         "working_tree_clean": working_tree_clean(root),
+        # F-5: the waiver decision is part of the run's identity
+        # (FULL fingerprint only — deliberately NOT a
+        # RESUME_FINGERPRINT_KEYS entry: waivers change verdict
+        # interpretation, not computation, so a waived re-run
+        # must still resume).
+        "waivers_hash": waivers_hash(waivers),
     }
 
 
@@ -437,7 +461,7 @@ def build_manifest(run_id, calibration_versions, sector=None,
                    product=None, recipe=None, recipe_file=None,
                    sha=None, timestamp_utc=None, status="started",
                    input_identity=None, code_fingerprint=None,
-                   window_file=None, input_ids=None):
+                   window_file=None, input_ids=None, waivers=None):
     """The run-level manifest dict. `recipe` is the resolved recipe
     dict (or None); `recipe_file` its path. Callers add run-specific
     keys (counts, wall time) before writing, or write a second
@@ -516,7 +540,8 @@ def build_manifest(run_id, calibration_versions, sector=None,
         root=root, calibration_versions=calibration_versions,
         recipe=recipe, window_file=window_file,
         input_ids=input_ids, code_fingerprint=code_fingerprint,
-        git_sha_value=manifest["pipeline"]["git_sha"])
+        git_sha_value=manifest["pipeline"]["git_sha"],
+        waivers=waivers)
     return manifest
 
 

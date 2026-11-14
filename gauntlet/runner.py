@@ -77,8 +77,8 @@ try:
         EXEC_COMPLETED, EXEC_ERROR, EXEC_NOT_STARTED, EXEC_SKIPPED,
         STATUS_FAIL, STATUS_INCONCLUSIVE, STATUS_NOT_APPLICABLE,
         STATUS_PASS, STATUS_UNMEASURED, StageResult,
-        aggregate_verdict, blend_result, catalogue_result,
-        clean_refold_result,
+        aggregate_verdict, apply_waivers, blend_result,
+        catalogue_result, clean_refold_result,
         diffimg_result, holdout_result, normalize_waivers,
         odd_even_result, persistence_result, pixel_check_result,
         raw_flux_result, refine_result, shape_result,
@@ -88,8 +88,8 @@ except ImportError:  # pragma: no cover - direct-file fallback
         EXEC_COMPLETED, EXEC_ERROR, EXEC_NOT_STARTED, EXEC_SKIPPED,
         STATUS_FAIL, STATUS_INCONCLUSIVE, STATUS_NOT_APPLICABLE,
         STATUS_PASS, STATUS_UNMEASURED, StageResult,
-        aggregate_verdict, blend_result, catalogue_result,
-        clean_refold_result,
+        aggregate_verdict, apply_waivers, blend_result,
+        catalogue_result, clean_refold_result,
         diffimg_result, holdout_result, normalize_waivers,
         odd_even_result, persistence_result, pixel_check_result,
         raw_flux_result, refine_result, shape_result,
@@ -274,7 +274,8 @@ def _clean_refold_fn(ctx):
         return StageResult(
             "clean_refold", STATUS_NOT_APPLICABLE,
             "target is not a bulk survivor: no clean-data gate "
-            "applies", _prov(ctx))
+            "applies", _prov(ctx),
+            waiver_code="not_bulk_survivor")
     native = ctx.artifacts.get("clean_refold.native")
     if native is None:
         return StageResult(
@@ -344,7 +345,8 @@ def _pixel_check_fn(ctx):
         return StageResult(
             "pixel_check", STATUS_NOT_APPLICABLE,
             f"period {eph.period_d:.2f} d < 8 d: the TPF pixel "
-            f"check does not apply", _prov(ctx))
+            f"check does not apply", _prov(ctx),
+            waiver_code="period_lt_8d")
     native = ctx.artifacts.get("pixel_check.native")
     if native is None:
         return StageResult(
@@ -586,6 +588,11 @@ def run_gauntlet(ctx, stages=None, mode="short_circuit",
         if result.status == STATUS_FAIL and failed is None:
             failed = spec.name
 
+    # F-5: stamp the waiver reasons onto the results before
+    # aggregating, so the returned (and cached) run carries the
+    # full waiver story on its stages — the filing gate detects
+    # waivers from the results alone.
+    results = apply_waivers(results, waivers, policy)
     verdict, note = aggregate_verdict(
         results, ctx.imaging, waivers=waivers, policy=policy)
     run = GauntletRun(results=results, final_verdict=verdict,
@@ -596,12 +603,19 @@ def run_gauntlet(ctx, stages=None, mode="short_circuit",
     return run
 
 
-def check_report_ready(results):
+def check_report_ready(results, review_2e=None):
     """The filing gate's data precondition (manual §9): a
     candidate is report-ready only when persistence, diffimg
     AND blend all PASS. This is a data check only — the human
     gate (filing_gate) is enforced separately by
-    check_report_ready's caller and is never runnable here."""
+    check_report_ready's caller and is never runnable here.
+
+    F-5: a waived candidate additionally needs a second-eyes
+    review marker — `review_2e` must be a dict with a non-empty
+    "reviewer". Waivers are detected from the results
+    themselves (any waiver_reason set), so a record that
+    carries waivers cannot reach the filing gate unreviewed
+    just because the caller forgot to pass the waivers list."""
     by_stage = {r.stage: r for r in results}
     for stage in ("persistence", "diffimg", "blend"):
         r = by_stage.get(stage)
@@ -610,4 +624,14 @@ def check_report_ready(results):
                     f"report needs {stage} to pass")
         if r.status != STATUS_PASS:
             return (False, f"{stage} {r.status}: {r.reason}")
+    waived = [r.stage for r in results if r.waiver_reason]
+    if waived:
+        reviewer = (review_2e or {}).get("reviewer") \
+            if isinstance(review_2e, dict) else None
+        if not (isinstance(reviewer, str) and reviewer.strip()):
+            return (False,
+                    f"waived stage(s) {', '.join(sorted(waived))}"
+                    f" — a waived candidate needs a second-eyes "
+                    f"review (review_2e with a reviewer) before "
+                    f"filing")
     return (True, "persistence, diffimg and blend all pass")

@@ -351,12 +351,16 @@ class TestDependencyGating(unittest.TestCase):
     def test_waived_prerequisite_satisfies_dependent(self):
         # A producer that is inconclusive AND waived counts as
         # satisfied (the transit_fit rule); without the waiver
-        # the dependent is refused.
+        # the dependent is refused. F-5: the producer carries a
+        # waiver code, registered in WAIVER_CODES like the
+        # stage itself (and removed afterwards).
+        from gauntlet.stage_result import WAIVER_CODES
+        WAIVER_CODES["prod_stage"] = {"test_code"}
         register_stage(StageSpec(
             "prod_stage", produces=("prod_stage",),
             func=lambda ctx: StageResult(
                 "prod_stage", "inconclusive", "ambiguous",
-                dict(PROV)),
+                dict(PROV), waiver_code="test_code"),
             mandatory=False))
         register_stage(StageSpec(
             "dep_stage", requires=("prod_stage",),
@@ -373,6 +377,9 @@ class TestDependencyGating(unittest.TestCase):
                 policy=policy)
             by_stage = {r.stage: r for r in run.results}
             self.assertEqual(by_stage["dep_stage"].status, "pass")
+            # F-5: the reason is stamped onto the waived result.
+            self.assertEqual(by_stage["prod_stage"].waiver_reason,
+                             "ambiguous by design")
             run = run_gauntlet(
                 _ctx(imaging=IMAGING_ON),
                 stages=["prod_stage", "dep_stage"])
@@ -385,6 +392,7 @@ class TestDependencyGating(unittest.TestCase):
             from gauntlet.runner import STAGE_REGISTRY
             del STAGE_REGISTRY["prod_stage"]
             del STAGE_REGISTRY["dep_stage"]
+            del WAIVER_CODES["prod_stage"]
 
     def test_validate_plan_finds_missing_prerequisites(self):
         ctx = _ctx(natives={})
@@ -418,11 +426,17 @@ class TestConditionalStages(unittest.TestCase):
         by_stage = {r.stage: r for r in run.results}
         self.assertEqual(by_stage["pixel_check"].status,
                          "not_applicable")
+        # F-5: the adapter attaches the structural code.
+        self.assertEqual(by_stage["pixel_check"].waiver_code,
+                         "period_lt_8d")
         run = run_gauntlet(
             _ctx(imaging=IMAGING_ON, period=2.17,
                  refine_period=2.17),
             waivers={"pixel_check": "period 2.17 d < 8 d"})
         self.assertEqual(run.final_verdict, "CANDIDATE")
+        by_stage = {r.stage: r for r in run.results}
+        self.assertEqual(by_stage["pixel_check"].waiver_reason,
+                         "period 2.17 d < 8 d")
 
     def test_clean_refold_not_applicable_off_bulk(self):
         # A non-bulk target has no clean-data gate: the stage is
@@ -432,6 +446,8 @@ class TestConditionalStages(unittest.TestCase):
         by_stage = {r.stage: r for r in run.results}
         self.assertEqual(by_stage["clean_refold"].status,
                          "not_applicable")
+        self.assertEqual(by_stage["clean_refold"].waiver_code,
+                         "not_bulk_survivor")
         self.assertEqual(run.final_verdict, "INCONCLUSIVE")
         run = run_gauntlet(
             _ctx(imaging=IMAGING_ON, bulk_survivor=False),
@@ -535,6 +551,31 @@ class TestReportGate(unittest.TestCase):
             StageResult("persistence", "pass", "ok", PROV),
             StageResult("diffimg", "pass", "ok", PROV),
             StageResult("blend", "pass", "on-target", PROV)])
+        self.assertTrue(ok)
+
+    def test_report_blocked_on_waiver_without_2e_review(self):
+        # F-5: a waived candidate (waiver_reason on a result)
+        # needs a second-eyes review marker before filing —
+        # even when persistence/diffimg/blend all pass.
+        results = [
+            StageResult("persistence", "pass", "ok", PROV),
+            StageResult("diffimg", "pass", "ok", PROV),
+            StageResult("blend", "pass", "on-target", PROV),
+            StageResult("holdout", "not_applicable",
+                        "single-sector target", PROV,
+                        waiver_code="single_sector",
+                        waiver_reason="one sector only")]
+        ok, reason = check_report_ready(results)
+        self.assertFalse(ok)
+        self.assertIn("second-eyes", reason)
+        # An empty marker or a nameless reviewer does not count.
+        ok, _r = check_report_ready(results, review_2e={})
+        self.assertFalse(ok)
+        ok, _r = check_report_ready(results,
+                                    review_2e={"reviewer": "  "})
+        self.assertFalse(ok)
+        ok, _r = check_report_ready(
+            results, review_2e={"reviewer": "second vetter"})
         self.assertTrue(ok)
 
 
