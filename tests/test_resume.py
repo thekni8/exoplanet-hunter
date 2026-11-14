@@ -90,9 +90,12 @@ def _build_workdir(base):
 
 
 def _run_driver(work, recipe, stub_log, sleep=0.0, timeout=120,
-                extra_args=()):
+                extra_args=(), allow_v1=True):
     """Run the driver to completion in a subprocess. Returns
-    (returncode, stdout)."""
+    (returncode, stdout). Sector 999 is outside the v1 sectors
+    (96-98), so the F-15 driver gate requires --allow-v1 — it
+    is passed by default; pass allow_v1=False to exercise the
+    refusal."""
     env = dict(os.environ)
     env["EXHUNT_SCREEN_CMD"] = (
         f"{sys.executable} {STUB} --sleep {sleep}")
@@ -100,6 +103,8 @@ def _run_driver(work, recipe, stub_log, sleep=0.0, timeout=120,
     cmd = [sys.executable, str(DRIVER), "--recipe", str(recipe),
            "--work-dir", str(work), "--skip-known-filter",
            *extra_args]
+    if allow_v1:
+        cmd += ["--allow-v1"]
     r = subprocess.run(cmd, capture_output=True, text=True,
                        env=env, timeout=timeout)
     return r.returncode, r.stdout + r.stderr
@@ -215,7 +220,7 @@ class TestResume(unittest.TestCase):
             env["EXHUNT_STUB_LOG"] = str(stub_log)
             cmd = [sys.executable, str(DRIVER), "--recipe",
                    str(recipe), "--work-dir", str(work),
-                   "--skip-known-filter"]
+                   "--skip-known-filter", "--allow-v1"]
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, text=True, env=env,
@@ -449,6 +454,32 @@ class TestAtomicWrites(unittest.TestCase):
             atomic_write_json(target2, {"a": 1, "b": 2})
             self.assertEqual(target.read_bytes(),
                              target2.read_bytes())
+
+
+class TestV1Gate(unittest.TestCase):
+    """F-15: the driver enforces the v1 sector gate itself,
+    before creating the run dir — a refused run leaves no run
+    dir, no manifest, no checkpoint behind."""
+
+    def test_refuses_without_allow_v1(self):
+        with tempfile.TemporaryDirectory() as td:
+            work, recipe = _build_workdir(td)
+            rc, out = _run_driver(work, recipe,
+                                  Path(td) / "inv.log",
+                                  allow_v1=False)
+            self.assertEqual(rc, 2, msg=out[-2000:])
+            self.assertIn("bulk_v1", out)
+            self.assertFalse((work / "run_s0999").exists(),
+                             "the refused run must not create "
+                             "a run dir")
+
+    def test_proceeds_with_allow_v1(self):
+        with tempfile.TemporaryDirectory() as td:
+            work, recipe = _build_workdir(td)
+            rc, out = _run_driver(work, recipe,
+                                  Path(td) / "inv.log")
+            self.assertEqual(rc, 0, msg=out[-2000:])
+            self.assertTrue((work / "run_s0999").exists())
 
 
 if __name__ == "__main__":

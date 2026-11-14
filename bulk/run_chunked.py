@@ -44,6 +44,7 @@ from atomic_io import atomic_write_text as _atomic_write_text
 from atomic_io import atomic_writer as _atomic_writer
 from bulk.recipe import (RecipeError, apply_overrides, default_recipe_path,
                          load_recipe)
+from calibration import CalibrationError as _CalibrationError
 from calibration import load_profile as _load_profile
 from calibration import short_version as _short_version
 import provenance as _prov
@@ -543,13 +544,22 @@ def main():
     if SECTOR is None:
         ap.error("--sector is required (or set sector: in the recipe)")
     # Validate the calibration name up front (registry-verified
-    # load) so a typo fails here, not at slice 0. The v1 sector
-    # gate itself lives in bulk_screen.main — the slice command
-    # carries --calibration/--allow-v1 through, and each slice
-    # enforces it before screening.
+    # load) so a typo fails here, not at slice 0. F-15: the v1
+    # sector gate is enforced HERE too, before RUN.mkdir — the
+    # B-2 design left it to slice 0, so a refused run still
+    # created a run dir, a manifest, and a checkpoint before
+    # dying. Each slice still enforces it as well (defence in
+    # depth — a slice invoked directly refuses on its own).
     try:
         _load_profile(args.calibration)
     except Exception as exc:
+        ap.error(str(exc))
+    try:
+        # Lazy import: bulk_screen is heavy (lightkurve) and
+        # the driver otherwise never imports it.
+        from bulk_screen import enforce_v1_gate as _gate
+        _gate(args.calibration, SECTOR, args.allow_v1)
+    except _CalibrationError as exc:
         ap.error(str(exc))
     RECIPE = recipe
     SLICE = recipe["slice_size"]

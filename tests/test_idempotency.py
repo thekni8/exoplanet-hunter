@@ -139,7 +139,8 @@ def _run_driver_die(work, recipe, stub_log, die_at, timeout=120):
         f"{sys.executable} {STUB} --die-at {die_at}")
     env["EXHUNT_STUB_LOG"] = str(stub_log)
     cmd = [sys.executable, str(DRIVER), "--recipe", str(recipe),
-           "--work-dir", str(work), "--skip-known-filter"]
+           "--work-dir", str(work), "--skip-known-filter",
+           "--allow-v1"]
     r = subprocess.run(cmd, capture_output=True, text=True,
                        env=env, timeout=timeout)
     return r.returncode, r.stdout + r.stderr

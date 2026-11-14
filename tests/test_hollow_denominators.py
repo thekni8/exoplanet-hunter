@@ -137,8 +137,7 @@ class TestUnmeasuredFractionDriver(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             work, recipe = _build_workdir(td)
             stub_log = Path(td) / "invocations.log"
-            rc, out = _run_driver(work, recipe, stub_log,
-                                  extra_args=("--allow-v1",))
+            rc, out = _run_driver(work, recipe, stub_log)
             self.assertEqual(rc, 0, msg=out[-2000:])
             run = work / "run_s0999"
             s_path = run / "chunk_00" / "summary.json"
@@ -153,8 +152,7 @@ class TestUnmeasuredFractionDriver(unittest.TestCase):
                 prov.file_sha256(s_path)
             cp_path.write_text(json.dumps(cp))
             n_before = len(_invocations(stub_log))
-            rc, out = _run_driver(work, recipe, stub_log,
-                                  extra_args=("--allow-v1",))
+            rc, out = _run_driver(work, recipe, stub_log)
             self.assertEqual(rc, 1, msg=out[-2000:])
             self.assertIn("UNMEASURED FRACTION FAILED", out)
             self.assertEqual(len(_invocations(stub_log)), n_before,
@@ -184,8 +182,7 @@ class TestUnmeasuredFractionDriver(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             work, recipe = _build_workdir(td)
             stub_log = Path(td) / "invocations.log"
-            rc, out = _run_driver(work, recipe, stub_log,
-                                  extra_args=("--allow-v1",))
+            rc, out = _run_driver(work, recipe, stub_log)
             self.assertEqual(rc, 0, msg=out[-2000:])
             run = work / "run_s0999"
             summary = json.loads(
@@ -219,8 +216,7 @@ class TestStarsMeasured(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             work, recipe = _build_workdir(td)
             rc, out = _run_driver(work, recipe,
-                                  Path(td) / "inv.log",
-                                  extra_args=("--allow-v1",))
+                                  Path(td) / "inv.log")
             self.assertEqual(rc, 0, msg=out[-2000:])
             ledger = build_ledger.build_ledger(
                 999, work / "run_s0999")
