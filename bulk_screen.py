@@ -159,6 +159,7 @@ from calibration import short_version as _short_version
 from mad_clip import PROFILE_OPTIONS as _CLIP_PROFILE_OPTIONS
 from mad_clip import ALL_OPTIONS as _CLIP_ALL_OPTIONS
 from mad_clip import mad_clip_mask as _mad_clip_mask
+import ingest as _ingest
 from validation import validate_survivor as _validate_survivor
 
 # Thresholds — loaded from the versioned calibration profile
@@ -896,7 +897,6 @@ def _screen_one(args):
         from astropy.timeseries import BoxLeastSquares
         with fits.open(path, memmap=True) as hdul:
             data = hdul[1].data
-            t = np.asarray(data["TIME"], dtype=float)
             # Flux column differs by QLP HLSP version: older sectors
             # (e.g. S1) carry KSPSAP_FLUX; newer ones (e.g. S98) dropped
             # it for SYS_RM_FLUX (the systematics-removed flux — the
@@ -909,7 +909,12 @@ def _screen_one(args):
                                      "DET_FLUX") if c in cols), None)
             if fcol is None:
                 raise KeyError(f"no known flux column in {cols}")
-            flux = np.asarray(data[fcol], dtype=float)
+            # F-4: the FITS-read boundary — time/flux go through
+            # the shared float64 ingest (FITS flux is typically
+            # float32; the savgol detrend below accumulates in
+            # the input dtype — see ingest.py).
+            t, flux, _ = _ingest.as_float64(data["TIME"],
+                                            data[fcol])
             qual = np.asarray(data["QUALITY"], dtype=int)
         # Quality mask = lightkurve's TESS DEFAULT bitmask (17087), NOT
         # quality==0. Lesson (proof-run smoke test, 2026-11-11): TOI-700
@@ -934,6 +939,9 @@ def _screen_one(args):
         t, f = t[keep], f[keep]
         # light flatten at the deep pipeline's ~2 d scale (Savitzky-Golay)
         from scipy.signal import savgol_filter
+        # F-4 tripwire: the detrend must never see a float32
+        # array — a path that bypassed ingest fails here.
+        _ingest.assert_float64(t, f, "detrend entry (_screen_one)")
         dt = float(np.median(np.diff(t)))
         win = int(round(2.0 / dt)) if dt > 0 else 97
         win += (win % 2 == 0)
@@ -948,6 +956,8 @@ def _screen_one(args):
         # hashed so a result can be traced to the data it was
         # computed from — not just the code that ran. In-memory
         # and cheap; attached to every record that reaches BLS.
+        # F-4 tripwire: BLS must never see a float32 array.
+        _ingest.assert_float64(t, f, "BLS entry (_screen_one)")
         bls_hash = _prov.bls_input_hash(t, f)
         periods = 1.0 / np.linspace(1.0 / MAX_PERIOD_D, 1.0 / MIN_PERIOD_D,
                                     BLS_GRID_POINTS)

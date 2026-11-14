@@ -129,6 +129,7 @@ from astropy.timeseries import BoxLeastSquares
 from astroquery.mast import Catalogs
 
 import provenance as _prov
+import ingest as _ingest
 import netbound as _net
 
 OUTPUT_DIR = "reports"
@@ -851,22 +852,22 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
                   .remove_nans().remove_outliers(sigma=5.0))
 
-    # --- Float64 normalisation (Phase 1.2, item C-4) -------------------
-    # The pipeline's numerics must not depend on the storage dtype of
-    # whichever FITS file MAST served. FITS flux is typically float32
-    # while the offline fixtures store float64, and scipy's savgol
-    # accumulates in the input dtype: the pass-1 trends then differ
-    # by ~4e-7, which flips the BLS argmax between adjacent
-    # fine-grid points on a near-tie (EB: P 0.758011 live vs
-    # 0.757982 fixture), which diverges the pass-2 transit mask and
-    # hence the BLS input hash. Upcasting to float64 is exact
-    # (every float32 value is representable in float64) and makes
-    # the live and fixture paths bit-identical. Nothing downstream
-    # uses lc_raw beyond time/flux/len/flatten, so rebuilding a
-    # plain LightCurve here drops no information the pipeline needs.
-    lc_raw = lk.LightCurve(
-        time=np.asarray(lc_raw.time.value, dtype=float),
-        flux=np.asarray(lc_raw.flux.value, dtype=float))
+    # --- Float64 normalisation (Phase 1.2, item C-4; shared
+    # ingest since follow-up F-4) ---------------------------------
+    # The pipeline's numerics must not depend on the storage dtype
+    # of whichever FITS file MAST served. FITS flux is typically
+    # float32 while the offline fixtures store float64, and
+    # scipy's savgol accumulates in the input dtype: the pass-1
+    # trends then differ by ~4e-7, which flips the BLS argmax
+    # between adjacent fine-grid points on a near-tie (EB:
+    # P 0.758011 live vs 0.757982 fixture), which diverges the
+    # pass-2 transit mask and hence the BLS input hash. The
+    # normalisation lives in ingest.py now (one function for
+    # hunter, the bulk screen and the gauntlet fetchers); the
+    # POSITION is unchanged — the C-4 live/fixture hash test pins
+    # the post-stitch normalisation, so this call stays here
+    # rather than moving to the download.
+    lc_raw = _ingest.normalise_lightcurve(lc_raw)
 
     # --- Detrend window in TIME units (2026-11-08 upgrade) -------------
     # detrend_window=101 was born on 30-minute data, where 101 points is
@@ -891,6 +892,11 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
             _emit(progress_callback,
                   f"Detrend window: {_win} points "
                   f"(~{_win * _dt:.2f} d at {_dt * 1440.0:.0f}-min cadence).")
+    # F-4 tripwire: the detrend must never see a float32 curve —
+    # a path that bypassed ingest fails here, loudly, instead of
+    # searching dtype-dependent arrays.
+    _ingest.assert_float64(lc_raw.time.value, lc_raw.flux.value,
+                           "detrend entry (_run_pipeline pass 1)")
     lc_flat, trend = lc_raw.flatten(window_length=_win, return_trend=True)
     t = lc_flat.time.value
     f = lc_flat.flux.value
@@ -935,6 +941,8 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         refined_signals). candidates and refined_signals are both the
         top-3 refined DISTINCT signals (same list at this stage; they
         diverge later only because TLS rescue prepends to candidates)."""
+        # F-4 tripwire: BLS must never see a float32 array.
+        _ingest.assert_float64(tt, ff, "BLS entry (_bls_best)")
         _bls = BoxLeastSquares(tt * u.day, ff)
         _res = _bls.power(periods, durations)
         _pv = np.asarray(_res.period.value, dtype=float)
@@ -1096,6 +1104,11 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         _emit(progress_callback,
               "Refining depth: re-detrending with transits masked out of the trend fit...")
         try:
+            # F-4 tripwire: the pass-2 detrend reads the same
+            # raw curve — it must still be float64.
+            _ingest.assert_float64(
+                lc_raw.time.value, lc_raw.flux.value,
+                "detrend entry (_run_pipeline pass 2)")
             _lc2, _trend2 = lc_raw.flatten(window_length=_win,
                                            return_trend=True,
                                            mask=_transit_mask)
@@ -1620,11 +1633,22 @@ def _fetch_stitched(tic_id, max_sectors=None, progress_callback=None):
     lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
     n_sectors = len(lc_collection)
 
+    # F-4: the FITS-read boundary — normalise every downloaded
+    # curve to float64 BEFORE stitching, so the stitch
+    # corrector, the cleaning and the flatten all see float64
+    # (FITS flux is typically float32; scipy's savgol
+    # accumulates in the input dtype — see ingest.py).
+    lc_collection = lk.LightCurveCollection(
+        [_ingest.normalise_lightcurve(lc)
+         for lc in lc_collection])
     lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
               .remove_nans().remove_outliers(sigma=5.0))
     del lc_collection
     gc.collect()
-    return lc_raw, n_sectors
+    # Defensive: the stitch of float64 inputs is float64, but
+    # the return is the fetchers' contract — normalise again
+    # (idempotent) so callers never see a float32 curve.
+    return _ingest.normalise_lightcurve(lc_raw), n_sectors
 
 
 def _fetch_flattened(tic_id, max_sectors=None, progress_callback=None,
@@ -1638,6 +1662,10 @@ def _fetch_flattened(tic_id, max_sectors=None, progress_callback=None,
     lc_raw, n_sectors = _fetch_stitched(
         tic_id, max_sectors=max_sectors, progress_callback=progress_callback)
     total_points = int(len(lc_raw))
+    # F-4 tripwire: _fetch_stitched normalises, so this must
+    # already be float64 — if it is not, a path bypassed ingest.
+    _ingest.assert_float64(lc_raw.time.value, lc_raw.flux.value,
+                           "detrend entry (_fetch_flattened)")
     lc_flat = lc_raw.flatten(window_length=detrend_window)
     t = np.asarray(lc_flat.time.value, dtype=float)
     f = np.asarray(lc_flat.flux.value, dtype=float)
