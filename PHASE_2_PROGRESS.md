@@ -89,7 +89,89 @@ at the end.
   vs the 0.30 bar) — a shape-gate review is a vote item, not
   a 2A change (threshold = calibration).
 
-## 2B — LATTE (not started)
+## 2B — LATTE (in progress)
+
+| Item | Commit | What |
+|---|---|---|
+| 2B-1 | (this commit) | Shared external-tool plumbing (`gauntlet/external_tool.py`): subprocess runner with timeout + RLIMIT_AS memory cap, C-10 input builder, missing-venv as a status. 14 tests. |
+
+Test tally after 2B-1: 427 + 14 = **441** (437 offline + 4
+live).
+
+### Tool research (2026-11-15 — read from the tools' own source, not the design doc's assumptions)
+
+- **TRICERATOPS 1.1.0** (stevengiacalone/triceratops):
+  `target(ID, sectors, ...)` queries TIC + a pixel cutout in
+  `__init__` (network); `calc_depths(tdepth)` then
+  `calc_probs(time, flux_0, flux_err_0, P_orb, ...)` where
+  `time` is the PHASE-FOLDED light curve (days from transit
+  midpoint) and flux is dilution-corrected. Results are
+  attributes, not a return value: `FPP`, `NFPP`,
+  `probs` (per-scenario DataFrame), `FPP_degenerate`.
+  Seeding is via `np.random.seed()` — there is no seed
+  parameter; the MC draws from the global generator. Pins
+  numpy<2 / scipy<1.14 (Python < 3.13) against the
+  pipeline's numpy==2.5.4 / scipy==1.18.1: the separate
+  venv is mandatory, not precautionary. Validation bars in
+  the literature: FPP < 0.015 + NFPP < 0.001 (Giacalone et
+  al. 2021) — the C-10 doc's "FPP < 0.01" is a slight
+  misremembering; the provisional policy uses 0.015 and says
+  so.
+- **LATTE 1.0.21** (noraeisner/LATTE, Eisner et al. 2020):
+  GUI-first (`python3 -m LATTE`, tkinter), but batchable via
+  `--targetlist=csv` with `TICID, period, t0, sectors, BLS,
+  model, FFI` columns — with period+t0 it computes up to 4
+  transit times itself and forces `--noshow --auto`.
+  **It produces NO machine-readable per-check dispositions:
+  output is plots + a PDF report**
+  (`{indir}/{tic}/DV_report_{tic}.pdf`). The C-10 design
+  doc's "per-check dispositions" assumption is wrong —
+  confirmed from the source (the only CSV is an optional
+  pyaneti model-parameters file). LATTE re-downloads its own
+  data from MAST; it does NOT consume our stitched npz.
+  Pins matplotlib==3.2.0 against the pipeline's 3.11.2.
+  First run needs `_config.txt` (output path, in the package
+  dir — an interactive prompt if missing) + a ~325 MB
+  one-time MAST text-file download. It swallows per-target
+  failures and exits 0 with no report — the wrapper must
+  check for the PDF, never trust the exit code.
+
+### Judgment calls (2B/2C — for the Phase 2 vote)
+
+1. **Memory/IPC: BOTH subprocess isolation AND Mac-only by
+   configuration.** The runner enforces a timeout (1800 s)
+   and an RLIMIT_AS memory cap (2048 MB) on every tool
+   invocation, and the tool venv paths in the policy point
+   at the Mac. On a host without the venv (the VM) the run
+   returns "missing_venv" and the stage reads UNMEASURED
+   with a clear reason — never a crash. This answers
+   Gemini's Phase 1.2 vote point and the design doc's open
+   question 5 together.
+2. **LATTE is report-only evidence, and can never PASS or
+   FAIL.** With no machine-readable dispositions, a
+   completed LATTE run reads INCONCLUSIVE ("report
+   generated; a human must read it") and does NOT
+   participate in promotion aggregation — including it
+   would block every promotion, since it can never PASS.
+   Its StageResult lives in the verdict record's extra
+   evidence and the 2D evidence package. This deviates from
+   C-10's LATTE mapping, because C-10's premise (per-check
+   dispositions) does not exist in the tool.
+3. **TRICERATOPS is evidence-only in this build; gating is
+   the vote's call.** The adapter computes the policy-mapped
+   status (PASS/FAIL/INCONCLUSIVE) from the provisional
+   policy bars, so the evidence record shows what the policy
+   WOULD say — but a provisional threshold must not kill a
+   candidate, so the result does not gate promotion until
+   the vote ratifies the thresholds. The vote also decides
+   REQUIRED_STAGES membership.
+4. **Neither tool joins REQUIRED_STAGES or the default
+   STAGE_REGISTRY in this build.** Registering them would
+   turn every existing e2e CANDIDATE into INCONCLUSIVE
+   (unmeasured stages block promotion) and make LATTE a
+   permanent promotion-blocker. The desk driver runs them
+   as opt-in post-runner evidence stages when tool configs
+   are supplied.
 
 ## 2C — TRICERATOPS (not started)
 
