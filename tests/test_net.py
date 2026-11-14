@@ -20,9 +20,13 @@ network, and a file:// URL stands in for a download.
   * _collect_screen_results — a star whose screen exceeds the
     per-star watchdog is recorded unmeasured with a reason and
     the other stars still screen.
+  * repeated timeouts (F-17) — 20 consecutive timed-out calls
+    leave no threads behind once their bounded functions
+    return: the watchdog does not accumulate.
 """
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -58,6 +62,49 @@ class TestRunWithTimeout(unittest.TestCase):
         with self.assertRaises(net.NetworkTimeout):
             net.mast_call(lambda: time.sleep(5), timeout_s=0.2,
                           name="mast")
+
+
+class TestRepeatedTimeoutStress(unittest.TestCase):
+    """F-17: repeated timeouts must not accumulate threads.
+
+    Each timed-out run_with_timeout call leaves its daemon
+    thread alive until the underlying fn returns — a Python
+    thread cannot be killed. A fn that hung FOREVER would
+    leave N threads alive by design; this test uses
+    bounded-blocking fns (0.5 s sleeps against a 0.05 s
+    timeout), which is the honest form of "no accumulation":
+    after the burst, the thread count must drain back to
+    baseline. No rewrite, no multiprocessing — the test only
+    proves what the watchdog already guarantees.
+    """
+
+    def test_twenty_timeouts_leave_no_threads_behind(self):
+        baseline = threading.active_count()
+
+        def slow():
+            time.sleep(0.5)
+
+        t0 = time.monotonic()
+        for _ in range(20):
+            with self.assertRaises(net.NetworkTimeout):
+                net.run_with_timeout(slow, 0.05, name="stress")
+        burst = time.monotonic() - t0
+        # The burst is bounded by the TIMEOUT (20 x 0.05 s),
+        # not by the fns (20 x 0.5 s).
+        self.assertLess(burst, 5.0)
+        # The last few daemon threads are still alive (their
+        # fns sleep 0.5 s); poll up to 10 s for the count to
+        # drain back to baseline.
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            if threading.active_count() <= baseline:
+                break
+            time.sleep(0.1)
+        self.assertLessEqual(threading.active_count(), baseline)
+        # The watchdog still works after the burst.
+        self.assertEqual(
+            net.run_with_timeout(lambda: 42, 1.0, name="after"),
+            42)
 
 
 class TestHttpGet(unittest.TestCase):
