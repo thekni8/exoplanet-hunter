@@ -7,6 +7,12 @@
 # like a code regression, so the test step is continue-on-error —
 # failures are visible in the Actions tab but never block a PR.
 #
+# Non-blocking must not mean unwatched (Phase 1.2, item C-5): a
+# failed live run opens a GitHub issue (deduped — one open issue
+# per failure class), so a red live run is visible without
+# re-blocking PRs. The issue is the signal; closing it is the
+# acknowledgement that someone looked.
+#
 # If this job goes red while the PR gate (golden.yml) stays green,
 # either MAST changed its data or the offline fixtures are stale
 # (regenerate with tests/make_fixtures.py). If BOTH go red, the
@@ -24,6 +30,11 @@ on:
     # agrees with the committed fixtures.
     - cron: "0 6 * * 1"
   workflow_dispatch:
+
+permissions:
+  contents: read
+  # C-5: the failure step opens an issue on a red live run.
+  issues: write
 
 jobs:
   live:
@@ -44,7 +55,42 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run full golden suite (live MAST)
+        id: live
         # Non-blocking by design: a MAST outage is not a code
         # regression. See the header comment.
         continue-on-error: true
         run: python tests/run_golden.py
+
+      - name: Open an issue on live failure
+        # C-5: the test step is continue-on-error, so the job
+        # still succeeds — the step outcome is what gates this.
+        if: steps.live.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref_name }}
+        run: |
+          # Dedupe: one open issue per failure class. If a
+          # live-mast failure issue is already open, the new
+          # failure is the same signal — do not spam.
+          OPEN=$(gh issue list --state open \
+            --search "live-mast failure in:title" \
+            --json number --jq 'length')
+          if [ "$OPEN" != "0" ]; then
+            echo "An open live-mast failure issue already exists ($OPEN) — not opening another."
+            exit 0
+          fi
+          gh issue create \
+            --title "live-mast failure: golden suite failed on $(date -u +%Y-%m-%d)" \
+            --body "The live MAST golden suite failed.
+
+          Run: $RUN_URL
+          Commit: $SHA
+          Branch: $REF
+
+          Diagnosis (see .github/workflows/live.yml):
+          - If the PR gate (golden.yml) is GREEN, MAST changed its data or the offline fixtures are stale — regenerate with tests/make_fixtures.py, or wait out a MAST outage.
+          - If BOTH are red, the pipeline itself changed — find what broke before merging anything.
+
+          Close this issue once someone has looked and the live run is green again (or the cause is understood)."
