@@ -162,6 +162,10 @@ jobs:
           .venv-lockfile-test/bin/pip install --require-hashes -r requirements.lock
 
       - name: Smoke test the clean install
+        # gauntlet.transit_fit is imported deliberately: the
+        # 2026-11-14 scratch-CI rest shard caught an undeclared
+        # setuptools dependency through its import chain, which
+        # this smoke step had not imported.
         run: |
-          .venv-lockfile-test/bin/python -c "import hunter, bulk_screen, provenance; print('imports OK')"
+          .venv-lockfile-test/bin/python -c "import hunter, bulk_screen, provenance, gauntlet.transit_fit; print('imports OK')"
           .venv-lockfile-test/bin/python -m unittest tests.test_recipe tests.test_stamp
