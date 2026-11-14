@@ -43,6 +43,13 @@ class TestFingerprint(unittest.TestCase):
         (root / "bulk_screen.py").write_text("SCREEN = 1\n")
         (root / "gauntlet" / "verdict.py").write_text("V = 1\n")
         (root / "bulk" / "run_chunked.py").write_text("C = 1\n")
+        # F-6: the named result-affecting file classes — the
+        # deep pipeline, the clip, and the stage logic.
+        (root / "hunter.py").write_text("HUNTER = 1\n")
+        (root / "mad_clip.py").write_text("CLIP = 1\n")
+        (root / "gauntlet" / "stage_result.py").write_text(
+            "STAGE = 1\n")
+        (root / "gauntlet" / "runner.py").write_text("RUN = 1\n")
         (root / "calibration" / "bulk_v1.yaml").write_text(
             "version: bulk_v1\n")
         (root / "schema" / "survivor-schema.json").write_text("{}\n")
@@ -96,6 +103,29 @@ class TestFingerprint(unittest.TestCase):
     def test_real_repo_fingerprint_is_stable(self):
         self.assertEqual(prov.fingerprint_result_affecting(),
                          prov.fingerprint_result_affecting())
+
+    def test_named_file_classes_move_fingerprint(self):
+        # F-6: the fingerprint is not just "some file changed" —
+        # each NAMED result-affecting class moves it: the deep
+        # pipeline (hunter.py: BLS/detrend), the clip
+        # (mad_clip.py), and the stage logic
+        # (gauntlet/stage_result.py + gauntlet/runner.py). A
+        # future refactor that moved one of these files out of
+        # the hashed globs would fail here, not silently.
+        named = {"hunter.py": "HUNTER = 2\n",
+                 "mad_clip.py": "CLIP = 2\n",
+                 "gauntlet/stage_result.py": "STAGE = 2\n",
+                 "gauntlet/runner.py": "RUN = 2\n"}
+        for rel, new_text in named.items():
+            with self.subTest(file=rel):
+                with tempfile.TemporaryDirectory() as td:
+                    root = self._tree(td)
+                    before = prov.fingerprint_result_affecting(
+                        root)
+                    (root / rel).write_text(new_text)
+                    self.assertNotEqual(
+                        before,
+                        prov.fingerprint_result_affecting(root))
 
 
 class TestWorkingTreeClean(unittest.TestCase):
