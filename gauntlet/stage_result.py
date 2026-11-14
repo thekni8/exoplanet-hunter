@@ -693,13 +693,15 @@ def blend_result(native, prov=None, policy=None):
         native["duration_d"],
         neighbour_tic=native.get("neighbour_tic"),
         separation_arcsec=native.get("separation_arcsec"),
-        policy=policy)
+        policy=policy,
+        census_radius_arcsec=native.get("census_radius_arcsec"))
     verdict = res["verdict"]
     status = {"blend": STATUS_FAIL, "on_target": STATUS_PASS,
               "inconclusive": STATUS_INCONCLUSIVE,
               "unmeasured": STATUS_UNMEASURED}[verdict]
     details = {k: res.get(k) for k in
-               ("neighbour_tic", "separation_arcsec", "period_d")
+               ("neighbour_tic", "separation_arcsec",
+                "census_radius_arcsec", "period_d")
                if res.get(k) is not None}
     metrics = {}
     for key, fold in (("target", res.get("target_fold")),

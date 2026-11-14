@@ -1,0 +1,66 @@
+{
+ "case": "S97 blend host: TIC 139526205 target, TIC 139524628 host at 66.5 arcsec (real TIC IDs, real separation, real target Tmag 11.3 from the blend fixture). Coordinates and the other rows are synthetic \u2014 only the 66.5 arcsecond separation and the case identity are real.",
+ "target": {
+  "tic": "139526205",
+  "ra": 100.0,
+  "dec": -65.0,
+  "tmag": 11.3
+ },
+ "rows": [
+  {
+   "ID": 139526205,
+   "ra": 100.0,
+   "dec": -65.0,
+   "Tmag": 11.3
+  },
+  {
+   "ID": 139524628,
+   "ra": 100.0,
+   "dec": -64.98152777777777,
+   "Tmag": 12.1
+  },
+  {
+   "ID": 100000001,
+   "ra": 100.0,
+   "dec": -64.99166666666666,
+   "Tmag": 14.0
+  },
+  {
+   "ID": 100000002,
+   "ra": 100.0,
+   "dec": -64.95833333333333,
+   "Tmag": 15.2
+  },
+  {
+   "ID": 100000003,
+   "ra": 100.0,
+   "dec": -64.94444444444444,
+   "Tmag": 13.5
+  },
+  {
+   "ID": 100000004,
+   "ra": 100.0,
+   "dec": -64.9875,
+   "Tmag": 19.5
+  },
+  {
+   "ID": 100000005,
+   "ra": 100.0,
+   "dec": -64.99444444444444,
+   "Tmag": null
+  }
+ ],
+ "expected": {
+  "at_180_arcsec": [
+   139526205,
+   100000001,
+   139524628,
+   100000002
+  ],
+  "at_60_arcsec": [
+   139526205,
+   100000001
+  ]
+ },
+ "note": "The 200-arcsecond row is outside the 180-arcsecond census at any radius; the Tmag 19.5 row is beyond the 18.5 limit; the null-Tmag row pins the missing-magnitude handling. Expected lists are sorted by separation."
+}

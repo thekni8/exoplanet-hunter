@@ -37,6 +37,28 @@ Started 2026-11-14 ~14:47 IST on branch `standardize/phase-1` (HEAD `d8b4be8` at
 - [x] C-9 Lockfile clean-install test — manifest bug FIXED: `build_manifest` read `requirements-lock.txt` (does not exist), so `requirements_lock_sha256` was always None; now reads `requirements.lock` (test asserts it equals the file hash). New `lockfile-clean-install` job in `golden.yml` (fresh venv, `pip install --require-hashes -r requirements.lock`, no pip cache, smoke: import hunter/bulk_screen/provenance + test_recipe + test_stamp). PROVEN locally: clean install of all 93 packages succeeded with hash verification (pip exit 0, 114 s) + smoke 21/21 OK in the clean venv.
 - [x] C-10 TRICERATOPS/LATTE design doc — `docs/triceratops-latte-design.md` (doc only, no code): out-of-process, own venv + lockfile each, JSON in/out through StageResult, seeded Monte Carlo, failure → unmeasured, never on bulk-screen volume (gauntlet finalists only); full input/output JSON contract + StageResult evidence mapping (value=FPP, metrics carry FPP/NFPP + per-scenario probabilities + seed); determinism rules; cost model; acceptance criteria; 5 open questions for the Phase 2 vote; rollout 2B LATTE → 2C TRICERATOPS.
 
+## Phase 1.2 follow-up
+
+Started 2026-11-14 ~16:45 IST on branch `standardize/phase-1` (HEAD `0d2f351` at start, tree clean). The Phase 1.2 vote was unanimous 3/3 GO WITH CHANGES; this build closes the changes (brief: `~/workspace/goals/exoplanet-hunter/hidden_files/science-vet/phase1-2-vote/FOLLOWUP_BRIEF.md`; comparison: `.../phase1-2-vote/COMPARISON.md`). NOT a new phase (ChatGPT: no Phase 1.3) — targeted fixes only. NO PUSH per Dev's rule — local commits only. Out of scope (operator-only): Mac-side ledgers/rescore/run-data copy; git/GitHub steps (scratch-repo workflow runs, branch protection, firing the forced-failure input).
+
+- [x] F-1 180″ neighbour search — policy parameter `neighbour_search_radius_arcsec: 180.0` in gauntlet_v2 (pre-merge correction: gauntlet_v2 never reached main, so the profile AND its registry entry were updated in the same commit — new sha256 + rationale noting the correction — rather than minting a v3; rule documented in `calibration/README.md`); `tic_cone_census` defaults to the policy radius; census logic factored into pure `census_from_rows` (radius filter now enforced in the pure function, so unfiltered rows are still radius-limited); census JSON renamed to `tic_cone_search` + explicit `radius_arcsec` (old `tic_cone_60arcsec` key accepted as a deprecated 60″ fallback with a warning); `check_blend` records `census_radius_arcsec` in every blend verdict; offline S97 census fixture (host at 66.5″ found at 180″, missed at 60″); no-false-kill run on TOI-700 + WASP-126 b (dip-free neighbour leaves the verdict on_target); 180″ canary converted from a no-target check into a real executable canary (mutates the policy value 180→60, re-hashes the registry in the throwaway copy, tests.test_census goes red)
+- [ ] F-2 Fast suite under bulk_v2 at HEAD
+- [ ] F-3 live.yml forced-failure input
+- [ ] F-4 Shared float64 ingest
+- [ ] F-5 Waiver hardening
+- [ ] F-6 Resume fingerprint proof tests
+- [ ] F-7 End-to-end runner integration test
+- [ ] F-8 Labelled-population TOI run
+- [ ] F-9 Fingerprint-coverage test
+- [ ] F-10 Tiered suite
+- [ ] F-11 transit_fit via the shared clip
+- [ ] F-12 Perturbation test for near-tie verdict stability
+- [ ] F-13 Hollow denominators
+- [ ] F-14 Same-product-selected test
+- [ ] F-15 run_chunked v1-gate
+- [ ] F-16 TargetContext cache verification
+- [ ] F-17 Repeated-timeout stress test
+
 ## Claims ledger (Release A)
 
 | Claim | Command | Expected | Actual |

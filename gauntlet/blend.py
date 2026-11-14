@@ -60,6 +60,21 @@ def _thresholds(policy):
                        defaults["blend_min_depth_ratio"]))
 
 
+def _census_radius(policy, census_radius_arcsec):
+    """The census radius recorded in the blend evidence: an
+    explicit value when the caller knows it, else the policy's
+    neighbour-search radius (gauntlet_v2: 180 arcseconds).
+    Every blend check says how far the search looked (F-1)."""
+    if census_radius_arcsec is not None:
+        return float(census_radius_arcsec)
+    if policy is not None and \
+            "neighbour_search_radius_arcsec" in policy:
+        return float(policy["neighbour_search_radius_arcsec"])
+    from calibration import load_profile
+    return float(load_profile(DEFAULT_POLICY_VERSION)[
+        "neighbour_search_radius_arcsec"])
+
+
 def _signif(fold):
     """The honest significance: red-noise when measured, else
     white."""
@@ -71,15 +86,20 @@ def _signif(fold):
 
 def check_blend(target_t, target_f, neighbour_t, neighbour_f,
                 period_d, t0, duration_d, neighbour_tic=None,
-                separation_arcsec=None, policy=None):
+                separation_arcsec=None, policy=None,
+                census_radius_arcsec=None):
     """Fold both light curves at the ephemeris and decide.
 
     Returns a dict with the verdict, both folds, the depth
     ratio, the significances, and a human-readable reason.
     Fluxes are assumed median-normalised (fold_depth measures
-    depth in percent of the out-of-transit median).
+    depth in percent of the out-of-transit median). The
+    returned dict also records `census_radius_arcsec` — the
+    radius the neighbour search covered (the policy value
+    unless the caller passes one explicitly).
     """
     min_signif, min_ratio = _thresholds(policy)
+    radius = _census_radius(policy, census_radius_arcsec)
     target_fold = fold_depth(target_t, target_f, period_d, t0,
                              duration_d)
     neighbour_fold = fold_depth(neighbour_t, neighbour_f,
@@ -88,6 +108,7 @@ def check_blend(target_t, target_f, neighbour_t, neighbour_f,
             "neighbour_fold": neighbour_fold,
             "neighbour_tic": neighbour_tic,
             "separation_arcsec": separation_arcsec,
+            "census_radius_arcsec": radius,
             "period_d": period_d, "t0": t0,
             "duration_d": duration_d,
             "min_signif": min_signif,

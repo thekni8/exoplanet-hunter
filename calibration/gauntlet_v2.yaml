@@ -7,7 +7,7 @@
 # mismatch.
 version: gauntlet_v2
 status: active
-rationale: "Gauntlet calibration v2 (2026-11-14, Phase 1.2 A-4): carries the stage-result decision policy (raw-flux/parity bars, minimum-data bars, blend bars) and the waiver allowlist. v1's thresholds carried over unchanged; the policy values were hardcoded constants in gauntlet/stage_result.py before this version."
+rationale: "Gauntlet calibration v2 (2026-11-14, Phase 1.2 A-4): carries the stage-result decision policy (raw-flux/parity bars, minimum-data bars, blend bars) and the waiver allowlist. v1's thresholds carried over unchanged; the policy values were hardcoded constants in gauntlet/stage_result.py before this version. Pre-merge correction (Phase 1.2 follow-up F-1, 2026-11-14): neighbour_search_radius_arcsec added at 180.0 — the vetting manual's 180 arcsecond rule; the code census defaulted to 60 arcseconds and missed a blend host at 66.5 arcseconds (S97, TIC 139524628). gauntlet_v2 never reached main, so this pre-merge edit updates the registry entry in the same commit rather than minting a v3."
 
 # --- trapezoid shape gate (gauntlet/rawflux_check.py) -------------------
 # Carried over unchanged from gauntlet_v1.
@@ -46,6 +46,17 @@ blend_min_signif: 3.0     # blend bar: the neighbour's dip must clear
 blend_min_depth_ratio: 3.0  # blend bar: the neighbour's dip must be
                             # at least this many times deeper than the
                             # target's
+
+# --- neighbour census (gauntlet/diffimg.py, gauntlet/blend.py) ---------
+# F-1 (Phase 1.2 follow-up): the neighbour-search radius is a
+# POLICY parameter, not a code default. The vetting manual
+# (docs/vetting-manual.md §6) requires a 180-arcsecond search:
+# a 60-arcsecond cone missed a blend host at 66.5 arcseconds
+# (TIC 139526205 / TIC 139524628, sector 97). The census radius
+# is recorded in every blend check's evidence
+# (check_blend's census_radius_arcsec), so a verdict always
+# says how far the search looked.
+neighbour_search_radius_arcsec: 180.0
 
 # --- waiver allowlist ---------------------------------------------------
 # A stage's INCONCLUSIVE or NOT_APPLICABLE blocks candidacy UNLESS

@@ -24,9 +24,9 @@
     },
     {
       "calibration_id": "gauntlet_v2",
-      "sha256": "8f33c9e9c14fa0ebf2840412455c0e8183c1f2ceaca6884ad8daaedaff344fd0",
+      "sha256": "66c2ab6cec2b2666c177807fd58cd2d17c2e26b5e99e21e2dd3513df948c262a",
       "status": "active",
-      "rationale": "Gauntlet calibration v2 (2026-11-14, Phase 1.2 A-4): carries the stage-result decision policy (raw-flux/parity bars, minimum-data bars, blend bars) and the waiver allowlist. v1's thresholds carried over unchanged; the policy values were hardcoded constants in gauntlet/stage_result.py before this version.",
+      "rationale": "Gauntlet calibration v2 (2026-11-14, Phase 1.2 A-4): carries the stage-result decision policy (raw-flux/parity bars, minimum-data bars, blend bars) and the waiver allowlist. v1's thresholds carried over unchanged; the policy values were hardcoded constants in gauntlet/stage_result.py before this version. Pre-merge correction (Phase 1.2 follow-up F-1, 2026-11-14): neighbour_search_radius_arcsec added at 180.0 — the vetting manual's 180 arcsecond rule; the code census defaulted to 60 arcseconds and missed a blend host at 66.5 arcseconds (S97, TIC 139524628). gauntlet_v2 never reached main, so this pre-merge edit updates the registry entry in the same commit rather than minting a v3.",
       "supersedes": "gauntlet_v1"
     },
     {

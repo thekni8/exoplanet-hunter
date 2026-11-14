@@ -34,3 +34,17 @@ immutable once used in a run.
    keeps its named constants, and the suite fails if code and
    profile disagree. Either way, a threshold change is a deliberate,
    reviewed change — never a quiet edit.
+
+## Pre-merge exception (F-1, 2026-11-14)
+
+Rule 1 binds a profile **once it has stamped records or reached
+main**. A profile version that exists only on an unmerged branch
+— never on main, never stamped on a run — may be corrected
+pre-merge in ONE commit that updates the profile AND its registry
+entry (new sha256 + a rationale noting the correction), with the
+golden suite green. This happened once: `gauntlet_v2` gained
+`neighbour_search_radius_arcsec: 180.0` before merge, because
+the code census defaulted to 60″ while the manual required 180″.
+It is an exception for unmerged profiles, not a way around
+immutability — after merge, rule 2 (copy to a new version) is
+the only path.

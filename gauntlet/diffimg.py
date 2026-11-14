@@ -33,9 +33,9 @@ FIXES vs the 423498314 scripts (Gemini gauntlet review, 2026-11-13):
     rotation difference.
 
 Inputs: TESSCut cutouts + the identity JSON from tesscut_fetch.py.
-Optional: a census JSON (stage0 schema: target Tmag + tic_cone_60arcsec
-list) for the exclusion arithmetic; without one, the TIC cone is
-queried live (60", Tmag < 18.5).
+Optional: a census JSON (stage0 schema: target Tmag + tic_cone_search
+list + radius_arcsec) for the exclusion arithmetic; without one,
+the TIC cone is queried live (policy radius, 180", Tmag < 18.5).
 
 Usage:
   diffimg.py TIC --period P --t0 T0 --duration DUR \\
@@ -248,33 +248,104 @@ def fold_depth_simple(t, f, period, t0, duration_d):
 
 # ---------------------------------------------------------------- census
 
-def tic_cone_census(ra, dec, target_tmag, radius_arcsec=60.0,
+# The neighbour-search radius is a POLICY parameter (gauntlet_v2:
+# neighbour_search_radius_arcsec), not a code default (Phase 1.2
+# follow-up F-1). The vetting manual requires 180 arcseconds; the
+# old 60-arcsecond default missed a blend host at 66.5 arcseconds
+# (S97, TIC 139524628). The radius is recorded in every census
+# and every blend check's evidence, so a verdict always says how
+# far the search looked.
+DEFAULT_POLICY_VERSION = "gauntlet_v2"
+
+
+def census_radius_from_policy(policy=None):
+    """The neighbour-search radius in arcseconds: from an
+    explicit policy dict, or the default decision policy
+    (gauntlet_v2) when none is passed."""
+    if policy is None:
+        from calibration import load_profile
+        policy = load_profile(DEFAULT_POLICY_VERSION)
+    return float(policy["neighbour_search_radius_arcsec"])
+
+
+def census_from_rows(rows, ra, dec, target_tmag, radius_arcsec,
+                     tmag_limit=18.5):
+    """Pure census: TIC rows -> [{tic_id, sep_arcsec, Tmag,
+    is_target}], sorted by separation. `rows` is any iterable of
+    mappings (or astroquery Rows) with ID/ra/dec/Tmag. Rows
+    fainter than tmag_limit, or outside radius_arcsec, are
+    dropped. This is the testable half of tic_cone_census — the
+    MAST query is the only live part, and it lives outside this
+    function so the census logic itself runs offline (the S97
+    66.5-arcsecond case is a committed fixture)."""
+    from astropy.coordinates import SkyCoord
+    coord = SkyCoord(ra, dec, unit='deg')
+    out = []
+    for r in rows:
+        tmag = r['Tmag']
+        if tmag is None or tmag > tmag_limit:
+            continue
+        sep = float(coord.separation(
+            SkyCoord(r['ra'], r['dec'], unit='deg')).arcsec)
+        if sep > radius_arcsec:
+            continue
+        out.append({'tic_id': int(r['ID']),
+                    'sep_arcsec': sep,
+                    'Tmag': float(tmag),
+                    'is_target': bool(abs(sep) < 1.0
+                                      and abs(float(tmag) - target_tmag) < 0.05)})
+    return sorted(out, key=lambda d: d['sep_arcsec'])
+
+
+def tic_cone_census(ra, dec, target_tmag, radius_arcsec=None,
                     tmag_limit=18.5):
     """TIC cone census around a position: [{tic_id, sep_arcsec, Tmag,
     is_target}]. Used for the neighbour-exclusion arithmetic when no
-    saved census JSON is given."""
+    saved census JSON is given. radius_arcsec defaults to the
+    decision policy (gauntlet_v2: 180 arcseconds); pass an
+    explicit radius only to reproduce an old census."""
     from astroquery.mast import Catalogs
     import astropy.units as u
     from astropy.coordinates import SkyCoord
     import netbound as _net
+    if radius_arcsec is None:
+        radius_arcsec = census_radius_from_policy()
     coord = SkyCoord(ra, dec, unit='deg')
     # C-1: astroquery takes no timeout — watch the call.
     rows = _net.mast_call(
         lambda: Catalogs.query_region(coord, catalog='TIC',
                                       radius=radius_arcsec * u.arcsec),
         name=f"TIC cone census ({ra:.2f},{dec:.2f})")
-    out = []
-    for r in rows:
-        if r['Tmag'] is None or r['Tmag'] > tmag_limit:
-            continue
-        sep = float(coord.separation(
-            SkyCoord(r['ra'], r['dec'], unit='deg')).arcsec)
-        out.append({'tic_id': int(r['ID']),
-                    'sep_arcsec': sep,
-                    'Tmag': float(r['Tmag']),
-                    'is_target': bool(abs(sep) < 1.0
-                                      and abs(float(r['Tmag']) - target_tmag) < 0.05)})
-    return sorted(out, key=lambda d: d['sep_arcsec'])
+    return census_from_rows(rows, ra, dec, target_tmag,
+                            radius_arcsec, tmag_limit)
+
+
+def load_census_json(path):
+    """A saved census JSON -> (target_tmag, cone, radius_arcsec).
+
+    Current format: {"target": {"Tmag": ...},
+    "tic_cone_search": [...], "radius_arcsec": 180.0}. The old
+    key "tic_cone_60arcsec" (no radius field) is still accepted
+    as a deprecated fallback — its radius is 60 arcseconds by
+    construction, and the caller is warned on stdout — so saved
+    pre-F-1 census files still load instead of failing silently
+    or being misread as 180-arcsecond censuses."""
+    with open(path) as fh:
+        census = json.load(fh)
+    tmag_t = census['target']['Tmag']
+    if 'tic_cone_search' in census:
+        cone = census['tic_cone_search']
+        radius = float(census['radius_arcsec'])
+        return tmag_t, cone, radius
+    if 'tic_cone_60arcsec' in census:
+        print('WARNING: census JSON uses the deprecated '
+              'tic_cone_60arcsec key — treating it as a '
+              '60-arcsecond census; re-run the census at the '
+              'policy radius (180 arcseconds)', flush=True)
+        return tmag_t, census['tic_cone_60arcsec'], 60.0
+    raise ValueError(
+        f"census JSON {path} has neither 'tic_cone_search' nor "
+        f"the deprecated 'tic_cone_60arcsec' key")
 
 
 # ---------------------------------------------------------------- main
@@ -564,17 +635,20 @@ def main(argv=None):
 
     # ---- neighbour exclusion arithmetic ----
     if args.depth_pct is not None:
+        census_radius = None
         if args.census_json:
-            census = json.load(open(args.census_json))
-            tmag_t = census['target']['Tmag']
-            cone = census['tic_cone_60arcsec']
+            tmag_t, cone, census_radius = load_census_json(
+                args.census_json)
         elif args.ra is not None and args.dec is not None \
                 and args.tmag is not None:
             tmag_t = args.tmag
-            cone = tic_cone_census(args.ra, args.dec, args.tmag)
+            census_radius = census_radius_from_policy()
+            cone = tic_cone_census(args.ra, args.dec, args.tmag,
+                                   census_radius)
         else:
             cone = None
         if cone is not None:
+            out['census_radius_arcsec'] = census_radius
             print('NEIGHBOUR EXCLUSION (max dip if the neighbour '
                   'vanished entirely):', flush=True)
             excl = []

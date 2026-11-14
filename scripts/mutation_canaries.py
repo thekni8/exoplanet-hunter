@@ -9,26 +9,24 @@ touched), applies one mutation by string replacement, runs the
 test modules that should catch it, and reports RED (caught) or
 GREEN (coverage gap).
 
-Exit 0 when every executable canary goes red and the no-target
-verification holds; exit 1 when any canary stays green, a
-mutation does not apply, or a test run errors/times out.
+Exit 0 when every executable canary goes red; exit 1 when any
+canary stays green, a mutation does not apply, or a test run
+errors/times out.
 
-The 180-arcsecond neighbour rule has NO executable target: it
-exists only as prose in docs/vetting-manual.md, and the code's
-neighbour census (gauntlet/diffimg.py tic_cone_census) defaults
-to 60 arcseconds — there is no 180 to mutate. That canary
-verifies the finding still holds (prose present, no code
-target); if someone later implements the rule in code, this
-canary reports NEEDS-UPDATE and the mutation must be defined
-then. Changing the 60" default to 180" is a science/behaviour
-change needing a calibration decision — it is flagged for the
-vote, not done here.
+The 180-arcsecond neighbour rule (F-1) has a code target now:
+gauntlet_v2's neighbour_search_radius_arcsec. Its canary
+mutates the policy value 180.0 -> 60.0 and re-hashes the
+registry in the throwaway copy (so the suite fails on the VALUE
+change, not on a hash mismatch), then runs tests.test_census —
+the policy-radius test and the S97 host test must go red. (In
+Phase 1.2 the rule had NO code target — prose only, code
+default 60" — and the canary verified that finding instead.
+That check is gone: the rule is implemented now.)
 
 Usage (from the repo root, with the venv python):
   .venv/bin/python scripts/mutation_canaries.py [--canary NAME]
 """
 import argparse
-import re
 import shutil
 import subprocess
 import sys
@@ -90,6 +88,24 @@ CANARIES = [
         ],
         "tests": ["tests.test_false_positives"],
     },
+    {
+        # F-1: the neighbour-search radius is a policy value now,
+        # so the mutation reverts it to the old 60-arcsecond
+        # default. The registry is re-hashed in the throwaway
+        # copy after the mutation (see _rehash_registry) so the
+        # suite fails on the VALUE change — the policy-radius
+        # test and the S97 host test — not on a hash mismatch.
+        "name": "neighbour-180arcsec",
+        "rule": "neighbour-search radius is the policy value "
+                "180 arcseconds (gauntlet_v2)",
+        "mutations": [
+            _mut("calibration/gauntlet_v2.yaml",
+                 "neighbour_search_radius_arcsec: 180.0",
+                 "neighbour_search_radius_arcsec: 60.0"),
+        ],
+        "post": "_rehash_registry",
+        "tests": ["tests.test_census"],
+    },
 ]
 
 
@@ -112,6 +128,31 @@ def _apply_mutations(repo, canary):
     return None
 
 
+def _rehash_registry(repo):
+    """Re-hash calibration/registry.json in the throwaway copy
+    after a mutation changed a profile's bytes. Without this,
+    a policy-value mutation would fail at load time on the hash
+    mismatch — the canary would go red for the wrong reason.
+    Returns an error string or None."""
+    import hashlib
+    import json
+    cal_dir = repo / "calibration"
+    reg_path = cal_dir / "registry.json"
+    try:
+        reg = json.loads(reg_path.read_text())
+        for entry in reg["entries"]:
+            prof = cal_dir / f"{entry['calibration_id']}.yaml"
+            entry["sha256"] = hashlib.sha256(
+                prof.read_bytes()).hexdigest()
+        reg_path.write_text(json.dumps(reg, indent=2) + "\n")
+    except (OSError, ValueError, KeyError) as exc:
+        return f"registry re-hash failed: {exc}"
+    return None
+
+
+_POST_STEPS = {"_rehash_registry": _rehash_registry}
+
+
 def _run_tests(repo, modules):
     """Run unittest modules in the throwaway copy.
 
@@ -129,42 +170,6 @@ def _run_tests(repo, modules):
     return proc.returncode != 0, tail
 
 
-def _check_180arcsec():
-    """The 180-arcsecond canary: verify the no-target finding.
-
-    Returns (ok, message): ok is True when the prose rule is
-    still in the manual and no code target exists. If either
-    changes, the canary needs a human to redefine it."""
-    manual = ROOT / "docs" / "vetting-manual.md"
-    prose = "180 arcseconds" in manual.read_text()
-    code_hits = []
-    # A standalone 180 (not 1800, 1180, ...): a real code target
-    # for the rule would appear as its own number.
-    pat = re.compile(r"\b180\b")
-    for rel in ("gauntlet", "bulk"):
-        for path in (ROOT / rel).rglob("*.py"):
-            for i, line in enumerate(path.read_text().splitlines(),
-                                     start=1):
-                if pat.search(line.split("#")[0]):
-                    code_hits.append(f"{path.relative_to(ROOT)}:{i}")
-    for i, line in enumerate(
-            (ROOT / "hunter.py").read_text().splitlines(), start=1):
-        if pat.search(line.split("#")[0]):
-            code_hits.append(f"hunter.py:{i}")
-    if not prose:
-        return False, ("the 180-arcsecond prose rule is GONE from "
-                       "docs/vetting-manual.md — redefine this "
-                       "canary")
-    if code_hits:
-        return False, ("a code target now exists for the "
-                       f"180-arcsecond rule: {code_hits} — define "
-                       "a real mutation for this canary")
-    return True, ("no executable target: the rule exists only as "
-                  "prose in docs/vetting-manual.md:148; the "
-                  "code's census (gauntlet/diffimg.py "
-                  "tic_cone_census) defaults to 60 arcseconds")
-
-
 def run_canary(canary):
     """Run one mutation canary; return (outcome, detail).
 
@@ -173,6 +178,8 @@ def run_canary(canary):
     repo = _copy_tree()
     try:
         err = _apply_mutations(repo, canary)
+        if err is None and canary.get("post"):
+            err = _POST_STEPS[canary["post"]](repo)
         if err is not None:
             return "ERROR", err
         went_red, tail = _run_tests(repo, canary["tests"])
@@ -208,20 +215,11 @@ def main(argv=None):
             print(f"     {line}")
         if outcome != "RED":
             failures.append(canary["name"])
-    if args.canary is None:
-        print("[neighbour-180arcsec] 180-arcsecond neighbour "
-              "search (prose rule, no code target)")
-        ok, msg = _check_180arcsec()
-        print(f"  -> {'NO-TARGET (verified)' if ok else 'NEEDS-UPDATE'}")
-        print(f"     {msg}")
-        if not ok:
-            failures.append("neighbour-180arcsec")
     print()
     if failures:
         print(f"FAIL: {', '.join(failures)} — see above")
         return 1
-    print("OK: every executable canary went red; the 180-arcsecond "
-          "no-target finding holds")
+    print("OK: every executable canary went red")
     return 0
 
 
