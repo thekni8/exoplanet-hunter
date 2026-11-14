@@ -55,7 +55,10 @@ from calibration import load_profile  # noqa: E402
 from mad_clip import mad_sigma  # noqa: E402
 
 FLUX_COLUMNS = ("KSPSAP_FLUX", "SYS_RM_FLUX", "DET_FLUX")
-QUALITY_BITMASK = 17087  # lightkurve TESS default, as in _screen_one
+# No local quality-mask constant: _load_flux uses
+# bulk_screen.QUALITY_MASK, the profile-driven value _screen_one
+# uses (17087 under bulk_v2, which this tool hardcodes) — the two
+# tools can no longer drift apart on which cadences count.
 CLIP_SIGMA = 5.0  # the v1 clip cut: 5 x MAD-sigma
 
 
@@ -80,7 +83,7 @@ def _load_flux(path):
                 "dec": _hdr_float(hdr, "DEC_OBJ"),
                 "tmag": _hdr_float(hdr, "TESSMAG"),
                 "radius": None}
-    ok = np.isfinite(t) & np.isfinite(flux) & ((qual & QUALITY_BITMASK) == 0)
+    ok = np.isfinite(t) & np.isfinite(flux) & ((qual & bs.QUALITY_MASK) == 0)
     f = flux[ok]
     if len(f) < 200:
         return None, meta

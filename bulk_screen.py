@@ -185,6 +185,7 @@ def _apply_profile(prof):
     global STRONG_EVENT_SNR, TIER_B_EVENT_SNR, TIER_B_MAX_DEPTH_PCT
     global MIN_PERIOD_D, MAX_PERIOD_D, BLS_GRID_POINTS, BLS_DURATIONS_D
     global SYSTEMATIC_PERIODS, CLIP_OPTION, SYSTEMATIC_WINDOWS
+    global QUALITY_MASK
     _BULK_CAL = prof
     CALIBRATION_VERSION = prof["version"]
     # Provenance map (A-2): per-subsystem bare versions, {"bulk": "v1"}.
@@ -221,6 +222,22 @@ def _apply_profile(prof):
         int(sector): [tuple(w) for w in windows]
         for sector, windows
         in prof.get("systematic_windows", {}).items()}
+    # Quality mask (bulk_v3): which QUALITY bits exclude a cadence
+    # from BLS input. v1/v2 profiles predate the field and mean
+    # lightkurve's TESS default 17087 (bits 0,1,2,3,4,5,7,9,14).
+    # v3 adds bits 29/30 (TESS scattered light): the bulk_v2
+    # rescore gauntlet found 18/25 NEW S96 leads were dips living
+    # only on bit-29/30 cadences, which the 17087 mask keeps and
+    # v2's 10% clip floor preserves. The value must be a plain
+    # integer bitmask — a profile that declares anything else
+    # fails loudly here, never silently at screen time.
+    QUALITY_MASK = prof.get("quality_mask", 17087)
+    if isinstance(QUALITY_MASK, bool) \
+            or not isinstance(QUALITY_MASK, int) or QUALITY_MASK < 0:
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"quality_mask {QUALITY_MASK!r} — expected a "
+            f"non-negative integer bitmask")
 
 
 def set_calibration(name):
@@ -916,14 +933,20 @@ def _screen_one(args):
             t, flux, _ = _ingest.as_float64(data["TIME"],
                                             data[fcol])
             qual = np.asarray(data["QUALITY"], dtype=int)
-        # Quality mask = lightkurve's TESS DEFAULT bitmask (17087), NOT
-        # quality==0. Lesson (proof-run smoke test, 2026-11-11): TOI-700
-        # c's ONLY sector-1 transit sits entirely on cadences flagged
-        # 4096 (bit 12, not in the default mask); requiring quality==0
-        # deleted the transit and the control star vanished. The deep
-        # pipeline keeps these cadences via lightkurve defaults — the
-        # screen must see the same data the gauntlet sees.
-        ok = np.isfinite(t) & np.isfinite(flux) & ((qual & 17087) == 0)
+        # Quality mask — profile-driven (QUALITY_MASK, derived in
+        # _apply_profile), NOT quality==0. v1/v2 mean lightkurve's
+        # TESS DEFAULT bitmask (17087). Lesson (proof-run smoke
+        # test, 2026-11-11): TOI-700 c's ONLY sector-1 transit sits
+        # entirely on cadences flagged 4096 (bit 12, not in the
+        # default mask); requiring quality==0 deleted the transit
+        # and the control star vanished. The deep pipeline keeps
+        # these cadences via lightkurve defaults — the screen must
+        # see the same data the gauntlet sees. v3 (bulk_v3) adds
+        # bits 29/30 (TESS scattered light): the bulk_v2 rescore
+        # gauntlet found 18/25 NEW S96 leads were dips living only
+        # on bit-29/30 cadences, which 17087 keeps and v2's 10%
+        # clip floor preserves.
+        ok = np.isfinite(t) & np.isfinite(flux) & ((qual & QUALITY_MASK) == 0)
         t, f = t[ok], flux[ok]
         if len(t) < 200:
             rec["status"] = "too_few_points"

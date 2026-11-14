@@ -35,6 +35,13 @@
       "status": "active",
       "rationale": "Bulk calibration v2 (2026-11-14, Phase 1.2 B-2): fixes the v1 MAD-clip sensitivity defect (floor_10pct clip, same rule as the gauntlet) and hard-codes the per-sector systematic windows from the S96-S98 screens. All v1 thresholds carried over unchanged. See bulk/SENSITIVITY_MAP.md and bulk/CLIP_GRID_CRITERIA.md.",
       "supersedes": "bulk_v1"
+    },
+    {
+      "calibration_id": "bulk_v3",
+      "sha256": "685ea756536e7a6600975c00d09d97350fd218c2377e6ac680237aa3b35c2aab",
+      "status": "active",
+      "rationale": "Bulk calibration v3 (2026-11-15, quality-mask fix): extends the screen quality mask to exclude TESS scattered-light flags bits 29/30 (quality_mask 1610629823 = lightkurve default 17087 + bits 29/30). The bulk_v2 rescore gauntlet found 18/25 NEW S96 leads were flagged-cadence artifacts — dips only in bit-29/30 cadences, zero clean cadences in transit. All v2 thresholds carried over unchanged.",
+      "supersedes": "bulk_v2"
     }
   ]
 }
