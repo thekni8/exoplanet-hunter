@@ -9,6 +9,7 @@ screen (same harness as test_resume.py) — no downloads, no
 network.
 """
 import copy
+import hashlib
 import json
 import sys
 import tempfile
@@ -197,10 +198,16 @@ class TestConservationEndToEnd(unittest.TestCase):
 
     def test_lost_survivor_fails_the_run(self):
         # Delete one survivor line from a slice's survivors.jsonl
-        # (the checkpoint only hashes summary.json, so the slice
-        # is trusted as done) and re-run: the merge re-runs, the
-        # survivor equation breaks, and the run FAILS with the
-        # buckets recorded — exit 1, manifest status "failed".
+        # AND forge the checkpoint entry to match the tampered
+        # file (recompute its survivors_sha256). The C-2 output
+        # hashes would otherwise heal this: a tampered output
+        # with a stale checkpoint hash is re-screened from
+        # scratch, and the survivor comes back. Forging the hash
+        # models corruption that predates checkpointing (or
+        # defeats it) — the case only the conservation check can
+        # catch. The merge re-runs, the survivor equation breaks,
+        # and the run FAILS with the buckets recorded — exit 1,
+        # manifest status "failed".
         with tempfile.TemporaryDirectory() as td:
             work, recipe = _build_workdir(td)
             stub_log = Path(td) / "invocations.log"
@@ -211,6 +218,14 @@ class TestConservationEndToEnd(unittest.TestCase):
             lines = chunk0.read_text().splitlines()
             self.assertEqual(len(lines), 1)  # TIC 100000002
             chunk0.write_text("")
+            # Forge the checkpoint: recompute the entry's output
+            # hash over the tampered file, so the slice is
+            # trusted as done and the loss reaches the merge.
+            cp_path = run / "checkpoint.json"
+            cp = json.loads(cp_path.read_text())
+            cp["completed"]["0"]["survivors_sha256"] = \
+                hashlib.sha256(b"").hexdigest()
+            cp_path.write_text(json.dumps(cp))
             rc, out = _run_driver(work, recipe, stub_log)
             self.assertEqual(rc, 1, msg=out[-2000:])
             self.assertIn("CONSERVATION FAILED", out)

@@ -1244,7 +1244,8 @@ def main(argv=None):
     manifest = _prov.build_manifest(
         run_id, CALIBRATION_MAP, sector=args.sector,
         product=PRODUCT, sha=prov["pipeline_git_sha"],
-        timestamp_utc=started_at, status="started")
+        timestamp_utc=started_at, status="started",
+        code_fingerprint=_code_fp)
     _prov.write_manifest(out_dir, manifest)
     log(f"run_id: {run_id} (calibration {CALIBRATION_VERSION}, "
         f"git {prov['pipeline_git_sha']})", logf)

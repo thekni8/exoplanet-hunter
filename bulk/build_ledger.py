@@ -187,6 +187,32 @@ def _known_counts(summary):
     }
 
 
+def _ledger_fingerprint(manifest, checkpoint, prov, summary):
+    """The ledger's fingerprint block (C-8): the full run
+    fingerprint when the manifest carries it (C-8 runs), else the
+    components a pre-C-8 run recorded (code fingerprint from the
+    checkpoint, recipe hash + git SHA from the provenance
+    header). Either way `mixed_pipeline` is recorded — a mixed
+    run's fingerprint is the fingerprint of its LAST resume, and
+    the flag is what says the run is not one pipeline."""
+    block = manifest.get("fingerprint")
+    if isinstance(block, dict) and block.get("full"):
+        return {
+            "full": block["full"],
+            "resume": block.get("resume"),
+            "components": block.get("components"),
+            "mixed_pipeline": bool(summary.get("mixed_pipeline")),
+        }
+    return {
+        "full": None,
+        "resume": checkpoint.get("resume_fingerprint"),
+        "code_fingerprint": checkpoint.get("code_fingerprint"),
+        "recipe_hash": prov.get("recipe_hash"),
+        "git_sha": prov.get("pipeline_git_sha"),
+        "mixed_pipeline": bool(summary.get("mixed_pipeline")),
+    }
+
+
 def build_ledger(sector, run_dir, rescore_dir=None):
     """Build the ledger dict for one sector's run dir. Pure
     except for reading the run dir (summary / manifest /
@@ -247,16 +273,8 @@ def build_ledger(sector, run_dir, rescore_dir=None):
                        or prov.get("calibration_sha256")),
         },
         "known_defects": _known_defects(cal_versions),
-        "fingerprint": {
-            # The full run fingerprint lands in C-8; until then
-            # the ledger records its components, which are what
-            # a resume (A-3) and a re-run compare.
-            "code_fingerprint": checkpoint.get("code_fingerprint"),
-            "recipe_hash": prov.get("recipe_hash"),
-            "git_sha": prov.get("pipeline_git_sha"),
-            "mixed_pipeline": bool(
-                summary.get("mixed_pipeline")),
-        },
+        "fingerprint": _ledger_fingerprint(manifest, checkpoint,
+                                           prov, summary),
         "conservation": summary.get("conservation"),
         "rescore": None,
     }

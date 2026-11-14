@@ -56,13 +56,18 @@ class TestBuildLedger(unittest.TestCase):
             # A v1 run carries its known defect on its face.
             self.assertEqual(ledger["known_defects"],
                              ["mad_clip_no_floor"])
+            # C-8: the stub run's manifest carries the full run
+            # fingerprint block — full + resume hashes + the
+            # components, which name the live code fingerprint.
+            fp = ledger["fingerprint"]
+            self.assertEqual(len(fp["full"]), 64)
+            self.assertEqual(len(fp["resume"]), 64)
             self.assertEqual(
-                ledger["fingerprint"]["code_fingerprint"],
+                fp["components"]["code_fingerprint"],
                 prov.fingerprint_result_affecting())
             self.assertIsNotNone(
-                ledger["fingerprint"]["recipe_hash"])
-            self.assertFalse(
-                ledger["fingerprint"]["mixed_pipeline"])
+                fp["components"]["recipe_hash"])
+            self.assertFalse(fp["mixed_pipeline"])
             self.assertTrue(ledger["conservation"]["ok"])
             self.assertEqual(ledger["run_status"], "completed")
             self.assertIsNone(ledger["rescore"])

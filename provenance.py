@@ -234,6 +234,106 @@ def calibration_content_hash(calibration_versions):
         canonical_json(hashes).encode("utf-8")).hexdigest()
 
 
+# Run fingerprint (Phase 1.2, item C-8): one hash identifying a
+# run's full computation — code SHA + dirty flag + calibration
+# hash + resolved recipe + window-file hash + env hash + input
+# IDs. Two runs with equal FULL fingerprints ran identical code
+# on identical inputs in identical environments; two runs with
+# equal RESUME fingerprints produced comparable results. The
+# resume fingerprint EXCLUDES the git SHA (a docs-only commit
+# changes the SHA but not results — the A-3 problem) and the
+# dirty flag (a stray untracked file would refuse a legitimate
+# resume). The checkpoint stores both; resume compares the resume
+# subset, falling back to code_fingerprint for pre-C-8
+# checkpoints.
+RESUME_FINGERPRINT_KEYS = ("code_fingerprint", "calibration_hash",
+                           "recipe_hash", "window_sha256",
+                           "env_hash", "input_ids")
+
+
+def env_hash(root=None):
+    """sha256 over the execution environment: the Python version
+    + the requirements.lock hash. The lock (not requirements.txt)
+    pins the transitive set — two runs with equal env hashes ran
+    the same interpreter on the same installed packages."""
+    root = Path(root) if root is not None else repo_root()
+    return hashlib.sha256(
+        canonical_json({
+            "python": sys.version.split()[0],
+            "requirements_lock_sha256": file_sha256(
+                root / "requirements.lock"),
+        }).encode("utf-8")).hexdigest()
+
+
+def run_fingerprint_components(root=None, calibration_versions=None,
+                               recipe=None, recipe_hash_value=None,
+                               window_file=None, input_ids=None,
+                               code_fingerprint=None,
+                               git_sha_value=None):
+    """Collect the run-fingerprint components dict. Callers pass
+    what they know; the rest is measured here (code fingerprint,
+    git SHA, dirty flag, env hash). `recipe` is the resolved
+    recipe dict (hashed here); `recipe_hash_value` overrides it
+    when the caller already computed the hash (run_chunked).
+    Missing pieces are None — a null component is explicit, not a
+    silent omission, and two runs with the same nulls are
+    comparable."""
+    root = Path(root) if root is not None else repo_root()
+    if code_fingerprint is None:
+        code_fingerprint = fingerprint_result_affecting(root)
+    if recipe_hash_value is None and recipe is not None:
+        recipe_hash_value = recipe_hash(recipe)
+    cal_hash = None
+    if calibration_versions is not None:
+        try:
+            cal_hash = calibration_content_hash(calibration_versions)
+        except Exception:
+            cal_hash = None
+    return {
+        "code_fingerprint": code_fingerprint,
+        "calibration_hash": cal_hash,
+        "recipe_hash": recipe_hash_value,
+        "window_sha256": (file_sha256(window_file)
+                          if window_file is not None else None),
+        "env_hash": env_hash(root),
+        "input_ids": (sorted(str(i) for i in input_ids)
+                      if input_ids is not None else None),
+        "git_sha": (git_sha_value if git_sha_value is not None
+                    else git_sha()),
+        "working_tree_clean": working_tree_clean(root),
+    }
+
+
+def run_fingerprint(components):
+    """The full run fingerprint: sha256 over the canonical JSON
+    of ALL components (code SHA + dirty flag included)."""
+    return hashlib.sha256(
+        canonical_json(components).encode("utf-8")).hexdigest()
+
+
+def resume_fingerprint(components):
+    """The comparable subset: everything that affects results,
+    excluding the git SHA and the dirty flag. A docs-only commit
+    or a stray untracked file must not refuse a legitimate
+    resume — those change the full fingerprint but not this one."""
+    subset = {k: components.get(k) for k in RESUME_FINGERPRINT_KEYS}
+    return hashlib.sha256(
+        canonical_json(subset).encode("utf-8")).hexdigest()
+
+
+def fingerprint_block(**kwargs):
+    """The manifest/checkpoint fingerprint block: the full +
+    resume hashes + the components, so a reader can verify either
+    hash without re-running anything. Keyword arguments are
+    run_fingerprint_components'."""
+    components = run_fingerprint_components(**kwargs)
+    return {
+        "full": run_fingerprint(components),
+        "resume": resume_fingerprint(components),
+        "components": components,
+    }
+
+
 def calibration_hashes(calibration_versions):
     """The per-subsystem {subsystem: profile-file sha256} map
     behind calibration_content_hash — for the manifest, where
@@ -336,7 +436,8 @@ def provenance_header(run_id, calibration_versions, recipe_hash=None,
 def build_manifest(run_id, calibration_versions, sector=None,
                    product=None, recipe=None, recipe_file=None,
                    sha=None, timestamp_utc=None, status="started",
-                   input_identity=None):
+                   input_identity=None, code_fingerprint=None,
+                   window_file=None, input_ids=None):
     """The run-level manifest dict. `recipe` is the resolved recipe
     dict (or None); `recipe_file` its path. Callers add run-specific
     keys (counts, wall time) before writing, or write a second
@@ -350,6 +451,13 @@ def build_manifest(run_id, calibration_versions, sector=None,
     records `working_tree_clean` (a git SHA with no dirty flag
     misleads whenever uncommitted code runs), and `data` records
     `input_identity` when the caller can supply it.
+
+    `fingerprint` (C-8) is the run fingerprint block: the full +
+    resume hashes + the components (code fingerprint, calibration
+    hash, recipe hash, window-file hash, env hash, input IDs,
+    git SHA, dirty flag). `code_fingerprint` / `window_file` /
+    `input_ids` are caller-supplied when the caller knows them;
+    the rest is measured here.
     """
     root = repo_root()
     try:
@@ -396,6 +504,16 @@ def build_manifest(run_id, calibration_versions, sector=None,
             "resolved": {k: v for k, v in recipe.items()
                          if not k.startswith("_")},
         }
+    # C-8: the run fingerprint — full + resume hashes + the
+    # components, so the run's identity is verifiable from the
+    # manifest alone. The git SHA here is the manifest's own
+    # (caller-supplied or measured above), so the fingerprint and
+    # the pipeline block never disagree about it.
+    manifest["fingerprint"] = fingerprint_block(
+        root=root, calibration_versions=calibration_versions,
+        recipe=recipe, window_file=window_file,
+        input_ids=input_ids, code_fingerprint=code_fingerprint,
+        git_sha_value=manifest["pipeline"]["git_sha"])
     return manifest
 
 

@@ -62,6 +62,11 @@ CHUNKS = None  # set in main()
 # the resumed run writes.
 CODE_FINGERPRINT = None
 MIXED_PIPELINE = False
+# C-8: the run fingerprint block for this process (full + resume
+# hashes + components), taken from the manifest in main(). The
+# checkpoint stamps both hashes; resume compares the resume
+# subset (see the resume check in main()).
+RUN_FINGERPRINT = None
 def _find_py():
     """Interpreter with the screen deps. VM uses .venv-cal, Mac uses
     .venv-mac (2026-11-12: the S98 Mac driver was hand-patched for
@@ -362,6 +367,14 @@ def write_checkpoint(completed):
           "mixed_pipeline": MIXED_PIPELINE,
           "completed": {str(k): v for k, v in completed.items()},
           "updated_at": _prov.utc_now_iso()}
+    # C-8: the run fingerprint hashes, when this process has them
+    # (main() sets RUN_FINGERPRINT from the manifest). A resume
+    # compares the resume subset; the full hash is the audit
+    # record. Pre-C-8 checkpoints carry neither — the resume
+    # check falls back to code_fingerprint for those.
+    if RUN_FINGERPRINT is not None:
+        cp["run_fingerprint"] = RUN_FINGERPRINT["full"]
+        cp["resume_fingerprint"] = RUN_FINGERPRINT["resume"]
     _atomic_write_json(_checkpoint_path(), cp)
 
 
@@ -441,7 +454,7 @@ def _screen_cmd():
 
 def main():
     global RUN, CHUNKS, SECTOR, RECIPE, SLICE, BULK
-    global CODE_FINGERPRINT, MIXED_PIPELINE
+    global CODE_FINGERPRINT, MIXED_PIPELINE, RUN_FINGERPRINT
     ap = argparse.ArgumentParser()
     ap.add_argument("--recipe", default=str(default_recipe_path()),
                     help="YAML recipe file (default: bulk/recipes/default.yaml)")
@@ -521,17 +534,23 @@ def main():
     # makes the run directory self-describing.
     RUN_ID = _prov.new_run_id("bulk")
     R_HASH = _prov.recipe_hash(RECIPE)
-    MANIFEST = _prov.build_manifest(
-        RUN_ID, {"bulk": _short_version(args.calibration)},
-        sector=SECTOR, product="QLP",
-        recipe=RECIPE, recipe_file=RECIPE.get("_file"),
-        status="started")
     # A-3: the fingerprint of the result-affecting files THIS
     # process runs. Computed once; the resume check below compares
     # it against the checkpoint's. A docs-only or test-only commit
     # does not move this fingerprint, so a legitimate resume is
     # never refused for one (test_provenance2 proves the property).
     CODE_FINGERPRINT = _prov.fingerprint_result_affecting()
+    MANIFEST = _prov.build_manifest(
+        RUN_ID, {"bulk": _short_version(args.calibration)},
+        sector=SECTOR, product="QLP",
+        recipe=RECIPE, recipe_file=RECIPE.get("_file"),
+        status="started", code_fingerprint=CODE_FINGERPRINT,
+        window_file=_window_path())
+    # C-8: the run fingerprint block, for the checkpoint + resume
+    # check. The window file may not exist yet (build_slices
+    # raises below if it doesn't) — its hash is then None, and
+    # the run dies before screening anything.
+    RUN_FINGERPRINT = MANIFEST["fingerprint"]
     MIXED_PIPELINE = False
     _prov.write_manifest(RUN, MANIFEST)
     log(f"run_id: {RUN_ID} (recipe hash {R_HASH[:12]}…, "
@@ -562,22 +581,42 @@ def main():
         # between checkpoint and resume does not refuse. A
         # fingerprint-less checkpoint (pre-A-3) is fail-closed:
         # it cannot prove what code produced it.
-        prev_fp = prev.get("code_fingerprint")
-        if prev_fp is None:
-            reason = ("checkpoint has no code fingerprint "
-                      "(pre-A-3 checkpoint)")
-        elif prev_fp != CODE_FINGERPRINT:
-            reason = ("code fingerprint mismatch: checkpoint "
-                      f"{prev_fp[:12]}… vs current "
-                      f"{CODE_FINGERPRINT[:12]}…")
+        # C-8: compare the resume fingerprint (code + calibration
+        # + recipe + window + env + input IDs) when the checkpoint
+        # carries one; fall back to the code fingerprint for
+        # pre-C-8 checkpoints; fail closed when neither exists
+        # (pre-A-3). The comparison excludes the git SHA and the
+        # dirty flag (see provenance.resume_fingerprint) — a
+        # docs-only commit or a stray untracked file must not
+        # refuse a legitimate resume.
+        prev_resume = prev.get("resume_fingerprint")
+        if prev_resume is not None:
+            cur_resume = RUN_FINGERPRINT["resume"]
+            if prev_resume != cur_resume:
+                reason = ("resume fingerprint mismatch: checkpoint "
+                          f"{prev_resume[:12]}… vs current "
+                          f"{cur_resume[:12]}… (code, calibration, "
+                          f"recipe, window, environment, or inputs "
+                          f"changed)")
+            else:
+                reason = None
         else:
-            reason = None
+            prev_fp = prev.get("code_fingerprint")
+            if prev_fp is None:
+                reason = ("checkpoint has no code fingerprint "
+                          "(pre-A-3 checkpoint)")
+            elif prev_fp != CODE_FINGERPRINT:
+                reason = ("code fingerprint mismatch: checkpoint "
+                          f"{prev_fp[:12]}… vs current "
+                          f"{CODE_FINGERPRINT[:12]}…")
+            else:
+                reason = None
         if reason is not None:
             if not args.accept_code_change:
                 log(f"REFUSING TO RESUME: {reason}. The completed "
-                    f"slices were screened by different "
-                    f"result-affecting code; resuming would mix "
-                    f"two pipelines in one sector. Re-run from "
+                    f"slices were screened under a different run "
+                    f"fingerprint; resuming would mix two "
+                    f"pipelines in one sector. Re-run from "
                     f"scratch (delete {RUN}) or pass "
                     f"--accept-code-change to resume with "
                     f"mixed_pipeline=true stamped on the run.")
