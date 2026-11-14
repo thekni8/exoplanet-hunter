@@ -14,6 +14,8 @@ bug, and the run must stop, not write a corrupt handoff.
                                    # (contract v1, Phase 1.2)
     validate_latte_output(record)  # LATTE tool output JSON
                                    # (Phase 2, 2B)
+    validate_triceratops_output(record)  # TRICERATOPS output
+                                   # (Phase 2, 2C)
 
 Both raise RecordValidationError listing the offending fields.
 The validators are Draft 2020-12. Timestamps are constrained by
@@ -44,7 +46,7 @@ class RecordValidationError(ValueError):
 
 def _validator(kind):
     if kind not in ("survivor", "verdict", "stage_result",
-                    "latte-output"):
+                    "latte-output", "triceratops-output"):
         raise ValueError(f"unknown record kind: {kind!r}")
     if kind not in _VALIDATORS:
         path = SCHEMA_DIR / f"{kind}-schema.json"
@@ -91,3 +93,8 @@ def validate_stage_result(record):
 def validate_latte_output(record):
     """Validate one LATTE tool output JSON (Phase 2, 2B)."""
     return validate_record("latte-output", record)
+
+
+def validate_triceratops_output(record):
+    """Validate one TRICERATOPS tool output JSON (Phase 2, 2C)."""
+    return validate_record("triceratops-output", record)

@@ -98,6 +98,11 @@ EXEC_STATUSES = (EXEC_COMPLETED, EXEC_NOT_STARTED, EXEC_SKIPPED,
 DEFAULT_POLICY_VERSION = "gauntlet_v2"
 RECORD_TYPE = "stage_result"
 
+# External-tools policy (Phase 2, 2B-3): the TRICERATOPS FPP
+# bars live in calibration/external_tools_v1.yaml, NOT in
+# code — a threshold change is a calibration change.
+EXTERNAL_TOOLS_POLICY_VERSION = "external_tools_v1"
+
 
 @lru_cache(maxsize=4)
 def load_decision_policy(version=DEFAULT_POLICY_VERSION):
@@ -105,6 +110,17 @@ def load_decision_policy(version=DEFAULT_POLICY_VERSION):
     version (default gauntlet_v2). Cached; call
     load_decision_policy.cache_clear() after changing the
     calibration dir in tests."""
+    from calibration import load_profile
+    return load_profile(version)
+
+
+@lru_cache(maxsize=4)
+def load_external_tools_policy(
+        version=EXTERNAL_TOOLS_POLICY_VERSION):
+    """The external-tools policy dict (default
+    external_tools_v1). Cached; call
+    load_external_tools_policy.cache_clear() after changing
+    the calibration dir in tests."""
     from calibration import load_profile
     return load_profile(version)
 
@@ -852,6 +868,125 @@ def latte_result(native, prov=None):
         "LATTE report generated — a human must read it: "
         "LATTE emits plots + a PDF, no machine-readable "
         "dispositions, so no check can pass or fail here",
+        _prov(prov), details, **ev)
+
+
+def triceratops_result(native, prov=None, policy=None):
+    """TRICERATOPS false-positive probability (Phase 2, 2C) ->
+    StageResult.
+
+    Native shape: the TRICERATOPS tool output JSON (schema
+    triceratops-output-schema.json), validated here before
+    translation — a schema failure is UNMEASURED +
+    EXEC_ERROR, not a crash (C-10 constraint 4).
+
+    The status comes from the POLICY thresholds (the
+    external_tools_v1 profile; PROVISIONAL until the Phase 2
+    vote ratifies them), never from the tool: PASS when FPP
+    and NFPP both clear the validation bars, FAIL when FPP
+    clears the refute bar, INCONCLUSIVE in the grey zone
+    (including a low FPP blocked by a high NFPP — NFPP alone
+    never refutes in v1, since without a contrast curve it
+    is an upper bound). A DEGENERATE computation (every MC
+    draw geometrically invalid, FPP=1.0) reads UNMEASURED +
+    EXEC_ERROR: FPP=1.0 there reflects a failed computation,
+    not a confident false positive. A failed / timed-out run
+    reads UNMEASURED + EXEC_ERROR.
+
+    Evidence: value is the FPP, threshold the policy's
+    validation bar, metrics carry the full per-scenario
+    breakdown + seed + most-likely false positive —
+    preserved, never reduced to a bare PASS/FAIL.
+    Uncertainty is None in v1: a single seeded run carries
+    no Monte Carlo error bar (a repeat-run harness is future
+    work; the seed makes a re-run reproducible).
+    """
+    if not native:
+        return StageResult(
+            "triceratops", STATUS_UNMEASURED,
+            "no TRICERATOPS output supplied", _prov(prov), {})
+    try:
+        _validation.validate_triceratops_output(native)
+    except _validation.RecordValidationError as exc:
+        return StageResult(
+            "triceratops", STATUS_UNMEASURED,
+            f"TRICERATOPS output failed schema validation: {exc}",
+            _prov(prov), {},
+            execution_status=EXEC_ERROR)
+    if policy is None:
+        policy = load_external_tools_policy()
+    tri = policy["triceratops"]
+    fpp_max = tri["fpp_validate_max"]
+    nfpp_max = tri["nfpp_validate_max"]
+    fpp_refute = tri["fpp_refute_min"]
+    metrics = native["metrics"]
+    ev = {"metrics": {
+        "fpp": metrics["fpp"], "nfpp": metrics["nfpp"],
+        "prob_planet": metrics["prob_planet"],
+        "prob_eb_target": metrics["prob_eb_target"],
+        "prob_eb_neighbour": metrics["prob_eb_neighbour"],
+        "prob_hierarchical_eb":
+            metrics["prob_hierarchical_eb"],
+        "n_samples": metrics["n_samples"],
+        "most_likely_false_positive":
+            metrics["most_likely_false_positive"],
+        "fpp_degenerate": metrics["fpp_degenerate"],
+        "dilution_corrected": metrics["dilution_corrected"],
+        "contrast_curve_used":
+            metrics["contrast_curve_used"],
+        "seed": native["seed"]},
+        "artifacts": list(native["artifacts"]),
+        "tool_version": native["tool_version"],
+        "config_hash": native["config_hash"],
+        "input_hashes": dict(native["input_hashes"]),
+        "warnings": list(native["warnings"]),
+        "n_transits": native.get("n_transits"),
+        "value": metrics["fpp"], "threshold": fpp_max}
+    details = {
+        "fpp": metrics["fpp"], "nfpp": metrics["nfpp"],
+        "most_likely_false_positive":
+            metrics["most_likely_false_positive"],
+        "wall_time_s": native["wall_time_s"]}
+    if native["status"] != "completed":
+        return StageResult(
+            "triceratops", STATUS_UNMEASURED,
+            f"TRICERATOPS {native['status']}: no FPP was "
+            f"computed",
+            _prov(prov), details, execution_status=EXEC_ERROR,
+            **ev)
+    if metrics["fpp_degenerate"]:
+        return StageResult(
+            "triceratops", STATUS_UNMEASURED,
+            "TRICERATOPS computation degenerate: every MC "
+            "draw was geometrically invalid, so FPP=1.0 "
+            "reflects a failed computation, not a confident "
+            "false positive",
+            _prov(prov), details, execution_status=EXEC_ERROR,
+            **ev)
+    fpp = metrics["fpp"]
+    nfpp = metrics["nfpp"]
+    story = (f"FPP {fpp:.4f}, NFPP {nfpp:.4f}; most likely "
+             f"false positive: "
+             f"{metrics['most_likely_false_positive']}")
+    if not metrics["contrast_curve_used"]:
+        story += " (no contrast curve: NFPP is an upper bound)"
+    if fpp >= fpp_refute:
+        return StageResult(
+            "triceratops", STATUS_FAIL,
+            f"FPP {fpp:.4f} clears the refute bar "
+            f"{fpp_refute} — likely false positive. {story}",
+            _prov(prov), details, **ev)
+    if fpp <= fpp_max and nfpp <= nfpp_max:
+        return StageResult(
+            "triceratops", STATUS_PASS,
+            f"FPP {fpp:.4f} and NFPP {nfpp:.4f} clear the "
+            f"validation bars ({fpp_max}, {nfpp_max}). {story}",
+            _prov(prov), details, **ev)
+    return StageResult(
+        "triceratops", STATUS_INCONCLUSIVE,
+        f"FPP/NFPP in the grey zone between the validation "
+        f"bars ({fpp_max}, {nfpp_max}) and the refute bar "
+        f"{fpp_refute} — a human decides. {story}",
         _prov(prov), details, **ev)
 
 
