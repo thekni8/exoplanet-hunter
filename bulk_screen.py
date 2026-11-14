@@ -149,6 +149,8 @@ from pathlib import Path
 import numpy as np
 
 import provenance as _prov
+from atomic_io import atomic_write_json as _atomic_write_json
+from atomic_io import atomic_writer as _atomic_writer
 from calibration import load_profile as _load_profile
 from validation import validate_survivor as _validate_survivor
 
@@ -1122,7 +1124,11 @@ def main(argv=None):
     novel, zoo_known = annotate_survivors_zooniverse(survivors, logf)
     summary["zooniverse_known_survivors"] = [r["tic"] for r in zoo_known]
 
-    with open(out_dir / "survivors.jsonl", "w") as fh:
+    # Atomic writes (Phase 1.1, item 8): a VM kill mid-write must
+    # never leave a truncated survivors/hits file behind — the
+    # chunk checkpoint (summary.json, written last) is only valid
+    # if the files it describes are complete.
+    with _atomic_writer(out_dir / "survivors.jsonl") as fh:
         for r in novel:
             rec = emit_survivor_record(r, prov)
             # Fail loud on a malformed record (Phase 1.1, item 3):
@@ -1130,7 +1136,7 @@ def main(argv=None):
             # not write a corrupt handoff to the gauntlet.
             _validate_survivor(rec)
             fh.write(json.dumps(rec) + "\n")
-    with open(out_dir / "screen_hits.jsonl", "w") as fh:
+    with _atomic_writer(out_dir / "screen_hits.jsonl") as fh:
         for r in hits:
             rec = emit_survivor_record(r, prov)
             _validate_survivor(rec)
@@ -1164,8 +1170,7 @@ def main(argv=None):
     if summary["wall_seconds"] > 0 and total_stars:
         summary["end_to_end_stars_per_hour"] = round(
             total_stars / summary["wall_seconds"] * 3600)
-    with open(out_dir / "summary.json", "w") as fh:
-        json.dump(summary, fh, indent=2)
+    _atomic_write_json(out_dir / "summary.json", summary)
     manifest["execution"]["status"] = "completed"
     manifest["execution"]["wall_seconds"] = round(
         summary["wall_seconds"])

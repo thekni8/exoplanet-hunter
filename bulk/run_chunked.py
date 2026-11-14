@@ -34,16 +34,19 @@ bulk/recipe.py for the schema. CLI flags override the recipe;
 --sector may come from either. The recipe's window is verified
 against the target-list window file before any slice runs.
 """
-import argparse, csv, json, subprocess, sys, time
+import argparse, csv, json, os, shlex, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from atomic_io import atomic_write_json as _atomic_write_json
+from atomic_io import atomic_write_text as _atomic_write_text
+from atomic_io import atomic_writer as _atomic_writer
 from bulk.recipe import (RecipeError, apply_overrides, default_recipe_path,
                          load_recipe)
 import provenance as _prov
 from validation import validate_survivor as _validate_survivor
-BULK = ROOT / "bulk"
+BULK = ROOT / "bulk"  # overridable via --work-dir (tests + ports)
 SECTOR = None  # set in main() from recipe / --sector
 RUN = None  # set in main() from --sector
 RECIPE = None  # resolved recipe dict, set in main()
@@ -110,13 +113,15 @@ def build_slices():
         part = tics[i:i + SLICE]
         p = CHUNKS / f"slice_{i // SLICE:02d}.csv"
         if not p.exists():
-            with open(p, "w", newline="") as fh:
-                w = csv.writer(fh)
-                w.writerow(["tic", "ra", "dec", "tmag", "radius"])
-                for t in part:
-                    m = meta[t]
-                    w.writerow([t, m["ra"], m["dec"], m["tmag"],
-                                m["radius"]])
+            # Atomic (Phase 1.1, item 8): a kill mid-write used to
+            # leave a truncated slice CSV that "exists" and was
+            # never rewritten — those stars were silently dropped.
+            lines = ["tic,ra,dec,tmag,radius"]
+            for t in part:
+                m = meta[t]
+                lines.append(",".join([t, m["ra"], m["dec"],
+                                       m["tmag"], m["radius"]]))
+            _atomic_write_text(p, "\n".join(lines) + "\n")
         slices.append(p)
     return slices
 
@@ -163,13 +168,75 @@ def chunk_ok(out):
     return searched > 0 and errors <= 0.5 * searched
 
 
+def _checkpoint_path():
+    return RUN / "checkpoint.json"
+
+
+def read_checkpoint():
+    """The run-level progress record, or None when no slice has
+    completed yet (or the file is corrupt — a corrupt checkpoint
+    is ignored, never trusted: chunk_ok re-derives the truth
+    from the slice summaries)."""
+    p = _checkpoint_path()
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except Exception:
+        return None
+
+
+def write_checkpoint(completed):
+    """Atomically record which slices are done. `completed` maps
+    slice index -> {chunk, summary_sha256, stars_searched,
+    survivors, completed_at}. Written after EVERY slice, so a
+    kill costs at most the in-flight slice — and the summary hash
+    lets a resume VERIFY a checkpoint instead of trusting that a
+    summary file merely exists."""
+    cp = {"run_dir": str(RUN),
+          "sector": SECTOR,
+          "n_slices": len(completed),
+          "completed": {str(k): v for k, v in completed.items()},
+          "updated_at": _prov.utc_now_iso()}
+    _atomic_write_json(_checkpoint_path(), cp)
+
+
+def _checkpoint_entry(out, summary):
+    return {"chunk": out.name,
+            "summary_sha256": _prov.file_sha256(
+                out / "summary.json"),
+            "stars_searched": summary.get("stars_searched"),
+            "survivors": summary.get("survivors"),
+            "completed_at": _prov.utc_now_iso()}
+
+
+def _screen_cmd():
+    """The screen invocation. EXHUNT_SCREEN_CMD overrides the
+    production bulk_screen.py call (test seam, same pattern as
+    EXHUNT_FIXTURE_DIR): the value is shell-split and the driver's
+    slice arguments are appended. Production runs never set it."""
+    override = os.environ.get("EXHUNT_SCREEN_CMD")
+    if override:
+        return shlex.split(override)
+    return [PY, str(ROOT / "bulk_screen.py")]
+
+
 def main():
-    global RUN, CHUNKS, SECTOR, RECIPE, SLICE
+    global RUN, CHUNKS, SECTOR, RECIPE, SLICE, BULK
     ap = argparse.ArgumentParser()
     ap.add_argument("--recipe", default=str(default_recipe_path()),
                     help="YAML recipe file (default: bulk/recipes/default.yaml)")
     ap.add_argument("--sector", type=int, default=None,
                     help="TESS sector (overrides the recipe)")
+    ap.add_argument("--work-dir", default=None,
+                    help="bulk working directory (default: <repo>/bulk); "
+                         "overrides where the window files, chunks and "
+                         "run output live — tests point it at a temp dir")
+    ap.add_argument("--skip-known-filter", action="store_true",
+                    help="skip the merge-stage TOI/VSX known-source "
+                         "checks (offline re-merge; the checks are "
+                         "fail-open, so skipping them explicitly is "
+                         "the same as MAST being down)")
     ap.add_argument("--min-mag", type=float, default=None)
     ap.add_argument("--max-mag", type=float, default=None)
     ap.add_argument("--min-rad", type=float, default=None)
@@ -200,6 +267,8 @@ def main():
         ap.error("--sector is required (or set sector: in the recipe)")
     RECIPE = recipe
     SLICE = recipe["slice_size"]
+    if args.work_dir:
+        BULK = Path(args.work_dir)
     RUN = BULK / f"run_s{SECTOR:04d}"
     CHUNKS = RUN / "chunks"
     RUN.mkdir(parents=True, exist_ok=True)
@@ -225,14 +294,41 @@ def main():
         f"workers {recipe['workers'] or 'default'})")
     slices = build_slices()
     log(f"{len(slices)} slices")
+    # Resume state (Phase 1.1, item 8): the checkpoint records
+    # completed slices + their summary hashes. chunk_ok is still
+    # the authority — a checkpoint entry whose slice no longer
+    # validates is dropped and the slice re-runs.
+    completed = {}
+    prev = read_checkpoint()
+    if prev:
+        for k, v in (prev.get("completed") or {}).items():
+            i = int(k)
+            out = RUN / f"chunk_{i:02d}"
+            if chunk_ok(out) and _prov.file_sha256(
+                    out / "summary.json") == v.get("summary_sha256"):
+                completed[i] = v
+            else:
+                # The checkpoint ENTRY is dropped — the slice loop
+                # below still decides from chunk_ok alone, so a
+                # slice with a valid summary is skipped, not
+                # re-screened; only the entry's hash is distrusted.
+                log(f"slice {i}: checkpoint entry invalid or "
+                    f"stale, dropping it (chunk_ok decides)")
+        if completed:
+            log(f"resuming: {len(completed)}/{len(slices)} slices "
+                f"already complete")
     t_start = time.time()
     for i, sl in enumerate(slices):
         out = RUN / f"chunk_{i:02d}"
         if chunk_ok(out):
             log(f"slice {i}: valid checkpoint exists, skipping")
+            if i not in completed:
+                s = json.loads((out / "summary.json").read_text())
+                completed[i] = _checkpoint_entry(out, s)
+                write_checkpoint(completed)
             continue
         log(f"slice {i}: screening {sl.name} -> {out.name}")
-        cmd = [PY, str(ROOT / "bulk_screen.py"), "--sector", str(SECTOR),
+        cmd = _screen_cmd() + ["--sector", str(SECTOR),
                "--stars-file", str(sl), "--skip-filter",
                "--cache-dir", str(BULK / "cache"),
                "--out-dir", str(out),
@@ -250,6 +346,8 @@ def main():
                 f"mostly errors (see chunk run.log); not checkpointing")
             return 1
         s = json.loads((out / "summary.json").read_text())
+        completed[i] = _checkpoint_entry(out, s)
+        write_checkpoint(completed)
         log(f"slice {i}: done — searched {s.get('stars_searched')}, "
             f"survivors {s.get('survivors')}, "
             f"tiers {s.get('survivor_tiers')}")
@@ -273,41 +371,47 @@ def main():
         hits += [json.loads(l) for l in open(out / "screen_hits.jsonl")]
     log(f"merged: {len(survivors)} slice survivors, "
         f"{agg['zooniverse_known']} zooniverse-known already removed")
-    # TOI join at survivor stage
-    toi_ids = bs._toi_ids_with_retry()
-    n_toi = 0
-    keep = []
-    for r in survivors:
-        if toi_ids and r["tic"] in toi_ids:
-            n_toi += 1
-        else:
+    n_toi = n_vsx = 0
+    if args.skip_known_filter:
+        log("known-source checks skipped (--skip-known-filter)")
+    else:
+        # TOI join at survivor stage
+        toi_ids = bs._toi_ids_with_retry()
+        keep = []
+        for r in survivors:
+            if toi_ids and r["tic"] in toi_ids:
+                n_toi += 1
+            else:
+                keep.append(r)
+        survivors = keep
+        log(f"TOI survivor-stage join: removed {n_toi}")
+        # VSX per-survivor (production query, fail-open)
+        import hunter
+        keep = []
+        for r in survivors:
+            try:
+                if hunter.is_known_in_vsx(r["ra"], r["dec"]):
+                    n_vsx += 1
+                    continue
+            except Exception:
+                pass
             keep.append(r)
-    survivors = keep
-    log(f"TOI survivor-stage join: removed {n_toi}")
-    # VSX per-survivor (production query, fail-open)
-    import hunter
-    n_vsx = 0
-    keep = []
-    for r in survivors:
-        try:
-            if hunter.is_known_in_vsx(r["ra"], r["dec"]):
-                n_vsx += 1
-                continue
-        except Exception:
-            pass
-        keep.append(r)
-    survivors = keep
-    log(f"VSX survivor-stage check: removed {n_vsx}")
+        survivors = keep
+        log(f"VSX survivor-stage check: removed {n_vsx}")
     survivors.sort(key=lambda r: (0 if r.get("tier") == "A" else 1,
                                   -(r.get("mes_pink") or 0)))
-    with open(RUN / "survivors.jsonl", "w") as fh:
+    # Atomic merge outputs (Phase 1.1, item 8): a kill mid-merge
+    # used to leave truncated merged files. The merge itself is
+    # idempotent — it recomputes from the slice outputs — so a
+    # re-run after a kill reproduces the same files exactly.
+    with _atomic_writer(RUN / "survivors.jsonl") as fh:
         for r in survivors:
             # Slice records were validated at write time; re-validating
             # at merge catches a slice file corrupted or hand-edited
             # since (Phase 1.1, item 3).
             _validate_survivor(r)
             fh.write(json.dumps(r) + "\n")
-    with open(RUN / "screen_hits.jsonl", "w") as fh:
+    with _atomic_writer(RUN / "screen_hits.jsonl") as fh:
         for r in hits:
             fh.write(json.dumps(r) + "\n")
     tiers = {"A": sum(1 for r in survivors if r.get("tier") == "A"),
@@ -333,7 +437,7 @@ def main():
         "survivor_tics": [r["tic"] for r in survivors],
         "wall_seconds_chunked_driver": round(time.time() - t_start),
     }
-    (RUN / "summary.json").write_text(json.dumps(summary, indent=2))
+    _atomic_write_json(RUN / "summary.json", summary)
     MANIFEST["execution"]["status"] = "completed"
     MANIFEST["execution"]["wall_seconds"] = round(
         time.time() - t_start)

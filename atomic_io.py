@@ -55,3 +55,45 @@ def atomic_write_json(path, obj, indent=2):
     identical bytes — see the determinism test). Returns the Path."""
     text = json.dumps(obj, indent=indent, sort_keys=True) + "\n"
     return atomic_write_text(path, text)
+
+
+class atomic_writer:
+    """Streaming atomic writes: use as a context manager for
+    outputs too large to build in memory (survivors.jsonl with
+    thousands of records). Writes go to a tmp file in the same
+    directory; on a clean exit the tmp file is fsynced and moved
+    into place with os.replace. On ANY exception (including a
+    kill — the tmp file is simply left behind) the target is
+    untouched: the old target stays intact, or no target exists
+    at all. A leftover .tmp-* file is harmless litter.
+
+        with atomic_writer(path) as fh:
+            fh.write(...)
+    """
+    def __init__(self, path, encoding="utf-8"):
+        self._path = Path(path)
+        self._encoding = encoding
+        self._tmp = None
+        self._fh = None
+
+    def __enter__(self):
+        self._tmp = _tmp_path(self._path)
+        self._fh = open(self._tmp, "w", encoding=self._encoding)
+        return self._fh
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is None:
+                self._fh.flush()
+                os.fsync(self._fh.fileno())
+            self._fh.close()
+        finally:
+            self._fh = None
+        if exc_type is None:
+            os.replace(self._tmp, self._path)
+        else:
+            try:
+                self._tmp.unlink()
+            except OSError:
+                pass
+        return False
