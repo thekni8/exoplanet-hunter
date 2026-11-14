@@ -156,6 +156,7 @@ from atomic_io import atomic_writer as _atomic_writer
 from calibration import CalibrationError as _CalibrationError
 from calibration import load_profile as _load_profile
 from calibration import short_version as _short_version
+from quality_flags import SPOC_DEFAULT_MASK as _SPOC_DEFAULT_MASK
 from mad_clip import PROFILE_OPTIONS as _CLIP_PROFILE_OPTIONS
 from mad_clip import ALL_OPTIONS as _CLIP_ALL_OPTIONS
 from mad_clip import mad_clip_mask as _mad_clip_mask
@@ -224,14 +225,16 @@ def _apply_profile(prof):
         in prof.get("systematic_windows", {}).items()}
     # Quality mask (bulk_v3): which QUALITY bits exclude a cadence
     # from BLS input. v1/v2 profiles predate the field and mean
-    # lightkurve's TESS default 17087 (bits 0,1,2,3,4,5,7,9,14).
-    # v3 adds bits 29/30 (TESS scattered light): the bulk_v2
-    # rescore gauntlet found 18/25 NEW S96 leads were dips living
-    # only on bit-29/30 cadences, which the 17087 mask keeps and
-    # v2's 10% clip floor preserves. The value must be a plain
-    # integer bitmask — a profile that declares anything else
-    # fails loudly here, never silently at screen time.
-    QUALITY_MASK = prof.get("quality_mask", 17087)
+    # lightkurve's TESS default (SPOC_DEFAULT_MASK, 17087 — bits
+    # 0,1,2,3,4,5,7,9,14; see quality_flags.py for the named table
+    # and sources). v3 adds bits 29/30 (QLP flags, outside SPOC's
+    # 16-bit table): the bulk_v2 rescore gauntlet found 18/25 NEW
+    # S96 leads were dips living only on bit-29/30 cadences, which
+    # the 17087 mask keeps and v2's 10% clip floor preserves. The
+    # value must be a plain integer bitmask — a profile that
+    # declares anything else fails loudly here, never silently at
+    # screen time.
+    QUALITY_MASK = prof.get("quality_mask", _SPOC_DEFAULT_MASK)
     if isinstance(QUALITY_MASK, bool) \
             or not isinstance(QUALITY_MASK, int) or QUALITY_MASK < 0:
         raise _CalibrationError(
