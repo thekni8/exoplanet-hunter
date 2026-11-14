@@ -1,0 +1,164 @@
+{
+  "counts": {
+    "fps": {
+      "kill_stages": {
+        "catalogue": 1,
+        "shape": 1
+      },
+      "killed": 1,
+      "n": 1
+    },
+    "planets": {
+      "all_measured_pass": 1,
+      "any_fail": 1,
+      "n": 2
+    },
+    "stages": {
+      "blend": {
+        "fps": {
+          "pass": 1
+        },
+        "planets": {
+          "pass": 2
+        }
+      },
+      "catalogue": {
+        "fps": {
+          "fail": 1
+        },
+        "planets": {
+          "pass": 2
+        }
+      },
+      "clean_refold": {
+        "fps": {
+          "not_applicable": 1
+        },
+        "planets": {
+          "not_applicable": 2
+        }
+      },
+      "diffimg": {
+        "fps": {
+          "unmeasured": 1
+        },
+        "planets": {
+          "unmeasured": 2
+        }
+      },
+      "holdout": {
+        "fps": {
+          "unmeasured": 1
+        },
+        "planets": {
+          "not_applicable": 1,
+          "unmeasured": 1
+        }
+      },
+      "odd_even": {
+        "fps": {
+          "pass": 1
+        },
+        "planets": {
+          "pass": 2
+        }
+      },
+      "persistence": {
+        "fps": {
+          "pass": 1
+        },
+        "planets": {
+          "pass": 2
+        }
+      },
+      "pixel_check": {
+        "fps": {
+          "not_applicable": 1
+        },
+        "planets": {
+          "not_applicable": 1,
+          "unmeasured": 1
+        }
+      },
+      "raw_flux": {
+        "fps": {
+          "pass": 1
+        },
+        "planets": {
+          "pass": 2
+        }
+      },
+      "refine": {
+        "fps": {
+          "pass": 1
+        },
+        "planets": {
+          "pass": 2
+        }
+      },
+      "shape": {
+        "fps": {
+          "fail": 1
+        },
+        "planets": {
+          "fail": 1,
+          "pass": 1
+        }
+      },
+      "transit_fit": {
+        "fps": {
+          "unmeasured": 1
+        },
+        "planets": {
+          "unmeasured": 2
+        }
+      }
+    }
+  },
+  "generated_from": "scripts/toi_population.py offline run, 2026-11-14 (golden fixtures)",
+  "note": "TOI-700 c fails shape (V-shaped, T23/T14 0.2925 vs the 0.30 bar; triangle beats trapezoid by dchi2 1.6) \u2014 a marginal false-kill at the V/U boundary on a shallow (0.32%) transit, pinned here, not fixed. WASP-126 b passes all measured stages. The EB is killed by catalogue + shape. No star reaches CANDIDATE offline (diffimg/transit_fit unmeasured \u2014 known gaps).",
+  "stages": {
+    "150428135": {
+      "blend": "pass",
+      "catalogue": "pass",
+      "clean_refold": "not_applicable",
+      "diffimg": "unmeasured",
+      "holdout": "unmeasured",
+      "odd_even": "pass",
+      "persistence": "pass",
+      "pixel_check": "unmeasured",
+      "raw_flux": "pass",
+      "refine": "pass",
+      "shape": "fail",
+      "transit_fit": "unmeasured"
+    },
+    "25155310": {
+      "blend": "pass",
+      "catalogue": "pass",
+      "clean_refold": "not_applicable",
+      "diffimg": "unmeasured",
+      "holdout": "not_applicable",
+      "odd_even": "pass",
+      "persistence": "pass",
+      "pixel_check": "not_applicable",
+      "raw_flux": "pass",
+      "refine": "pass",
+      "shape": "pass",
+      "transit_fit": "unmeasured"
+    },
+    "308851365": {
+      "blend": "pass",
+      "catalogue": "fail",
+      "clean_refold": "not_applicable",
+      "diffimg": "unmeasured",
+      "holdout": "unmeasured",
+      "odd_even": "pass",
+      "persistence": "pass",
+      "pixel_check": "not_applicable",
+      "raw_flux": "pass",
+      "refine": "pass",
+      "shape": "fail",
+      "transit_fit": "unmeasured"
+    }
+  }
+}
