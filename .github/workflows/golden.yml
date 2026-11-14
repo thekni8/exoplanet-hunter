@@ -1,11 +1,28 @@
 # Golden validation suite — runs on every push and pull request.
 #
-# The suite (tests/run_golden.py --fast) proves the pipeline still
-# works WITHOUT any network: recipe loader + persistence-stamp unit
-# tests + Phase 1.1 hardening tests + the pipeline end to end on
-# known objects against COMMITTED fixtures (TOI-700 c, WASP-126 b,
-# and the known eclipsing binary TIC 308851365 — see
-# tests/fixtures/golden/).
+# Tiered (Phase 1.2 follow-up F-10): the "fast" suite (888 s) is
+# not fast, so it is split into a <=3-minute smoke tier (the PR
+# check) plus three shards that run in parallel and together
+# cover the full offline suite. No scientific test was removed
+# to achieve speed — reclassified, never reduced.
+#
+#   smoke     — tests/run_golden.py --smoke (runner, status
+#               matrix, blend, conservation, registry,
+#               fingerprint, idempotency, ingest). The PR check:
+#               fast feedback on every push/PR. The registry +
+#               expected-values checks run here.
+#   golden    — tests/run_golden.py --shard golden (the
+#               pipeline-run modules: fixtures, census, TOI
+#               population, perturbation).
+#   injection — tests/run_golden.py --shard injection (the
+#               injection harness + clip grid).
+#   rest      — tests/run_golden.py --shard rest (everything
+#               else offline).
+#
+# The job named `golden` is kept (it is a required check in the
+# branch protection rule, with lockfile-clean-install) — it now
+# runs the golden shard. To make smoke/injection/rest blocking
+# too, add them as required checks in the repo settings.
 #
 # The live MAST tests (test_golden_stars) do NOT run here: a MAST
 # outage must never turn the PR gate red. They run on a weekly
@@ -26,9 +43,9 @@ on:
     branches: [main]
 
 jobs:
-  golden:
+  smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,8 +75,68 @@ jobs:
         # legitimate — but it must never slip through unnoticed.
         run: python scripts/check_expected_values.py --base origin/main
 
-      - name: Run golden suite (offline — no downloads)
-        run: python tests/run_golden.py --fast
+      - name: Run smoke tier (<=3 min PR check, offline)
+        run: python tests/run_golden.py --smoke
+
+  golden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run golden shard (pipeline-run modules, offline)
+        run: python tests/run_golden.py --shard golden
+
+  injection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run injection shard (offline)
+        run: python tests/run_golden.py --shard injection
+
+  rest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run rest shard (everything else offline)
+        run: python tests/run_golden.py --shard rest
 
   lockfile-clean-install:
     # C-9: a clean-environment install from the lockfile, with

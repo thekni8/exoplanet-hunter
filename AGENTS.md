@@ -58,11 +58,33 @@ re-running the suite.
 ## 2. Validate first — never run a sector on a red suite
 
 ```bash
-.venv/bin/python tests/run_golden.py --fast   # no downloads: recipe loader + stamp unit tests
-.venv/bin/python tests/run_golden.py          # full suite: also the pipeline end to end
-                                              # on TOI-700, WASP-126 b, TIC 308851365
-                                              # (tens of MB of MAST downloads, cached)
+.venv/bin/python tests/run_golden.py --smoke  # smoke tier (<=3 min): the PR check
+.venv/bin/python tests/run_golden.py --fast   # full offline suite (~15 min): the standard gate
+.venv/bin/python tests/run_golden.py          # full suite incl. live MAST downloads
+                                              # (tens of MB, cached)
 ```
+
+Tiers (Phase 1.2 follow-up F-10 — reclassified, never reduced;
+no scientific test was removed to achieve speed):
+
+- **smoke** (<=3 min): runner, status matrix, blend,
+  conservation, registry, fingerprint, idempotency stubs,
+  ingest. No downloads, no pipeline runs. This is the PR
+  check — run it before every push.
+- **golden shard** (`--shard golden`): the pipeline-run
+  modules (golden fixtures, census, TOI population,
+  perturbation) — each runs `_run_pipeline` on fixtures.
+- **injection shard** (`--shard injection`): the
+  injection-recovery harness + the clip grid.
+- **rest shard** (`--shard rest`): everything else offline.
+- **full** (`--fast`): smoke + golden + injection + rest,
+  offline, ~15 min. The live tests (`test_golden_stars`) run
+  weekly in `.github/workflows/live.yml`, never in the PR gate.
+
+CI (`golden.yml`) runs smoke plus the three shards in parallel;
+together the shards cover the full `--fast` suite. The job
+named `golden` runs the golden shard (it is a required check
+in branch protection, with lockfile-clean-install).
 
 Exit code 0 means the pipeline on your machine reproduces the
 known answers. If a test fails, **do not "fix" it by loosening a
