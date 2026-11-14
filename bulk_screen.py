@@ -148,6 +148,16 @@ from pathlib import Path
 
 import numpy as np
 
+import provenance as _prov
+
+# Calibration version stamped on every record this screen writes
+# (Phase 1.1, item 1). The thresholds below ARE calibration v1.1
+# (bulk/CALIBRATION_V1_1.md); the version string is "bulk_v1" and
+# any threshold change bumps it (see calibration/bulk_v1.yaml,
+# item 2) — records from different calibrations must never be
+# silently mixed.
+CALIBRATION_VERSION = "bulk_v1"
+
 warnings.filterwarnings("ignore")
 
 ROOT = Path(__file__).resolve().parent
@@ -931,6 +941,31 @@ def _screen_one(args):
 
 
 # ---------------------------------------------------------------------------
+# Output records
+# ---------------------------------------------------------------------------
+
+_EMIT_KEYS = ("tic", "period_days", "t0_btjd", "duration_hours",
+              "depth_percent", "sde", "sector", "product", "ra", "dec",
+              "tmag", "radius_rsun", "flags", "odd_even_ratio",
+              "secondary_depth_percent", "near_systematic", "control",
+              "status", "known_source", "alt_peaks", "mes_pink",
+              "cdpp_pct", "n_events", "n_strong_events",
+              "max_event_snr", "v_ratio", "tier")
+
+
+def emit_survivor_record(rec, prov):
+    """The gauntlet-shaped record for one screened star: the
+    schema fields from the raw screen record plus the run's
+    provenance header (Phase 1.1, item 1). None-valued fields are
+    dropped — a missing measurement is absent, never a null that
+    downstream code has to defend against. The provenance fields
+    are always present (they are never None)."""
+    out = {k: rec.get(k) for k in _EMIT_KEYS if rec.get(k) is not None}
+    out.update(prov)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -961,14 +996,39 @@ def main(argv=None):
                                                           or 2) - 1))
     ap.add_argument("--cache-dir", default=str(ROOT / "bulk" / "cache"))
     ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--run-id", default=None,
+                    help="run id stamped on every record (default: "
+                         "auto-generated; the chunked driver passes "
+                         "one id for the whole run so all slices "
+                         "share it)")
+    ap.add_argument("--recipe-hash", default=None,
+                    help="sha256 of the resolved recipe driving this "
+                         "run (the chunked driver passes it); "
+                         "omitted when the run had no recipe")
     args = ap.parse_args(argv)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     logf = open(out_dir / "run.log", "a")
     run_t0 = time.time()
+    # Provenance, built once for the whole run (Phase 1.1, item 1):
+    # one run id, one timestamp, one calibration version — every
+    # record this run writes carries the same header.
+    run_id = args.run_id or _prov.new_run_id("bulk")
+    started_at = _prov.utc_now_iso()
+    prov = _prov.provenance_header(
+        run_id, CALIBRATION_VERSION, recipe_hash=args.recipe_hash,
+        timestamp_utc=started_at)
+    manifest = _prov.build_manifest(
+        run_id, CALIBRATION_VERSION, sector=args.sector,
+        product=PRODUCT, sha=prov["pipeline_git_sha"],
+        timestamp_utc=started_at, status="started")
+    _prov.write_manifest(out_dir, manifest)
+    log(f"run_id: {run_id} (calibration {CALIBRATION_VERSION}, "
+        f"git {prov['pipeline_git_sha']})", logf)
     summary = {"tool": "bulk_screen v1.2", "sector": args.sector,
                "product": PRODUCT,
+               "provenance": prov,
                "window": {"min_mag": args.min_mag, "max_mag": args.max_mag,
                           "min_rad": args.min_rad, "max_rad": args.max_rad},
                "thresholds": {"record_floor_sde": RECORD_FLOOR_SDE,
@@ -1065,22 +1125,12 @@ def main(argv=None):
     novel, zoo_known = annotate_survivors_zooniverse(survivors, logf)
     summary["zooniverse_known_survivors"] = [r["tic"] for r in zoo_known]
 
-    def emit(rec):
-        keys = ("tic", "period_days", "t0_btjd", "duration_hours",
-                "depth_percent", "sde", "sector", "product", "ra", "dec",
-                "tmag", "radius_rsun", "flags", "odd_even_ratio",
-                "secondary_depth_percent", "near_systematic", "control",
-                "status", "known_source", "alt_peaks", "mes_pink",
-                "cdpp_pct", "n_events", "n_strong_events",
-                "max_event_snr", "v_ratio", "tier")
-        return {k: rec.get(k) for k in keys if rec.get(k) is not None}
-
     with open(out_dir / "survivors.jsonl", "w") as fh:
         for r in novel:
-            fh.write(json.dumps(emit(r)) + "\n")
+            fh.write(json.dumps(emit_survivor_record(r, prov)) + "\n")
     with open(out_dir / "screen_hits.jsonl", "w") as fh:
         for r in hits:
-            fh.write(json.dumps(emit(r)) + "\n")
+            fh.write(json.dumps(emit_survivor_record(r, prov)) + "\n")
 
     # control verdict — the run's honesty check
     if args.control_tic:
@@ -1112,6 +1162,16 @@ def main(argv=None):
             total_stars / summary["wall_seconds"] * 3600)
     with open(out_dir / "summary.json", "w") as fh:
         json.dump(summary, fh, indent=2)
+    manifest["execution"]["status"] = "completed"
+    manifest["execution"]["wall_seconds"] = round(
+        summary["wall_seconds"])
+    manifest["counts"] = {
+        "stars_searched": summary["stars_searched"],
+        "hits_recorded": summary["hits_recorded"],
+        "survivors": summary["survivors"],
+        "screen_counts": summary["screen_counts"],
+    }
+    _prov.write_manifest(out_dir, manifest)
     log(f"DONE: {len(novel)} novel survivors, {len(hits)} recorded hits, "
         f"wall {summary['wall_seconds']:.0f}s, end-to-end "
         f"{summary.get('end_to_end_stars_per_hour', 0)} stars/h", logf)

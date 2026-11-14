@@ -41,6 +41,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from bulk.recipe import (RecipeError, apply_overrides, default_recipe_path,
                          load_recipe)
+import provenance as _prov
 BULK = ROOT / "bulk"
 SECTOR = None  # set in main() from recipe / --sector
 RUN = None  # set in main() from --sector
@@ -201,6 +202,19 @@ def main():
     RUN = BULK / f"run_s{SECTOR:04d}"
     CHUNKS = RUN / "chunks"
     RUN.mkdir(parents=True, exist_ok=True)
+    # Provenance for the whole run (Phase 1.1, item 1): one run id
+    # and one resolved-recipe hash, passed to every slice so all
+    # records from this run carry the same header. The run manifest
+    # makes the run directory self-describing.
+    RUN_ID = _prov.new_run_id("bulk")
+    R_HASH = _prov.recipe_hash(RECIPE)
+    MANIFEST = _prov.build_manifest(
+        RUN_ID, "bulk_v1", sector=SECTOR, product="QLP",
+        recipe=RECIPE, recipe_file=RECIPE.get("_file"),
+        status="started")
+    _prov.write_manifest(RUN, MANIFEST)
+    log(f"run_id: {RUN_ID} (recipe hash {R_HASH[:12]}…, "
+        f"calibration bulk_v1)")
     log(f"recipe: {recipe['_file']} (sector {SECTOR}, "
         f"window Tmag {recipe['window']['min_mag']}-"
         f"{recipe['window']['max_mag']}, R "
@@ -221,6 +235,7 @@ def main():
                "--stars-file", str(sl), "--skip-filter",
                "--cache-dir", str(BULK / "cache"),
                "--out-dir", str(out),
+               "--run-id", RUN_ID, "--recipe-hash", R_HASH,
                "--dl-workers", str(recipe["dl_workers"])]
         if recipe["workers"] is not None:
             cmd += ["--workers", str(recipe["workers"])]
@@ -295,7 +310,12 @@ def main():
     summary = {
         "tool": "bulk_screen v1.2 chunked driver (run_chunked)",
         "sector": SECTOR, "stars_in": N_STARS,
+        "provenance": _prov.provenance_header(
+            RUN_ID, "bulk_v1", recipe_hash=R_HASH,
+            sha=MANIFEST["pipeline"]["git_sha"],
+            timestamp_utc=MANIFEST["execution"]["started_at"]),
         "recipe": {"file": RECIPE["_file"],
+                   "resolved_hash": R_HASH,
                    "params": {k: v for k, v in RECIPE.items()
                               if not k.startswith("_")}},
         "known_filter": {"mode": "survivor-stage (chunked resilience)",
@@ -309,6 +329,16 @@ def main():
         "wall_seconds_chunked_driver": round(time.time() - t_start),
     }
     (RUN / "summary.json").write_text(json.dumps(summary, indent=2))
+    MANIFEST["execution"]["status"] = "completed"
+    MANIFEST["execution"]["wall_seconds"] = round(
+        time.time() - t_start)
+    MANIFEST["counts"] = {
+        "stars_searched": agg["stars_searched"],
+        "hits_recorded": agg["hits_recorded"],
+        "survivors": len(survivors),
+        "screen_counts": agg["screen_counts"],
+    }
+    _prov.write_manifest(RUN, MANIFEST)
     log(f"DONE: {len(survivors)} survivors {tiers} from "
         f"{agg['stars_searched']} searched")
     return 0
