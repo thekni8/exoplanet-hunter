@@ -1,7 +1,12 @@
 # Exoplanet Hunter — direct dependencies, PINNED.
 # Versions are the ones in the working venv (Python 3.12.3, verified
 # 2026-11-14). Pinned so any agent on any machine reproduces the same
-# environment: `python -m venv .venv && .venv/bin/pip install -r requirements.txt`
+# environment. Install from the LOCKFILE, not this file:
+#   python -m venv .venv && .venv/bin/pip install -r requirements.lock
+# (requirements.lock is the pip-compile output with hashes for every
+# package including transitive ones; regenerate it after any change
+# here with: pip-compile --generate-hashes
+# --output-file=requirements.lock requirements.txt)
 # Do not unpin without re-running the golden suite (tests/).
 
 # --- science stack ---

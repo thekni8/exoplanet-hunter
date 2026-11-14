@@ -39,8 +39,17 @@ unpin without re-running the golden suite.
 git clone https://github.com/thekni8/exoplanet-hunter.git
 cd exoplanet-hunter
 python3.12 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements.lock
 ```
+
+`requirements.txt` lists the direct dependencies (pinned);
+`requirements.lock` is the pip-compile output with hashes for
+every package including transitive ones — install from the lock
+so a compromised or re-uploaded wheel cannot slip in (pip
+verifies each hash). Regenerate the lock after any dependency
+change with `pip-compile --generate-hashes
+--output-file=requirements.lock requirements.txt`, then re-run
+the golden suite. Do not unpin without re-running the suite.
 
 ## 2. Validate first — never run a sector on a red suite
 
