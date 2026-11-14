@@ -271,7 +271,52 @@ Test tally after 2D: 483 + 7 = **490** (486 offline +
    copied from anywhere — the verdict record carries no
    fingerprint field.
 
-## 2E — Review gate (not started)
+## 2E — Review gate (COMPLETE)
+
+| Item | Commit | What |
+|---|---|---|
+| 2E-1 | (this commit) | `gauntlet/review.py` (prepare_filing_review + record_review_decision + review_2e_marker) + `schema/review-schema.json` + `validate_filing_review`. 14 tests, incl. the integration proof that an approved review unblocks check_report_ready for a waived candidate. |
+
+Test tally after 2E: 490 + 14 = **504** (500 offline +
+4 live).
+
+### Judgment calls (2E — for the Phase 2 vote)
+
+1. **The gate is enforced at DECISION time, not
+   preparation.** prepare_filing_review builds a record
+   for ANY package (eligible or not) with the blockers
+   visible; record_review_decision refuses to APPROVE an
+   ineligible record. Rejecting an ineligible record is
+   allowed. A decided record is final.
+2. **The review IS the F-5 second-eyes marker.** The gate
+   checks the DATA part of check_report_ready
+   (persistence/diffimg/blend pass) and does NOT require
+   the package's report_ready flag — a waived CANDIDATE
+   reads report_ready False until a review exists, and
+   this review is what supplies it. review_2e_marker
+   returns {"reviewer": approver} for an approved review.
+3. **Checklist items are advisory.** The human's approve
+   decision IS the attestation; per-item completion is
+   not tracked (future work). Items with no backing
+   evidence read not_applicable with the reason in their
+   detail, never silently skipped.
+4. **The review binds to its package by hash** (sha256 of
+   the canonical package JSON) — a decision cannot be
+   silently re-attached to different evidence.
+
+## Deferred deliberately (not forgotten)
+
+- **Tool lockfiles** (`requirements-latte.lock`,
+  `requirements-triceratops.lock`): NOT built on the VM.
+  Lockfiles with per-wheel hashes are platform-specific
+  (macOS arm64 wheels differ from Linux x86_64), and
+  LATTE's pins (matplotlib==3.2.0, astropy<=4.0) cannot
+  even resolve under the VM's Python 3.12. They must be
+  built on the Mac where the venvs live — the Mac setup
+  doc (`docs/external-tools-mac-setup.md`) already
+  instructs that step. C-10's "installs from its own
+  lockfile in a clean venv" acceptance criterion is
+  therefore a Mac-side check, not a VM one.
 
 ## Frozen v1 calibration (verify at the end)
 

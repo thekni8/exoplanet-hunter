@@ -123,16 +123,55 @@ hashed. LATTE runs in FFI mode unless the light curve is
 SPOC 2-minute data. Mac setup (venvs, first-run downloads,
 verification targets): `docs/external-tools-mac-setup.md`.
 
+## Evidence package + filing review (Phase 2, 2D/2E)
+
+Every desk run writes `evidence_package.json` last (it
+hashes `verdict_record.json` + `desk_natives.json`): the
+verdict, the waiver-stamped stages, the external-tool
+evidence (which the verdict record has no slot for), a
+scores summary (FPP/NFPP + the LATTE report path),
+provenance (schema 1.2 fields, calibration map + hash, code
+fingerprint), and a completeness checklist (per-status
+counts, missing required stages, the check_report_ready
+filing precondition). Builder: `gauntlet/evidence.py`,
+schema `schema/evidence-schema.json`.
+
+The filing review (`gauntlet/review.py`,
+`schema/review-schema.json`) is the human gate on top of
+the package: `prepare_filing_review` builds a review record
+(status `awaiting_review`, eligibility + blockers + a human
+checklist) for any package, and `record_review_decision`
+records approve/reject with reviewer + reason + timestamp.
+The gate is enforced at decision time — an ineligible
+record can be prepared and rejected, never approved. A
+candidate is eligible when the verdict is CANDIDATE, every
+required stage is pass-or-waived, and persistence + diffimg
++ blend pass. An approved review IS the F-5 second-eyes
+marker: its reviewer satisfies check_report_ready's
+review_2e requirement for a waived candidate
+(`review_2e_marker`). No filing action is ever taken — the
+gate prepares the review, a human decides.
+
 ## Tests
 
 - `tests/test_desk.py` (18, offline): 12 end-to-end driver
   scenarios on synthetic light curves through a fake data
   source, extending the F-7 pattern, + 6 native-builder unit
   tests.
-- `tests/test_desk_external_tools.py` (10, offline): the
-  external-tools wiring — clean planet + tool result,
+- `tests/test_desk_external_tools.py` (11, offline): the
+  external-tools wiring — clean planet + tool result(s),
   cheap-kill and pass-2-FAIL gating, missing venv, missing
-  census field, input-section units, policy loader.
+  census field, input-section units, policy loader, + the
+  2D evidence-package assertions.
+- `tests/test_evidence.py` (7, offline): the 2D builder —
+  complete candidate, tool scores, missing source files,
+  missing required stage, waived candidate, failed stage,
+  schema validation.
+- `tests/test_review.py` (14, offline): the 2E gate —
+  eligible/ineligible preparation, checklist derivation,
+  approve/reject rules, double-decision refusal, and the
+  proof that an approved review unblocks check_report_ready
+  for a waived candidate.
 - `tests/test_desk_live.py` (1, download-backed): the clean
   gate on real S96 QLP light curves — the artifacts
   TIC 355401152 and 382571558 must FAIL, the known planet
