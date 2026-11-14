@@ -1,10 +1,12 @@
 """Behavioural test for the gauntlet MAD-clip floor (C-6 follow-up).
 
-The mutation canary for MAD_CLIP_FLOOR_FRAC went red only via
-the constant-equality test in test_calibration — no test pinned
-what the floor DOES. This test pins the behaviour the floor
-exists for (rawflux_check.load_stitched, TIC 139526205 case):
-a 6% eclipse on a 0.08%-MAD star is 75 sigma, so an unfloored
+The mutation canary for the MAD-clip floor
+(mad_clip.DEFAULT_FLOOR_FRAC — the single definition since
+F-11) went red only via the constant-equality test in
+test_calibration — no test pinned what the floor DOES. This
+test pins the behaviour the floor exists for
+(rawflux_check.load_stitched, TIC 139526205 case): a 6%
+eclipse on a 0.08%-MAD star is 75 sigma, so an unfloored
 5-sigma cut deletes every in-transit point and the star reads
 as refuted; the 10% floor keeps the transit while still
 clipping genuine outliers (excursions >> 10%).

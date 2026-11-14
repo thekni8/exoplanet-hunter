@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import bulk_screen  # noqa: E402
 import calibration  # noqa: E402
 import hunter  # noqa: E402
+import mad_clip  # noqa: E402
 import persistence  # noqa: E402
 from calibration import CalibrationError, load_profile  # noqa: E402
 from gauntlet import rawflux_check, transit_fit  # noqa: E402
@@ -168,10 +169,11 @@ class TestGauntletDrift(unittest.TestCase):
                          rawflux_check.DENSITY_RATIO_MIN)
         self.assertEqual(p["chi2_sys_frac"],
                          persistence.CHI2_SYS_FRAC)
+        # F-11: the clip floor lives in ONE place now —
+        # mad_clip.DEFAULT_FLOOR_FRAC. The old per-module
+        # constants (rawflux_check / transit_fit) are deleted.
         self.assertEqual(p["mad_clip_floor_frac"],
-                         rawflux_check.MAD_CLIP_FLOOR_FRAC)
-        self.assertEqual(p["mad_clip_floor_frac"],
-                         transit_fit.MAD_CLIP_FLOOR_FRAC)
+                         mad_clip.DEFAULT_FLOOR_FRAC)
         self.assertEqual(p["shape_v_max_t23_t14"], 0.30)
         self.assertEqual(p["shape_u_min_t23_t14"], 0.50)
         self.assertEqual(p["chi2_sys_frac"], 0.15)

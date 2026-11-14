@@ -64,14 +64,12 @@ CANARIES = [
     {
         "name": "mad-clip-floor",
         "rule": "gauntlet MAD-clip 10% depth floor "
-                "(MAD_CLIP_FLOOR_FRAC = 0.10, both definitions)",
+                "(mad_clip.DEFAULT_FLOOR_FRAC = 0.10, the single "
+                "definition since F-11)",
         "mutations": [
-            _mut("gauntlet/rawflux_check.py",
-                 "MAD_CLIP_FLOOR_FRAC = 0.10",
-                 "MAD_CLIP_FLOOR_FRAC = 0.0"),
-            _mut("gauntlet/transit_fit.py",
-                 "MAD_CLIP_FLOOR_FRAC = 0.10",
-                 "MAD_CLIP_FLOOR_FRAC = 0.0"),
+            _mut("mad_clip.py",
+                 "DEFAULT_FLOOR_FRAC = 0.10",
+                 "DEFAULT_FLOOR_FRAC = 0.0"),
         ],
         "tests": ["tests.test_calibration",
                   "tests.test_false_positives",

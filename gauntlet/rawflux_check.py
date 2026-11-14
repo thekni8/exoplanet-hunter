@@ -170,8 +170,7 @@ def load_stitched(pfx, secs):
     # Genuine outliers (excursions >> 10%) are still clipped both sides.
     # The clip is the shared function (mad_clip.py, B-2); the floor
     # stays this module's drift-tested constant.
-    keep = _mad_clip_mask(f, "floor_10pct",
-                          floor_frac=MAD_CLIP_FLOOR_FRAC)
+    keep = _mad_clip_mask(f, "floor_10pct")
     return t[keep], f[keep], spans
 
 
@@ -349,8 +348,10 @@ U_SHAPE_MIN_T23_T14 = 0.50  # T23/T14 >= 0.50 is U-shaped / flat-bottomed
 DENSITY_RATIO_MIN = 0.80    # rho_circ/rho_star below this flags the
                             # fitted duration as impossible for a
                             # circular-orbit planet on this star
-MAD_CLIP_FLOOR_FRAC = 0.10  # MAD-sigma clip lower cut, floored at 10%
-                            # below the median (2026-11-14 fix)
+# F-11: the clip floor (MAD_CLIP_FLOOR_FRAC) lived here and in
+# transit_fit.py as a duplicated constant; it now lives in ONE
+# place — mad_clip.py's DEFAULT_FLOOR_FRAC (0.10), drift-tested
+# against gauntlet_v1.yaml in tests/test_calibration.py.
 
 
 def _trap_model(x, depth, t14, frac, dt0):

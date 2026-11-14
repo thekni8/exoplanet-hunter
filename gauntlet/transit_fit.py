@@ -56,11 +56,12 @@ from mad_clip import mad_clip_mask as _mad_clip_mask  # noqa: E402
 RSUN_RE = 109.2                    # R_sun in R_earth
 RSUN_AU = 0.00465047               # R_sun in AU
 
-# Gauntlet calibration (calibration/gauntlet_v1.yaml — drift-tested
-# in tests/test_calibration.py; change the profile + the code together).
-MAD_CLIP_FLOOR_FRAC = 0.10  # MAD-sigma clip lower cut, floored at 10%
-                            # below the median (2026-11-14 fix, same
-                            # as rawflux_check.py)
+# F-11: the clip floor lives in ONE place now — mad_clip.py's
+# DEFAULT_FLOOR_FRAC (0.10), drift-tested against
+# gauntlet_v1.yaml in tests/test_calibration.py. The old
+# per-module MAD_CLIP_FLOOR_FRAC constant (duplicated here and
+# in rawflux_check.py) is deleted; load_data calls the shared
+# function with its default.
 
 
 def flatten_qlp(t, f, period, t0, duration_d, window=1.5):
@@ -129,8 +130,7 @@ def load_data(data_dir, qlp_sectors, tesscut_sectors, period, t0,
     # stays this module's drift-tested constant.
     for d in out:
         d['f'] = d['f'] / np.median(d['f'])
-        keep = _mad_clip_mask(d['f'], "floor_10pct",
-                              floor_frac=MAD_CLIP_FLOOR_FRAC)
+        keep = _mad_clip_mask(d['f'], "floor_10pct")
         d['t'], d['f'] = d['t'][keep], d['f'][keep]
         ph = (((d['t'] - t0) / period + 0.5) % 1.0) - 0.5
         oot = np.abs(ph) > 0.08
