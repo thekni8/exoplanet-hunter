@@ -131,6 +131,12 @@ hits the pipeline already found.
 - **Never loosen a threshold to make a test pass.** Thresholds
   change deliberately, with the calibration doc and the golden
   suite updated in the same change.
+- **Never weaken a test assertion to get green CI.** An assertion
+  is a record of a decision; changing it needs the same review as
+  changing the code it guards. If a test fails, the code or the
+  calibration changed — fix the code, bump the calibration
+  version, or document a pinned limitation. Never edit the test
+  to match the new behaviour without saying so in the commit.
 - **Never change a threshold without bumping calibration_version
   and re-running the injection harness.** A threshold change
   without a completeness re-measurement is flying blind — the

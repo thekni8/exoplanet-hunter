@@ -1,0 +1,26 @@
+{
+  "registry_version": 1,
+  "entries": [
+    {
+      "calibration_id": "bulk_v1",
+      "sha256": "54e9c35c1df5bd8de9684af23f6e99d2e6f4d99066222eedee9adf20ef3c7856",
+      "status": "active",
+      "rationale": "v1.1 survivor calibration (2026-11-11): the flat SDE>=7 bar passed 31.6% of the proof run, so survivorship also requires a pink-noise MES rescore in tier A or B. The 5-sigma MAD clip has NO depth floor in this version \u2014 a known sensitivity defect (a 1.5% transit on a 0.3%-noise star scores lower than a 1.0% one); bulk_v2 fixes it. See bulk/CALIBRATION_V1_1.md.",
+      "supersedes": null
+    },
+    {
+      "calibration_id": "deep_v1",
+      "sha256": "d30457270abf3b91f5896d405bf50328bd33cad03aa1d03d36adc6e566a602c5",
+      "status": "active",
+      "rationale": "Deep-pipeline thresholds as run since the 2026-11-13 BLS fix (SDE 8.5 discovery bar, 6.5 acceptance floor). Snapshot of hunter.py's named constants.",
+      "supersedes": null
+    },
+    {
+      "calibration_id": "gauntlet_v1",
+      "sha256": "fb90bed3676f48ed0916b439ae763036bf809e3ff8e5197b196d9416d264fa81",
+      "status": "active",
+      "rationale": "Gauntlet thresholds as vetted through S96-S98 (shape-gate V/U bounds, 15% chi2 floor, 10% MAD-clip floor). Snapshot of the gauntlet's named constants plus the stage-result decision policy.",
+      "supersedes": null
+    }
+  ]
+}
