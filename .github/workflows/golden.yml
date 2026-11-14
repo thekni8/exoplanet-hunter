@@ -46,5 +46,13 @@ jobs:
       - name: Check calibration registry (hashes + append-only)
         run: python scripts/check_registry.py --base origin/main
 
+      - name: Flag expected-values / calibration changes
+        # C-7: flags (never blocks) any change to the golden-star
+        # acceptance numbers or to calibration/ vs the base
+        # branch, with a plain-words summary + ::warning::
+        # annotations. A changed expected value can be
+        # legitimate — but it must never slip through unnoticed.
+        run: python scripts/check_expected_values.py --base origin/main
+
       - name: Run golden suite (offline — no downloads)
         run: python tests/run_golden.py --fast

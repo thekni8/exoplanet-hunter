@@ -5,6 +5,12 @@ definition of "the pipeline still finds the known answers" —
 if the live and offline suites ever disagree, the fixture is
 stale, not the assertion.
 
+The NUMBERS live in tests/expected_values.json (loaded via
+tests/expected_values.py) so a change to them is a visible,
+reviewable diff — scripts/check_expected_values.py flags any
+change against the base branch in CI. The RATIONALE for each
+number stays in the docstrings here.
+
 Each check takes the TestCase (tc) and the full _run_pipeline
 result dict, and asserts with the TestCase's methods so failures
 read as test failures with the star's name attached.
@@ -13,6 +19,7 @@ import numpy as np
 
 import hunter
 from gauntlet.rawflux_check import trapezoid_shape_gate
+from tests.expected_values import star_values
 
 
 def bls_sde_at(full, target, frac_tol=0.01):
@@ -43,15 +50,18 @@ def check_toi700(tc, full):
     in peak extraction, so top-3 membership is the wrong
     assertion — what matters is the spectrum peak against the
     pipeline's own 6.5 acceptance floor)."""
-    tc.assertAlmostEqual(full["Period"], 16.05094, delta=0.05,
+    v = star_values("150428135")
+    tc.assertAlmostEqual(full["Period"], v["headline_period_d"],
+                         delta=v["headline_period_tol_d"],
                          msg=f"TOI-700 c not headline: "
                              f"got P={full['Period']}")
-    tc.assertGreater(full["SDE"], 8.5)
-    b_sde = bls_sde_at(full, 9.97706)
+    tc.assertGreater(full["SDE"], v["headline_sde_min"])
+    b_sde = bls_sde_at(full, v["second_period_d"],
+                       frac_tol=v["second_sde_frac_tol"])
     tc.assertGreater(
-        b_sde, 6.5,
-        msg=f"TOI-700 b (9.97706 d) not a significant BLS peak: "
-            f"SDE {b_sde:.1f}")
+        b_sde, v["second_sde_min"],
+        msg=f"TOI-700 b ({v['second_period_d']} d) not a "
+            f"significant BLS peak: SDE {b_sde:.1f}")
 
 
 def check_wasp126(tc, full):
@@ -60,13 +70,16 @@ def check_wasp126(tc, full):
     measurement (0.631%), NOT the catalog value (0.7006%), so
     this test detects that the search or flattening CHANGED, not
     that it is correct. Period must match the published 3.286 d."""
-    tc.assertAlmostEqual(full["Period"], 3.286, delta=0.05,
+    v = star_values("25155310")
+    tc.assertAlmostEqual(full["Period"], v["period_d"],
+                         delta=v["period_tol_d"],
                          msg=f"WASP-126 b period wrong: "
                              f"got P={full['Period']}")
-    tc.assertAlmostEqual(full["Depth"], 0.00631, delta=0.0015,
+    tc.assertAlmostEqual(full["Depth"], v["depth_frac"],
+                         delta=v["depth_tol_frac"],
                          msg=f"WASP-126 b depth drifted: "
                              f"got {full['Depth']:.5f} "
-                             f"(baseline 0.00631)")
+                             f"(baseline {v['depth_frac']})")
 
 
 def check_eb(tc, full, rho_star):
@@ -93,7 +106,9 @@ def check_eb(tc, full, rho_star):
     the measurement reproducibly says.
     `rho_star` is the TIC stellar density (solar units) — the live
     test queries it, the offline test reads it from the fixture."""
-    tc.assertAlmostEqual(full["Period"], 0.75677, delta=0.01,
+    v = star_values("308851365")
+    tc.assertAlmostEqual(full["Period"], v["period_d"],
+                         delta=v["period_tol_d"],
                          msg=f"EB period wrong: "
                              f"got P={full['Period']}")
     gate = trapezoid_shape_gate(
@@ -102,7 +117,7 @@ def check_eb(tc, full, rho_star):
         rho_star)
     tc.assertNotEqual(gate.get("shape_verdict"), "unmeasured",
                       msg=f"shape gate unmeasured on the EB: {gate}")
-    tc.assertLess(gate["T23_T14"], 0.50,
+    tc.assertLess(gate["T23_T14"], v["t23_t14_max"],
                   msg=f"shape gate called the EB flat-bottomed: "
                       f"T23/T14={gate['T23_T14']:.3f}")
     tc.assertTrue(gate["density_flag"],
