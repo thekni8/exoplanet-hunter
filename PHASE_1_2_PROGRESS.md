@@ -62,6 +62,27 @@ Started 2026-11-14 ~14:47 IST on branch `standardize/phase-1` (HEAD `d8b4be8` at
 | Mirror gone, injection tests use the real pipeline | `python -m unittest tests.test_injection` | OK | OK, 3 tests, 275.7 s |
 | Rescore tool tested on synthetic data | `python -m unittest tests.test_rescore_v2` | OK | OK, 3 tests — the 3.0%-on-0.3%-noise transit v1 missed (SDE 5.4) is recovered under v2 |
 
+## Claims ledger (Release C)
+
+| Claim | Command | Expected | Actual |
+|---|---|---|---|
+| Golden suite green (253 + 51 new) | `~/workspace/exoplanet-hunter/.venv/bin/python tests/run_golden.py` | `OK, GOLDEN SUITE: PASS` | `Ran 304 tests in 911.868s — OK (expected failures=1) — GOLDEN SUITE: PASS (304 test(s))`, wall 15m22s, exit 0 (2026-11-14). New tests: test_net 11, test_idempotency 12, test_build_ledger 8, test_expected_values 6, test_run_fingerprint 10, test_gauntlet_clip 2, C-4 diff test 1, conservation +1 (C-1 unmeasured status) |
+| Fast suite green | `~/workspace/exoplanet-hunter/.venv/bin/python tests/run_golden.py --fast` | `OK, GOLDEN SUITE: PASS` | `Ran 300 tests in 888.344s — OK (expected failures=1) — GOLDEN SUITE: PASS (300 test(s))` (ran concurrently with the C-9 pip install, hence slower than usual) |
+| v1 calibration files byte-identical | `git diff 80832ac HEAD -- calibration/*_v1.yaml` | no diff | IDENTICAL (bulk_v1, deep_v1, gauntlet_v1) |
+| bulk_v2 untouched since Release B | `git diff d8b4be8 HEAD -- calibration/bulk_v2.yaml` | no diff | IDENTICAL |
+| Registry check passes | `python scripts/check_registry.py` | `registry check OK` | `registry check OK` (append-only diff skips with a warning: origin/main unresolvable in this clone) |
+| No run-data writes since Phase 1.1 base | `git diff --name-only 80832ac HEAD`, filtered to run-data dirs | none | none (31 files changed in Release C, none under `vetting_results/` / `bulk/cache/` / `bulk/run_*` / `sweep-output/` / `results/` / `data/`) |
+| C-1 network timeouts | `python -m unittest tests.test_net` | OK | OK, 11 tests, all offline |
+| C-2 crash-boundary + idempotency | `python -m unittest tests.test_idempotency` | OK | OK, 12 tests, 21.1 s; stub kill-points verified (die before/after survivors, after hits) |
+| C-3 ledger builder | `python -m unittest tests.test_build_ledger` | OK | OK, 8 tests; deterministic except `generated_at`; `--rescore` merge tested on synthetic data |
+| C-4 fixture-vs-live BLS-input hash | `python -m unittest tests.test_golden_stars` (live) | OK | OK — live + fixture golden suites 7/7 in 380.059 s; float32/float64 savgol root cause found and fixed (float64 normalisation in `_run_pipeline`) |
+| C-5 live-CI issue step | YAML parse of `.github/workflows/live.yml` | parses | parses; **live behaviour UNVERIFIED** (cannot be exercised without pushing) |
+| C-6 mutation canaries | `python scripts/mutation_canaries.py` | exit 0, every canary red | exit 0 — chi2-floor, mad-clip-floor, clean-refold-gate all go RED; 180″ rule has NO code target (prose only, code defaults to 60″) — verified on every run |
+| C-7 expected-values file + CI flag | `python -m unittest tests.test_expected_values` + temp-edit warning check | OK; warning, exit 0 | 6/6 OK; temp edit 8.5 → 9.9 produced `::warning::expected value changed: stars.150428135.headline_sde_min: 8.5 -> 9.9`, exit 0, reverted clean |
+| C-8 run fingerprint | `python -m unittest tests.test_run_fingerprint` | OK | OK, 10 tests (9 fingerprint + 1 C-9 lockfile-hash test); tampered-resume refusal + `--accept-code-change` path verified via the stub driver |
+| C-9 lockfile clean install | fresh venv `pip install --require-hashes -r requirements.lock` + smoke | pip exit 0; smoke OK | 93 packages installed with hash verification, pip exit 0, 114 s; smoke (import hunter/bulk_screen/provenance + test_recipe + test_stamp) 21/21 OK in the clean venv; throwaway venv deleted |
+| C-10 TRICERATOPS/LATTE design | `docs/triceratops-latte-design.md` exists, doc only | exists | 17,417 B, doc only — no code, no new dependency |
+
 ## Judgment calls for the vote
 
 - **A-4 waivers "in the policy":** the brief says stages block "unless the decision policy waives them explicitly (per-stage, in the policy, with a reason)". A literal reading (waivers listed in `gauntlet_v2.yaml` per target) is unworkable — the registry forbids editing the policy per target. Implemented as: the policy's `waivers` map is the ALLOWLIST (which stages may be waived + grounds); each run applies waivers with per-target reasons; the verdict record carries them. Allowlist is deliberately small (holdout, clean_refold, pixel_check — structural non-applicability only). UNMEASURED/FAIL never waivable.
