@@ -65,12 +65,19 @@ Rules:
 
 import json
 import hashlib
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 
 import numpy as np
+
+try:
+    import provenance as _provenance
+except ImportError:  # pragma: no cover - direct-file fallback
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    import provenance as _provenance
 
 try:
     from gauntlet.stage_result import (  # type: ignore
@@ -477,7 +484,29 @@ def _cache_path(work_dir, context_hash):
             / f"{context_hash}.json")
 
 
-def _load_cached(work_dir, context_hash):
+def _cache_calibration_version(ctx):
+    """The calibration version for cache verification: the
+    ctx.provenance value, with a mapping normalised to a plain
+    dict (provenance_header stamps a per-subsystem map;
+    test/legacy contexts stamp a plain string)."""
+    ver = ctx.provenance.get("calibration_version")
+    if isinstance(ver, Mapping):
+        return dict(ver)
+    return ver
+
+
+def _load_cached(work_dir, context_hash, ctx, waivers):
+    """Load a cached run, verifying it is reusable (F-16).
+
+    The context hash covers only the INPUTS — a cached run is
+    reusable only under the same calibration, the same code,
+    and the same waivers. A mismatch on any of the three
+    discards the cache (the run re-executes). Old cache
+    records (pre-F-16, no verification fields) are discarded
+    too: a missing field never matches a live value — the
+    code-fingerprint check alone guarantees that, since a real
+    fingerprint is never None.
+    """
     path = _cache_path(work_dir, context_hash)
     if not path.exists():
         return None
@@ -486,6 +515,15 @@ def _load_cached(work_dir, context_hash):
     except (json.JSONDecodeError, OSError):
         return None
     if record.get("context_hash") != context_hash:
+        return None
+    if (record.get("calibration_version")
+            != _cache_calibration_version(ctx)):
+        return None
+    if (record.get("code_fingerprint")
+            != _provenance.fingerprint_result_affecting()):
+        return None
+    if record.get("waivers", {}) != (dict(waivers) if waivers
+                                     else {}):
         return None
     try:
         results = [StageResult.from_dict(d)
@@ -500,11 +538,17 @@ def _load_cached(work_dir, context_hash):
         cached=True, context_hash=context_hash)
 
 
-def _save_cached(work_dir, run):
+def _save_cached(work_dir, run, ctx, waivers):
     path = _cache_path(work_dir, run.context_hash)
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "context_hash": run.context_hash,
+        # F-16: what the cache must verify before reuse —
+        # calibration, code fingerprint, waivers.
+        "calibration_version": _cache_calibration_version(ctx),
+        "code_fingerprint":
+            _provenance.fingerprint_result_affecting(),
+        "waivers": dict(waivers) if waivers else {},
         "results": [r.to_dict() for r in run.results],
         "final_verdict": run.final_verdict,
         "verdict_note": run.verdict_note,
@@ -525,7 +569,8 @@ def run_gauntlet(ctx, stages=None, mode="short_circuit",
     waivers: passed to aggregate_verdict (and used to satisfy
     waived prerequisites). work_dir: when given, results are
     cached under work_dir/"gauntlet-cache"/<context-hash>.json
-    and re-used for an unchanged input context.
+    and re-used for an unchanged input context under the same
+    calibration, code fingerprint, and waivers (F-16).
     """
     if mode not in ("short_circuit", "exhaustive"):
         raise ValueError(
@@ -538,7 +583,7 @@ def run_gauntlet(ctx, stages=None, mode="short_circuit",
     context_hash = ctx.context_hash()
 
     if work_dir is not None:
-        cached = _load_cached(work_dir, context_hash)
+        cached = _load_cached(work_dir, context_hash, ctx, waived)
         if cached is not None:
             return cached
 
@@ -599,7 +644,7 @@ def run_gauntlet(ctx, stages=None, mode="short_circuit",
                       verdict_note=note, skipped=skipped,
                       cached=False, context_hash=context_hash)
     if work_dir is not None:
-        _save_cached(work_dir, run)
+        _save_cached(work_dir, run, ctx, waived)
     return run
 
 

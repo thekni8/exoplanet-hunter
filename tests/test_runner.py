@@ -13,10 +13,12 @@ raises becomes unmeasured with an error execution status, never
 a pass and never a run-killing crash; the context is frozen and
 results are cached by input hash.
 """
+import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -522,6 +524,92 @@ class TestResultCaching(unittest.TestCase):
                                 work_dir=td)
             self.assertFalse(run2.cached)
             self.assertEqual(run2.final_verdict, "EB")
+
+    def test_calibration_change_misses_the_cache(self):
+        # F-16: the context hash ignores provenance (a different
+        # run_id hashes identically), so a calibration change
+        # must be caught by the cache verification, not the
+        # hash. Same inputs, different calibration_version ->
+        # the cache must NOT be reused.
+        with tempfile.TemporaryDirectory() as td:
+            ctx1 = _ctx(imaging=IMAGING_ON)
+            run1 = run_gauntlet(ctx1, work_dir=td)
+            self.assertFalse(run1.cached)
+            # The cached record carries the verification fields.
+            cache = Path(td) / "gauntlet-cache"
+            record = json.loads(
+                next(cache.glob("*.json")).read_text())
+            self.assertEqual(record["calibration_version"],
+                             "gauntlet_v2")
+            self.assertTrue(record["code_fingerprint"])
+            self.assertEqual(record["waivers"], {})
+            prov2 = dict(PROV)
+            prov2["calibration_version"] = "gauntlet_v1"
+            ctx2 = TargetContext(
+                tic=ctx1.tic, ephemeris=ctx1.ephemeris,
+                artifacts=dict(ctx1.artifacts), provenance=prov2,
+                imaging=dict(IMAGING_ON),
+                bulk_survivor=ctx1.bulk_survivor)
+            self.assertEqual(ctx1.context_hash(),
+                             ctx2.context_hash())
+            run2 = run_gauntlet(ctx2, work_dir=td)
+            self.assertFalse(run2.cached)
+
+    def test_waivers_change_misses_the_cache(self):
+        # F-16: a run cached WITHOUT waivers must not be reused
+        # for a run WITH waivers (and vice versa) — the verdict
+        # differs (INCONCLUSIVE vs CANDIDATE) on identical
+        # inputs.
+        with tempfile.TemporaryDirectory() as td:
+            run1 = run_gauntlet(
+                _ctx(imaging=IMAGING_ON, bulk_survivor=False),
+                work_dir=td)
+            self.assertFalse(run1.cached)
+            self.assertEqual(run1.final_verdict, "INCONCLUSIVE")
+            waiver = {"clean_refold":
+                      "deep-pipeline target, no bulk gate"}
+            run2 = run_gauntlet(
+                _ctx(imaging=IMAGING_ON, bulk_survivor=False),
+                waivers=waiver, work_dir=td)
+            self.assertFalse(run2.cached)
+            self.assertEqual(run2.final_verdict, "CANDIDATE")
+            # Same waivers again: the cache hits.
+            run3 = run_gauntlet(
+                _ctx(imaging=IMAGING_ON, bulk_survivor=False),
+                waivers=waiver, work_dir=td)
+            self.assertTrue(run3.cached)
+            self.assertEqual(run3.final_verdict, "CANDIDATE")
+
+    def test_code_change_misses_the_cache(self):
+        # F-16: proven by mocking the fingerprint — a different
+        # code fingerprint on the second run discards the cache.
+        with tempfile.TemporaryDirectory() as td:
+            run_gauntlet(_ctx(imaging=IMAGING_ON), work_dir=td)
+            import gauntlet.runner as _runner_mod
+            with mock.patch.object(
+                    _runner_mod._provenance,
+                    "fingerprint_result_affecting",
+                    return_value="0" * 64):
+                run2 = run_gauntlet(_ctx(imaging=IMAGING_ON),
+                                    work_dir=td)
+            self.assertFalse(run2.cached)
+
+    def test_legacy_cache_record_is_discarded(self):
+        # F-16: a pre-F-16 record (no verification fields) must
+        # never be trusted — strip the fields and the run
+        # re-executes.
+        with tempfile.TemporaryDirectory() as td:
+            run_gauntlet(_ctx(imaging=IMAGING_ON), work_dir=td)
+            cache = Path(td) / "gauntlet-cache"
+            path = next(cache.glob("*.json"))
+            record = json.loads(path.read_text())
+            for key in ("calibration_version",
+                        "code_fingerprint", "waivers"):
+                record.pop(key, None)
+            path.write_text(json.dumps(record))
+            run2 = run_gauntlet(_ctx(imaging=IMAGING_ON),
+                                work_dir=td)
+            self.assertFalse(run2.cached)
 
 
 class TestReportGate(unittest.TestCase):
