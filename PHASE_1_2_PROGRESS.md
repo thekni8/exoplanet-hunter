@@ -15,10 +15,12 @@ Note: v1-spec commits `c630327` (runner) and `e1baef2` (contract) to review agai
 - [x] A-6 Blend pure function + fixture — `76041cc`
 - [x] A-7 Conservation check — `fcf167e`
 
-## Release B (not this sprint)
+## Release B
 
-- [ ] B-1 Mirror deprecation
-- [ ] B-2 MAD clip → bulk_v2
+Started 2026-11-14 ~13:50 IST on branch `standardize/phase-1` (HEAD `34bf313` at start, tree clean). NO PUSH per Dev's 2026-11-14 rule: nothing pushes until the work is completely finished and ready to publish — local commits only.
+
+- [x] B-1 Mirror deprecation — `35f2639` (injection smoke tests 3/3 PASS, 275.7 s)
+- [ ] B-2 MAD clip → bulk_v2 (pre-registration `8bdf693`; shared clip `d0012c7`; screen wiring `3203f63`; grid + bulk_v2 + rescore tool pending)
 
 ## Release C (not this sprint)
 
