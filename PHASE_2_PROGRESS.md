@@ -202,7 +202,41 @@ offline + 4 live). Smoke tier green (194/194, after 2B-2).
    itself; extending the verdict schema with an
    `external_tools` section is a vote item.
 
-## 2C — TRICERATOPS (not started)
+## 2C — TRICERATOPS (COMPLETE)
+
+| Item | Commit | What |
+|---|---|---|
+| 2C-1 | (this commit) | TRICERATOPS adapter (`triceratops_result`, policy-mapped PASS/FAIL/INCONCLUSIVE, degenerate → UNMEASURED) + output schema + `gauntlet/tools/run_triceratops.py` wrapper (phase fold, `np.random.seed`, `target`/`calc_depths`/`calc_probs`, name-based scenario aggregation, probs CSV artifact). 17 tests (adapter + wrapper against a fake triceratops package, incl. seeded determinism). |
+| 2C-2 | (this commit) | Driver wiring (`_TOOL_ADAPTERS` + `dilution_corrected` from the light-curve product: SPOC/TESS-SPOC PDCSAP true, QLP KSPSAP false). 1 driver test (both tools on a clean planet, policy-mapped under the real default policy). |
+
+Test tally after 2C: 465 + 17 + 1 = **483** (479 offline +
+4 live).
+
+### Judgment calls (2C — for the Phase 2 vote)
+
+1. **Degenerate FPP=1.0 is UNMEASURED, never FAIL.** The
+   tool itself warns that a degenerate computation (all
+   scenario log-evidences −inf) reports FPP=1.0 for a
+   failed computation, not a confident false positive. The
+   wrapper reports the run completed with
+   `fpp_degenerate=true` (evidence preserved) and the
+   adapter maps it to UNMEASURED + EXEC_ERROR.
+2. **NFPP alone never refutes in v1.** A low FPP blocked
+   by a high NFPP reads INCONCLUSIVE (grey zone): without
+   a contrast curve NFPP is an upper bound, so failing on
+   it would be aggressive. Whether NFPP > 0.1 should refute
+   (the literature's "likely false positive" bar) is a vote
+   item.
+3. **Uncertainty is None in v1.** A single seeded run
+   carries no Monte Carlo error bar (papers run 20× and
+   report mean ± std). The seed makes a re-run
+   reproducible; a repeat-run harness is future work.
+4. **N=1,000,000 (the tool default).** No policy override
+   in v1; the published cost (~5–15 min/target) stands.
+5. **No nested timeout in the TRICERATOPS wrapper.**
+   calc_probs is a blocking in-process call, so the
+   runner's 1800 s timeout is the enforcement (unlike
+   LATTE, which the wrapper kills itself 60 s early).
 
 ## 2D — Evidence package (not started)
 

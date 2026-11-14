@@ -61,7 +61,8 @@ from gauntlet.pixel_check import pixel_check_native
 from gauntlet.refine import refine_native
 from gauntlet.runner import (Ephemeris, TargetContext, run_gauntlet)
 from gauntlet.stage_result import (EXEC_ERROR, STATUS_UNMEASURED,
-                                   StageResult, latte_result)
+                                   StageResult, latte_result,
+                                   triceratops_result)
 from gauntlet.verdict import build_verdict
 
 CLEAN_GATE_SIGMA_MIN = 3.0
@@ -440,8 +441,15 @@ def external_tool_sections(tic, target, period_d, t0, duration_h,
 
 
 # Output-JSON adapters per external tool (stage_result.py).
-# TRICERATOPS joins here in 2C.
-_TOOL_ADAPTERS = {"latte": latte_result}
+_TOOL_ADAPTERS = {"latte": latte_result,
+                  "triceratops": triceratops_result}
+
+# Light-curve products whose stitched flux is already
+# dilution-corrected: lightkurve's default flux column is
+# PDCSAP for SPOC/TESS-SPOC and KSPSAP for QLP (pinned by
+# lightkurve 2.6.0 in requirements.lock). TRICERATOPS needs
+# the flag to match — it corrects internally when False.
+DILUTION_CORRECTED_PRODUCTS = ("spoc", "tspc")
 
 
 def _run_external_tools(configs, tic, census, period_d, t0,
@@ -481,6 +489,10 @@ def _run_external_tools(configs, tic, census, period_d, t0,
                 timeout_s=config.timeout_s)
             if tool == "latte":
                 inp["ffi_mode"] = ffi_mode
+            if tool == "triceratops":
+                inp["dilution_corrected"] = (
+                    stitched.get("pfx")
+                    in DILUTION_CORRECTED_PRODUCTS)
             res = run_external_tool(
                 config, inp,
                 os.path.join(workdir, f"tool-{tool}"))

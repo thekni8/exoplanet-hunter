@@ -224,6 +224,44 @@ FAKE_LATTE_WRAPPER = textwrap.dedent("""\
     """)
 
 
+FAKE_TRI_WRAPPER = textwrap.dedent("""\
+    import argparse, json, os
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", required=True)
+    ap.add_argument("--output", required=True)
+    args = ap.parse_args()
+    inp = json.load(open(args.input))
+    marker = os.environ.get("FAKE_TRI_MARKER")
+    if marker:
+        open(marker, "w").write("ran")
+    json.dump({
+        "tool": "triceratops", "tool_version": "1.1.0",
+        "seed": inp["seed"], "config_hash": inp["config_hash"],
+        "status": "completed", "value": 0.0032,
+        "metrics": {"fpp": 0.0032, "nfpp": 0.0008,
+                    "prob_planet": 0.9968,
+                    "prob_eb_target": 0.0021,
+                    "prob_eb_neighbour": 0.0009,
+                    "prob_hierarchical_eb": 0.0002,
+                    "n_samples": 1000000,
+                    "most_likely_false_positive":
+                        "EB on TIC 999999999",
+                    "fpp_degenerate": False,
+                    "dilution_corrected":
+                        inp.get("dilution_corrected", False),
+                    "contrast_curve_used": False},
+        "input_hashes": {
+            "lightcurve": inp["lightcurve"]["input_hash"],
+            "neighbours": inp["neighbours"]["input_hash"]},
+        "artifacts": ["/tmp/fake/triceratops_probs.csv"],
+        "warnings": ["no contrast curve: NFPP is an upper "
+                     "bound"],
+        "wall_time_s": 412.5,
+        "n_transits": inp["signal"]["n_transits"],
+    }, open(args.output, "w"))
+    """)
+
+
 class TestDeskExternalTools(unittest.TestCase):
 
     def _configs(self, tmp, python=sys.executable):
@@ -236,6 +274,20 @@ class TestDeskExternalTools(unittest.TestCase):
             tool="latte", python=python, wrapper=str(wrapper),
             timeout_s=30, memory_mb=2048, seed=20261114,
             tool_version="1.0.21", config_hash="c" * 64)}, marker
+
+    def _both_configs(self, tmp):
+        configs, latte_marker = self._configs(tmp)
+        wrapper = Path(tmp) / "fake_tri.py"
+        wrapper.write_text(FAKE_TRI_WRAPPER)
+        tri_marker = str(Path(tmp) / "tri_ran.marker")
+        os.environ["FAKE_TRI_MARKER"] = tri_marker
+        self.addCleanup(os.environ.pop, "FAKE_TRI_MARKER", None)
+        configs["triceratops"] = ToolConfig(
+            tool="triceratops", python=sys.executable,
+            wrapper=str(wrapper), timeout_s=30, memory_mb=2048,
+            seed=20261114, tool_version="1.1.0",
+            config_hash="c" * 64)
+        return configs, latte_marker, tri_marker
 
     def _run(self, source, configs, **kw):
         # Everything is extracted inside the block: the
@@ -321,6 +373,35 @@ class TestDeskExternalTools(unittest.TestCase):
             self.assertEqual(latte["status"], "unmeasured")
             self.assertEqual(latte["execution_status"], "error")
             self.assertIn("missing_venv", latte["reason"])
+
+    def test_both_tools_run_on_clean_planet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            configs, latte_marker, tri_marker = (
+                self._both_configs(tmp))
+            result, _n, _v, _f, _h = self._run(
+                FakeDataSource(), configs)
+            self.assertEqual(result.run.final_verdict,
+                             "CANDIDATE")
+            self.assertTrue(os.path.exists(latte_marker))
+            self.assertTrue(os.path.exists(tri_marker))
+            tools = result.extra_evidence["external_tools"]
+            self.assertEqual(set(tools),
+                             {"latte", "triceratops"})
+            # The TRICERATOPS result is policy-mapped under
+            # the REAL default policy (external_tools_v1):
+            # FPP 0.0032 / NFPP 0.0008 clear the provisional
+            # validation bars -> pass. It is still evidence
+            # only (not in the verdict's stages).
+            tri = tools["triceratops"]
+            self.assertEqual(tri["status"], "pass")
+            self.assertEqual(tri["value"], 0.0032)
+            self.assertEqual(tri["threshold"], 0.015)
+            raw = result.extra_evidence["external_tools_raw"]
+            # The fake's light curve is QLP (KSPSAP): not
+            # dilution-corrected.
+            self.assertFalse(
+                raw["triceratops"]["metrics"]
+                ["dilution_corrected"])
 
     def test_missing_census_field_skips_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
