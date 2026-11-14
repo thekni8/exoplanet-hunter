@@ -19,7 +19,7 @@ package → 2E review. Commit per item.
 | 2A-5 | — | Live clean-gate regression (`tests/test_desk_live.py`, DOWNLOAD_TESTS) + `docs/desk-automation.md`. 1 live test. |
 
 Test tally after 2A: 389 at base + 4 (refine) + 10 (census) +
-5 (pixel) + 18 (desk) + 1 (live) = **427** (423 offline + 4
+5 (pixel) + 18 (desk) + 1 (live) = **427** (422 offline + 5
 live). Smoke tier green (194/194). Full suite to be run once
 at the end.
 
@@ -97,8 +97,8 @@ at the end.
 | 2B-2 | `c0ccc7a` | LATTE adapter (`latte_result` in `stage_result.py`, report-only → INCONCLUSIVE) + output schema + `gauntlet/tools/run_latte.py` wrapper (targetlist CSV, stable indir via `_config.txt`, PDF check, nested timeout). 14 tests (adapter + wrapper against a fake LATTE package). |
 | 2B-3 | (this commit) | Policy `calibration/external_tools_v1.yaml` (shared seed/timeout/memory + per-tool Mac venv paths + PROVISIONAL TRICERATOPS FPP bars) + registry entry + desk-driver wiring (post-runner evidence stages, expensive-gated) + `--external-tools` CLI flag + `docs/external-tools-mac-setup.md`. 10 tests. |
 
-Test tally after 2B-3: 427 + 14 + 14 + 10 = **465** (461
-offline + 4 live). Smoke tier green (194/194, after 2B-2).
+Test tally after 2B-3: 427 + 14 + 14 + 10 = **465** (460
+offline + 5 live). Smoke tier green (194/194, after 2B-2).
 
 ### Tool research (2026-11-15 — read from the tools' own source, not the design doc's assumptions)
 
@@ -209,8 +209,8 @@ offline + 4 live). Smoke tier green (194/194, after 2B-2).
 | 2C-1 | (this commit) | TRICERATOPS adapter (`triceratops_result`, policy-mapped PASS/FAIL/INCONCLUSIVE, degenerate → UNMEASURED) + output schema + `gauntlet/tools/run_triceratops.py` wrapper (phase fold, `np.random.seed`, `target`/`calc_depths`/`calc_probs`, name-based scenario aggregation, probs CSV artifact). 17 tests (adapter + wrapper against a fake triceratops package, incl. seeded determinism). |
 | 2C-2 | (this commit) | Driver wiring (`_TOOL_ADAPTERS` + `dilution_corrected` from the light-curve product: SPOC/TESS-SPOC PDCSAP true, QLP KSPSAP false). 1 driver test (both tools on a clean planet, policy-mapped under the real default policy). |
 
-Test tally after 2C: 465 + 17 + 1 = **483** (479 offline +
-4 live).
+Test tally after 2C: 465 + 17 + 1 = **483** (478 offline +
+5 live).
 
 ### Judgment calls (2C — for the Phase 2 vote)
 
@@ -244,8 +244,8 @@ Test tally after 2C: 465 + 17 + 1 = **483** (479 offline +
 |---|---|---|
 | 2D-1 | (this commit) | `gauntlet/evidence.py:build_evidence_package` + `schema/evidence-schema.json` (stage-result shape inlined from the standalone schema, the verdict schema's pattern) + `validate_evidence_package`. The driver writes `evidence_package.json` last (it hashes verdict_record.json + desk_natives.json) and carries the package on DeskResult. 7 builder tests + driver assertions in test_desk_external_tools.py. |
 
-Test tally after 2D: 483 + 7 = **490** (486 offline +
-4 live).
+Test tally after 2D: 483 + 7 = **490** (485 offline +
+5 live).
 
 ### Judgment calls (2D — for the Phase 2 vote)
 
@@ -277,8 +277,8 @@ Test tally after 2D: 483 + 7 = **490** (486 offline +
 |---|---|---|
 | 2E-1 | (this commit) | `gauntlet/review.py` (prepare_filing_review + record_review_decision + review_2e_marker) + `schema/review-schema.json` + `validate_filing_review`. 14 tests, incl. the integration proof that an approved review unblocks check_report_ready for a waived candidate. |
 
-Test tally after 2E: 490 + 14 = **504** (500 offline +
-4 live).
+Test tally after 2E: 490 + 14 = **504** (499 offline +
+5 live).
 
 ### Judgment calls (2E — for the Phase 2 vote)
 
@@ -317,6 +317,24 @@ Test tally after 2E: 490 + 14 = **504** (500 offline +
   instructs that step. C-10's "installs from its own
   lockfile in a clean venv" acceptance criterion is
   therefore a Mac-side check, not a VM one.
+
+## Final verification (2026-11-15, after 2E)
+
+- Full offline suite (`tests/run_golden.py --fast`): **499
+  tests, PASS, expected failures=1** (the v1 xfail), 988.9 s.
+  Total suite: **504** (499 offline + 5 live; the live
+  modules run in live CI, not the PR gate).
+- Tally correction: the per-release lines above originally
+  read "N offline + 4 live" — the 2A live test
+  (test_desk_live) makes it 5 live, so every offline count
+  was one high. Totals were always right; the split is now
+  corrected.
+- Frozen v1 calibration files byte-identical to the
+  baseline below (md5 verified 2026-11-15 after the final
+  commit).
+- Branch: `standardize/phase-2`, 12 commits on top of
+  `standardize/phase-1` at 4acbc16. No push, no merge.
+  Tree clean.
 
 ## Frozen v1 calibration (verify at the end)
 
