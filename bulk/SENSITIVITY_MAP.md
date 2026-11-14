@@ -111,3 +111,53 @@ systematic windows (hard-coded from the S96–S98 recalibration
 notes, not from the grid), and the default (v1 stays the default
 until a run opts into v2 — new sectors screen under v2, and the
 v1 gate refuses v1 on any sector outside 96–98).
+
+## v3: the quality mask (2026-11-15)
+
+The v2 rescore gauntlet (S96, 25 NEW tier-A leads, 0 planets)
+found 18/25 were flagged-cadence artifacts — dips of 1.5–9.3%
+present ONLY on quality bit-29/30 cadences (TESS scattered
+light), with zero clean cadences in transit. v2's 10% clip floor
+preserves those deep flagged dropouts, so the screen promoted
+them. v3 (`calibration/bulk_v3.yaml`) masks bits 29/30 at screen
+input: `quality_mask` 1610629823 = lightkurve default 17087 +
+bits 29/30. All v2 thresholds carried over unchanged.
+
+Grid re-run under v3 (`EXHUNT_BULK_CALIBRATION=bulk_v3`, the
+`floor_10pct` option, 60 runs): the grid fixtures have
+quality==0 everywhere, so the mask is a no-op and v3 reproduces
+v2's numbers EXACTLY — deep-quiet 16/16, overall 35/48, null
+false alarms 0/12, 0 monotonicity violations. The mask changes
+nothing on clean data (also pinned in CI by
+`test_monotonicity_under_v3`, which asserts v3's headline-pair
+SDEs equal v2's).
+
+Sensitivity cost of the mask, measured by a flag-fraction sweep
+(WASP-29b-equivalent transit, P 3.9227 d, 1.14%, 0.3% noise;
+random bit-29 flags on 5/10/20% of cadences):
+
+| Flag fraction | v2 SDE / MES | v3 SDE / MES | v3 status |
+|---|---|---|---|
+| clean | 50.0 / 17.5 | 50.0 / 17.5 | survivor A |
+| 5% of all cadences | 50.0 / 17.5 | 44.3 / 17.3 | survivor A |
+| 10% of all cadences | 50.0 / 17.5 | 44.5 / 18.8 | survivor A |
+| 20% of all cadences | 50.0 / 17.5 | 39.3 / 18.8 | survivor A |
+| 10% off-transit only | 50.0 / 17.5 | 46.1 / 18.5 | survivor A |
+| 20% off-transit only | 50.0 / 17.5 | 41.5 / 18.1 | survivor A |
+
+The mask costs SDE (up to ~20% at 20% flagging — fewer cadences
+in the fold) but MES is preserved or slightly improved in every
+cell, and no real transit was lost at any flag fraction tested.
+One marginal shallow cell (0.5% depth, MES 8.5 under v2, just
+below the tier-A bar of 9.0) crossed the OTHER way under v3 at
+10–20% flagging (MES 9.3, survivor A) — at the boundary the
+mask's effect on MES can go either way; the sweep does not
+claim a systematic sensitivity gain.
+
+Artifact rejection is pinned in `tests/test_quality_mask.py`:
+five synthetic cells at real gauntlet periods/depths (bits 29/30,
+flag fractions 0.7/1.0) promote under v2 and fall below the
+record floor under v3. The clean-data re-fold gate is unchanged
+and remains the second line of defence (still pinned in
+`test_flagged_cadence_signal_gate_fails` on the v2-promoted
+signal).

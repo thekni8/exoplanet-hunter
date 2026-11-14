@@ -93,30 +93,77 @@ Same lesson earlier: TIC 344334378 (signal only in bit-30 cadences).
 
 ## Claims ledger
 
-- [ ] C-1: Under bulk_v3, flagged-only dips at the artifact
+- [x] C-1: Under bulk_v3, flagged-only dips at the artifact
   periods/depths (12.64 d, 6.27 d; screen depths 0.5–2.9%;
   bits 29 and 30; flagged fractions 0.7 and 1.0) do NOT reach
   survivor status; under bulk_v2 the same fixtures DO (the
-  failure reproduction).
-- [ ] C-2: A clean WASP-29b-equivalent transit (P 3.9227 d,
-  1.14%) still survives under bulk_v3.
-- [ ] C-3: A real transit with scattered-light flags on
+  failure reproduction). VERIFIED 2026-11-15 by
+  `tests/test_quality_mask.py` (5 cells: all survivor/A under
+  v2 with SDE 24.6–44.3, all below_floor under v3 with SDE
+  4.2–4.5). Note: fixture depths are the SCREEN-measured depths
+  from the ledger (0.5–2.9%), not the raw fold depths
+  (1.5–9.3%) — real scattered-light ramps are not box-shaped,
+  so BLS measures a shallower effective depth.
+- [x] C-2: A clean WASP-29b-equivalent transit (P 3.9227 d,
+  1.14%) still survives under bulk_v3. VERIFIED — survivor/A,
+  SDE 50.0, identical under v2 and v3.
+- [x] C-3: A real transit with scattered-light flags on
   non-transit cadences (10% flagged) still survives under v3.
-- [ ] C-4: A transit on bit-12 (4096) cadences still survives
-  under v3 (the mask must not include bit 12).
-- [ ] C-5: The full clip grid under bulk_v3 reproduces the v2
+  VERIFIED — survivor/A under v3 (SDE 46.1 vs 50.0 under v2).
+- [x] C-4: A transit on bit-12 (4096) cadences still survives
+  under v3 (the mask must not include bit 12). VERIFIED —
+  survivor/A, SDE 50.0, identical under v2 and v3.
+- [x] C-5: The full clip grid under bulk_v3 reproduces the v2
   numbers (deep-quiet 16/16, null FA 0/12, 0 monotonicity
-  violations) — the mask is a no-op on clean data.
-- [ ] C-6: Flag-fraction sweep bounds the cadence-loss cost
+  violations) — the mask is a no-op on clean data. VERIFIED —
+  `EXHUNT_BULK_CALIBRATION=bulk_v3`, floor_10pct option, 60
+  runs: summary dict identical to the committed v2 numbers
+  (recovery_all 35/48, deep-quiet 16/16, null FA 0/12, 0
+  monotonicity violations). Also pinned in CI by
+  `test_monotonicity_under_v3` (v3 headline-pair SDEs equal v2's).
+- [x] C-6: Flag-fraction sweep bounds the cadence-loss cost
   (recovery with realistic bits 29/30 fractions on
-  non-transit cadences, mask on vs off).
+  non-transit cadences, mask on vs off). VERIFIED —
+  `/tmp/flag_fraction_sweep.py`: WASP-29b survives at every
+  flag fraction (5/10/20%, all-cadence and off-transit-only);
+  v3 SDE costs up to ~20% at 20% flagging (50.0 → 39.3) but
+  MES preserved or improved in every cell (17.5 → 17.3–18.8);
+  no real transit lost. One marginal shallow cell (0.5%,
+  MES 8.5 under v2) crossed the other way under v3 at 10–20%
+  flagging (MES 9.3, survivor A) — at the boundary the mask's
+  MES effect can go either way; no systematic gain claimed.
+  Table in `bulk/SENSITIVITY_MAP.md` §v3.
 - [ ] C-7: Frozen v1 calibration files byte-identical at the end
   (bulk_v1/deep_v1/gauntlet_v1); registry append-only (existing
-  entries untouched); full golden suite green.
-- [ ] C-8: `test_flagged_cadence_signal_gate_fails` updated to
+  entries untouched); full golden suite green. PENDING — the
+  registry diff is already verified purely additive (7
+  insertions, 0 deletions); frozen-file check + full suite run
+  at the end.
+- [x] C-8: `test_flagged_cadence_signal_gate_fails` updated to
   the new pinned behavior (v2 promotes + gate FAILs; v3 does
   not promote) with the behavior change stated in the commit.
+  VERIFIED — commit f92d583 states the behaviour change; the
+  gate's FAIL verdict is still pinned on the v2-promoted signal.
 
 ## Commits
 
-- (log appended as work lands)
+- 169b0c8 — design record (this file)
+- 7e7770b — synth_fits: flag_bit parameter for flagged-only fixtures
+- 2e56634 — bulk_v3: quality mask excludes bits 29/30 at screen input (profile + registry + bulk_screen + rescore_v2)
+- 7444ea5 — quality-mask regression tests (5 tests, artifact cells + guards)
+- f92d583 — pin the NEW flagged-cadence behaviour under bulk_v3 (test_false_positives)
+- 3a3cb22 — bulk_v3 profile values + v3 clip-grid monotonicity tests
+- (docs, this commit) — v3 section in SENSITIVITY_MAP.md, bulk_v3 row in calibration/README.md, claims ledger completed
+
+## Open follow-ups (not this fix)
+
+- The deep pipeline (`hunter.py`) still uses lightkurve's default
+  mask (17087) — bits 29/30 pass there too. Needs a deep_v2
+  profile + deep sensitivity re-measurement if Dev wants it.
+- A bulk_v3 rescore of S96–S98 (or at least the 116 NEW v2
+  survivors) is the real-world validation of this fix — needs
+  Dev's go + Mac time; the S97/S98 caches are being downloaded
+  overnight for exactly this kind of work.
+- The remaining 91 NEW v2 survivors (tier B/C + near-systematic)
+  are very likely the same artifact class; v3 should kill most
+  of them at screen time.
