@@ -93,10 +93,11 @@ at the end.
 
 | Item | Commit | What |
 |---|---|---|
-| 2B-1 | (this commit) | Shared external-tool plumbing (`gauntlet/external_tool.py`): subprocess runner with timeout + RLIMIT_AS memory cap, C-10 input builder, missing-venv as a status. 14 tests. |
+| 2B-1 | `39dc271` | Shared external-tool plumbing (`gauntlet/external_tool.py`): subprocess runner with timeout + RLIMIT_AS memory cap, C-10 input builder, missing-venv as a status. 14 tests. |
+| 2B-2 | (this commit) | LATTE adapter (`latte_result` in `stage_result.py`, report-only → INCONCLUSIVE) + output schema + `gauntlet/tools/run_latte.py` wrapper (targetlist CSV, stable indir via `_config.txt`, PDF check, nested timeout). 14 tests (adapter + wrapper against a fake LATTE package). |
 
-Test tally after 2B-1: 427 + 14 = **441** (437 offline + 4
-live).
+Test tally after 2B-2: 427 + 14 + 14 = **455** (451 offline
++ 4 live). Smoke tier green (194/194).
 
 ### Tool research (2026-11-15 — read from the tools' own source, not the design doc's assumptions)
 

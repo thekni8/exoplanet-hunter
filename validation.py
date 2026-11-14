@@ -12,6 +12,8 @@ bug, and the run must stop, not write a corrupt handoff.
     validate_verdict(record)    # gauntlet verdict records
     validate_stage_result(record)  # standalone stage results
                                    # (contract v1, Phase 1.2)
+    validate_latte_output(record)  # LATTE tool output JSON
+                                   # (Phase 2, 2B)
 
 Both raise RecordValidationError listing the offending fields.
 The validators are Draft 2020-12. Timestamps are constrained by
@@ -41,7 +43,8 @@ class RecordValidationError(ValueError):
 
 
 def _validator(kind):
-    if kind not in ("survivor", "verdict", "stage_result"):
+    if kind not in ("survivor", "verdict", "stage_result",
+                    "latte-output"):
         raise ValueError(f"unknown record kind: {kind!r}")
     if kind not in _VALIDATORS:
         path = SCHEMA_DIR / f"{kind}-schema.json"
@@ -83,3 +86,8 @@ def validate_verdict(record):
 def validate_stage_result(record):
     """Validate one standalone stage result (contract v1)."""
     return validate_record("stage_result", record)
+
+
+def validate_latte_output(record):
+    """Validate one LATTE tool output JSON (Phase 2, 2B)."""
+    return validate_record("latte-output", record)

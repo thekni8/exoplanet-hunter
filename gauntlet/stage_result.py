@@ -69,6 +69,7 @@ from dataclasses import dataclass, field, replace
 from functools import lru_cache
 
 import provenance as _provenance
+import validation as _validation
 
 STATUS_PASS = "pass"
 STATUS_FAIL = "fail"
@@ -792,6 +793,66 @@ def blend_result(native, prov=None, policy=None):
         "blend", status, res["reason"], _prov(prov), details,
         value=res.get("depth_ratio"),
         threshold=res.get("min_depth_ratio"), metrics=metrics)
+
+
+def latte_result(native, prov=None):
+    """LATTE diagnostic report (Phase 2, 2B) -> StageResult.
+
+    Native shape: the LATTE tool output JSON (schema
+    latte-output-schema.json), validated here before
+    translation — a schema failure is UNMEASURED +
+    EXEC_ERROR, not a crash (C-10 constraint 4).
+
+    LATTE emits plots + a PDF report, NOT machine-readable
+    per-check dispositions (verified against the 1.0.21
+    source; the C-10 design doc's dispositions assumption
+    does not exist in the tool). So a completed run reads
+    INCONCLUSIVE — "report generated; a human must read it"
+    — never PASS and never FAIL. A failed / timed-out /
+    report-less run reads UNMEASURED + EXEC_ERROR.
+
+    The result is EVIDENCE ONLY: it is stored in the verdict
+    record's extra evidence and the 2D evidence package, and
+    never participates in promotion aggregation — including
+    it would block every promotion, since it can never PASS.
+    """
+    if not native:
+        return StageResult(
+            "latte", STATUS_UNMEASURED,
+            "no LATTE output supplied", _prov(prov), {})
+    try:
+        _validation.validate_latte_output(native)
+    except _validation.RecordValidationError as exc:
+        return StageResult(
+            "latte", STATUS_UNMEASURED,
+            f"LATTE output failed schema validation: {exc}",
+            _prov(prov), {},
+            execution_status=EXEC_ERROR)
+    status = native["status"]
+    metrics = native["metrics"]
+    ev = {"metrics": {"n_artifacts": metrics["n_artifacts"]},
+          "artifacts": list(native["artifacts"]),
+          "tool_version": native["tool_version"],
+          "config_hash": native["config_hash"],
+          "input_hashes": dict(native["input_hashes"]),
+          "warnings": list(native["warnings"]),
+          "n_transits": native.get("n_transits")}
+    details = {k: metrics.get(k) for k in
+               ("report_pdf", "output_dir", "latte_indir")
+               if metrics.get(k) is not None}
+    details["wall_time_s"] = native["wall_time_s"]
+    if status != "completed":
+        return StageResult(
+            "latte", STATUS_UNMEASURED,
+            f"LATTE {status}: no report was produced",
+            _prov(prov), details, execution_status=EXEC_ERROR,
+            **ev)
+    return StageResult(
+        "latte", STATUS_INCONCLUSIVE,
+        "LATTE report generated — a human must read it: "
+        "LATTE emits plots + a PDF, no machine-readable "
+        "dispositions, so no check can pass or fail here",
+        _prov(prov), details, **ev)
 
 
 # ---------------------------------------------------------------------------
