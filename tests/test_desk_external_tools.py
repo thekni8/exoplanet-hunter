@@ -378,7 +378,7 @@ class TestDeskExternalTools(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             configs, latte_marker, tri_marker = (
                 self._both_configs(tmp))
-            result, _n, _v, _f, _h = self._run(
+            result, _n, _v, files, _h = self._run(
                 FakeDataSource(), configs)
             self.assertEqual(result.run.final_verdict,
                              "CANDIDATE")
@@ -402,6 +402,25 @@ class TestDeskExternalTools(unittest.TestCase):
             self.assertFalse(
                 raw["triceratops"]["metrics"]
                 ["dilution_corrected"])
+            # 2D: the driver wrote the evidence package next
+            # to the verdict record + natives, and it carries
+            # the tool scores.
+            self.assertIn("evidence_package.json", files)
+            pkg = result.evidence_package
+            self.assertEqual(pkg["verdict"]["final_verdict"],
+                             "CANDIDATE")
+            self.assertEqual(pkg["scores"]["triceratops"]["fpp"],
+                             0.0032)
+            # The run waives pixel_check (P < 8 d), so the
+            # package is NOT report-ready: a waived candidate
+            # needs a second-eyes review first (F-5).
+            self.assertFalse(
+                pkg["completeness"]["report_ready"])
+            self.assertIn(
+                "second-eyes",
+                pkg["completeness"]["report_ready_reason"])
+            self.assertIsNotNone(
+                pkg["inputs"]["verdict_record"]["sha256"])
 
     def test_missing_census_field_skips_tool(self):
         with tempfile.TemporaryDirectory() as tmp:

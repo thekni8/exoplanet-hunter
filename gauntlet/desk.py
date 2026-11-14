@@ -55,6 +55,7 @@ from gauntlet.census import (brightest_neighbour, catalogue_native,
                              run_census)
 from gauntlet.common import (event_parity_depths, flatten_transit_masked,
                              fold_depth, load_tpf)
+from gauntlet.evidence import build_evidence_package
 from gauntlet.external_tool import (build_tool_input,
                                     run_external_tool, sha256_file)
 from gauntlet.pixel_check import pixel_check_native
@@ -776,6 +777,9 @@ class DeskResult:
     extra_evidence: dict        # P/2 fold, secondary fold, chi2, ...
     workdir: str
     cheap_kill: bool            # True when a cheap stage ended the run
+    evidence_package: dict | None = None  # 2D package (None only
+    # when the driver predates it — run_desk_gauntlet always
+    # builds one)
 
 
 def _provenance(run_id, repo_root):
@@ -1197,6 +1201,14 @@ def run_desk_gauntlet(survivor, workdir, source=None, policy=None,
                            "cached": run.cached,
                            "context_hash": run.context_hash}},
                   fh, indent=2, default=str)
+    # 2D: the evidence package is built LAST — it hashes the
+    # two files above, so they must exist first.
+    package = build_evidence_package(
+        tic, verdict, extra, workdir)
+    with open(os.path.join(workdir, "evidence_package.json"),
+              "w") as fh:
+        json.dump(package, fh, indent=2, default=str)
     return DeskResult(run=run, verdict=verdict, natives=natives,
                       extra_evidence=extra, workdir=workdir,
-                      cheap_kill=cheap_kill)
+                      cheap_kill=cheap_kill,
+                      evidence_package=package)

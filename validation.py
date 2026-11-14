@@ -46,7 +46,8 @@ class RecordValidationError(ValueError):
 
 def _validator(kind):
     if kind not in ("survivor", "verdict", "stage_result",
-                    "latte-output", "triceratops-output"):
+                    "latte-output", "triceratops-output",
+                    "evidence"):
         raise ValueError(f"unknown record kind: {kind!r}")
     if kind not in _VALIDATORS:
         path = SCHEMA_DIR / f"{kind}-schema.json"
@@ -98,3 +99,8 @@ def validate_latte_output(record):
 def validate_triceratops_output(record):
     """Validate one TRICERATOPS tool output JSON (Phase 2, 2C)."""
     return validate_record("triceratops-output", record)
+
+
+def validate_evidence_package(record):
+    """Validate a 2D evidence package."""
+    return validate_record("evidence", record)

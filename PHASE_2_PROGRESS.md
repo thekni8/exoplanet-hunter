@@ -89,7 +89,7 @@ at the end.
   vs the 0.30 bar) — a shape-gate review is a vote item, not
   a 2A change (threshold = calibration).
 
-## 2B — LATTE (in progress)
+## 2B — LATTE (COMPLETE)
 
 | Item | Commit | What |
 |---|---|---|
@@ -238,7 +238,38 @@ Test tally after 2C: 465 + 17 + 1 = **483** (479 offline +
    runner's 1800 s timeout is the enforcement (unlike
    LATTE, which the wrapper kills itself 60 s early).
 
-## 2D — Evidence package (not started)
+## 2D — Evidence package (COMPLETE)
+
+| Item | Commit | What |
+|---|---|---|
+| 2D-1 | (this commit) | `gauntlet/evidence.py:build_evidence_package` + `schema/evidence-schema.json` (stage-result shape inlined from the standalone schema, the verdict schema's pattern) + `validate_evidence_package`. The driver writes `evidence_package.json` last (it hashes verdict_record.json + desk_natives.json) and carries the package on DeskResult. 7 builder tests + driver assertions in test_desk_external_tools.py. |
+
+Test tally after 2D: 483 + 7 = **490** (486 offline +
+4 live).
+
+### Judgment calls (2D — for the Phase 2 vote)
+
+1. **Stages come from the verdict record, not the runner.**
+   build_verdict stamps the waiver reasons onto the results;
+   the runner's objects are unstamped. The package copies
+   the verdict's stages and reconstructs StageResult objects
+   (from_dict) only to run check_report_ready.
+2. **report_ready is the NARROW F-5 precondition.**
+   check_report_ready only checks persistence + diffimg +
+   blend and the second-eyes rule — an EB verdict with
+   those three passing IS report_ready. The 2E gate refuses
+   non-CANDIDATE verdicts on its own check; report_ready
+   alone never files anything. (Two test expectations were
+   corrected on this point during 2D — the code was right,
+   the tests misread the contract.)
+3. **Missing source files hash to null, visibly.** A
+   package built without verdict_record.json /
+   desk_natives.json on disk records sha256 null rather
+   than raising — the gap is in the record, not hidden.
+4. **The code fingerprint is computed live** at package
+   build (provenance.fingerprint_result_affecting), not
+   copied from anywhere — the verdict record carries no
+   fingerprint field.
 
 ## 2E — Review gate (not started)
 
