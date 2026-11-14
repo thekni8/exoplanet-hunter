@@ -39,6 +39,7 @@ from astropy.io import fits  # noqa: E402
 from bulk.clean_refold_gate import (clean_fold, load_fits,  # noqa: E402
                                     verdict_for)
 from bulk_screen import _screen_one  # noqa: E402
+import bulk_screen as bs  # noqa: E402
 from gauntlet.common import event_parity_depths  # noqa: E402
 from gauntlet.rawflux_check import trapezoid_shape_gate  # noqa: E402
 from synth_fits import make_qlp_fits, screen_job  # noqa: E402
@@ -57,19 +58,66 @@ def _load_arrays(path):
 
 class TestFalsePositives(unittest.TestCase):
     def test_odd_even_eb_demoted_by_screen(self):
-        # Alternating 2% / 0.8% dips at 3 d: the screen's free
-        # veto must fire ODD_EVEN_EB and demote the star. (The
-        # record still carries tier A — tier is computed before
+        # Alternating 2% / 0.8% dips every 12 d: the true EB
+        # period is 24 d, outside the screen's 20 d search range,
+        # so BLS finds the 12 d half-period under BOTH
+        # calibrations and the screen's free veto must fire
+        # ODD_EVEN_EB and demote the star. (The record still
+        # carries a tier under v2 — tier is computed before
         # demotion; status is what the gauntlet reads.)
+        #
+        # Why 12 d and not 3 d: with 3 d spacing the true period
+        # (6 d) is in range, and whether BLS finds the half- or
+        # the true period depends on the clip — under v1 the clip
+        # degrades the deep family enough that 3 d wins and the
+        # veto fires, while under v2 the clean signal finds 6 d
+        # and the veto never applies (see
+        # test_deep_eb_found_at_true_period_under_v2). The veto
+        # itself is calibration-independent; only the period BLS
+        # prefers changes.
         with tempfile.TemporaryDirectory() as td:
-            p = make_qlp_fits(Path(td) / "eb.fits", period_d=3.0,
+            p = make_qlp_fits(Path(td) / "eb.fits", period_d=12.0,
                               depth_frac=0.02, duration_d=0.1,
                               noise_pct=0.005, odd_even_ratio=0.4,
                               seed=42)
             r = _screen(p)
             self.assertEqual(r["status"], "demoted")
             self.assertIn("ODD_EVEN_EB", r["flags"])
-            self.assertAlmostEqual(r["period_days"], 3.0, delta=0.05)
+            self.assertAlmostEqual(r["period_days"], 12.0, delta=0.05)
+
+    def test_deep_eb_found_at_true_period_under_v2(self):
+        # The 3 d-spacing EB (alternating 2% / 0.8%) under v2:
+        # the floored clip preserves the deep transits, so BLS
+        # finds the TRUE 6 d period with the 2% family alone
+        # (odd/even ratio 0.96 — the veto is a half-period check
+        # and does not apply), and the 0.8% secondary is measured
+        # and recorded (0.78%) but below the 80%-of-primary bar,
+        # so the star survives the screen. Under v1 the same star
+        # demotes: the clip degrades the deep family, BLS finds
+        # 3 d, and the odd/even veto fires. This is the known
+        # v2 behaviour, pinned — the screen is a net, not a
+        # verdict, and the gauntlet's secondary/parity checks are
+        # the defence for true-period EBs that survive it.
+        with tempfile.TemporaryDirectory() as td:
+            p = make_qlp_fits(Path(td) / "eb.fits", period_d=3.0,
+                              depth_frac=0.02, duration_d=0.1,
+                              noise_pct=0.005, odd_even_ratio=0.4,
+                              seed=42)
+            previous = bs.CALIBRATION_VERSION
+            try:
+                bs.set_calibration("bulk_v1")
+                r1 = _screen(p)
+                self.assertEqual(r1["status"], "demoted")
+                self.assertIn("ODD_EVEN_EB", r1["flags"])
+                bs.set_calibration("bulk_v2")
+                r2 = _screen(p)
+                self.assertEqual(r2["status"], "survivor")
+                self.assertAlmostEqual(r2["period_days"], 6.0,
+                                       delta=0.05)
+                self.assertAlmostEqual(
+                    r2["secondary_depth_percent"], 0.78, delta=0.1)
+            finally:
+                bs.set_calibration(previous)
 
     def test_odd_even_parity_separates_families(self):
         # The gauntlet's 2x check on the same EB: folding at the

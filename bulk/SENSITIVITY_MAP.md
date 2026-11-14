@@ -68,6 +68,33 @@ This pair (1.0% vs 1.5%) is the CI clip-grid test
 (`tests/test_clip_grid.py`): monotonicity holds under v2 and is
 a strict expected-failure under v1.
 
+## EB handling changes with the clip
+
+The clip fix also changes which period BLS prefers for deep
+eclipsing binaries — and the screen's odd/even veto is a
+half-period check, so it only fires when BLS finds the
+half-period. The probe case (alternating 2% / 0.8% dips every
+3 d, 0.5% noise, seed 42):
+
+| | v1 | v2 |
+|---|---|---|
+| BLS period | 3.001 d (half-period) | 5.999 d (true EB period) |
+| Depth | 1.24% (families folded together, deep one clipped) | 2.03% (deep family alone) |
+| Odd/even ratio | 0.426 → ODD_EVEN_EB, demoted | 0.96 → no flag, survivor (tier A) |
+| Secondary | 0.01% | 0.78% (recorded, below the 80%-of-primary bar) |
+
+Under v1 the clip degraded the deep family enough that the
+half-period won and the veto fired; under v2 the clean signal
+finds the true period and the veto never applies. This is a
+real behaviour change, not a bug: all three fix options share
+it (they all preserve the deep dips), and the screen is a net,
+not a verdict — the gauntlet's secondary/parity checks are the
+defence for true-period EBs that survive it. It is pinned in
+the suite (`test_deep_eb_found_at_true_period_under_v2`), and
+the odd/even veto test now uses a 12 d-spacing EB (true period
+24 d, outside the 20 d search range, so the half-period veto
+fires under both calibrations).
+
 ## What this means for S96–S98
 
 The v1 screens systematically missed deep transits on quiet

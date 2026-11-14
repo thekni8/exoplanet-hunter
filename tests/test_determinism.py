@@ -59,9 +59,12 @@ class TestDeterminism(unittest.TestCase):
     def test_demoted_and_noise_records_also_deterministic(self):
         # Not just survivors: a demoted EB and pure noise must
         # also reproduce exactly (the veto path and the floor
-        # path exercise different code).
+        # path exercise different code). The EB fixture is the
+        # 12 d-spacing one from test_false_positives (true period
+        # 24 d, out of range, so the half-period veto fires under
+        # both calibrations).
         with tempfile.TemporaryDirectory() as td:
-            eb = make_qlp_fits(Path(td) / "eb.fits", period_d=3.0,
+            eb = make_qlp_fits(Path(td) / "eb.fits", period_d=12.0,
                                depth_frac=0.02, duration_d=0.1,
                                noise_pct=0.005, odd_even_ratio=0.4,
                                seed=42)
