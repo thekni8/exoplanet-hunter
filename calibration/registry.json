@@ -28,6 +28,13 @@
       "status": "active",
       "rationale": "Gauntlet calibration v2 (2026-11-14, Phase 1.2 A-4): carries the stage-result decision policy (raw-flux/parity bars, minimum-data bars, blend bars) and the waiver allowlist. v1's thresholds carried over unchanged; the policy values were hardcoded constants in gauntlet/stage_result.py before this version.",
       "supersedes": "gauntlet_v1"
+    },
+    {
+      "calibration_id": "bulk_v2",
+      "sha256": "6032dec0ff6555ef453c51100183220a65fe7af97942790349d5a66233630223",
+      "status": "active",
+      "rationale": "Bulk calibration v2 (2026-11-14, Phase 1.2 B-2): fixes the v1 MAD-clip sensitivity defect (floor_10pct clip, same rule as the gauntlet) and hard-codes the per-sector systematic windows from the S96-S98 screens. All v1 thresholds carried over unchanged. See bulk/SENSITIVITY_MAP.md and bulk/CLIP_GRID_CRITERIA.md.",
+      "supersedes": "bulk_v1"
     }
   ]
 }

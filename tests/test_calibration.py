@@ -10,6 +10,7 @@ No downloads. Two kinds of guard:
     suite goes red. (The bulk profile is the source of truth
     instead: bulk_screen.py loads it at import.)
 """
+import os
 import sys
 import tempfile
 import unittest
@@ -47,10 +48,11 @@ class TestBulkProfile(unittest.TestCase):
         self.assertEqual(p["systematic_periods"], [13.7, 6.85, 27.4])
 
     def test_bulk_screen_loads_the_profile(self):
-        # The module constants are derived from the profile — the
+        # The module constants are derived from the profile the
+        # module loaded — bulk_v1 by default, EXHUNT_BULK_CALIBRATION
+        # overrides it (the offline-suite-under-v2 seam, B-2). The
         # wiring, not just the file, is what the screen runs on.
-        p = load_profile("bulk_v1")
-        self.assertEqual(bulk_screen.CALIBRATION_VERSION, "bulk_v1")
+        p = load_profile(bulk_screen.CALIBRATION_VERSION)
         self.assertEqual(bulk_screen.RECORD_FLOOR_SDE,
                          p["record_floor_sde"])
         self.assertEqual(bulk_screen.SURVIVOR_SDE, p["survivor_sde"])
@@ -63,6 +65,49 @@ class TestBulkProfile(unittest.TestCase):
                          tuple(p["bls_durations_d"]))
         self.assertEqual(bulk_screen.SYSTEMATIC_PERIODS,
                          tuple(p["systematic_periods"]))
+
+    def test_bulk_screen_default_is_v1(self):
+        # Without the env override the screen still loads the
+        # frozen v1 profile: existing runs and the golden suite
+        # run on v1 until a run opts into v2 explicitly.
+        if "EXHUNT_BULK_CALIBRATION" in os.environ:
+            self.skipTest("env override in effect")
+        self.assertEqual(bulk_screen.CALIBRATION_VERSION, "bulk_v1")
+
+    def test_bulk_v2_values(self):
+        p2 = load_profile("bulk_v2")
+        p1 = load_profile("bulk_v1")
+        self.assertEqual(p2["version"], "bulk_v2")
+        self.assertEqual(p2["status"], "active")
+        self.assertTrue(p2["rationale"].strip())
+        self.assertEqual(p2["clip_option"], "floor_10pct")
+        self.assertEqual(p2["systematic_windows"],
+                         {96: [[12.7, 14.3], [6.3, 6.5]],
+                          97: [[13.2, 15.0]],
+                          98: [[13.5, 15.0], [7.0, 7.4]]})
+        # Every v1 threshold carried over unchanged.
+        for key in ("record_floor_sde", "survivor_sde",
+                    "depth_min_pct", "depth_eb_pct", "tier_a_mes",
+                    "tier_a_min_events", "tier_a_min_strong",
+                    "strong_event_snr", "tier_b_event_snr",
+                    "tier_b_max_depth_pct", "min_period_d",
+                    "max_period_d", "bls_grid_points",
+                    "bls_durations_d", "systematic_periods"):
+            self.assertEqual(p2[key], p1[key], key)
+
+    def test_bulk_screen_loads_v2_on_request(self):
+        previous = bulk_screen.CALIBRATION_VERSION
+        bulk_screen.set_calibration("bulk_v2")
+        try:
+            self.assertEqual(bulk_screen.CALIBRATION_VERSION,
+                             "bulk_v2")
+            self.assertEqual(bulk_screen.CLIP_OPTION, "floor_10pct")
+            self.assertEqual(bulk_screen.SYSTEMATIC_WINDOWS,
+                             {96: [(12.7, 14.3), (6.3, 6.5)],
+                              97: [(13.2, 15.0)],
+                              98: [(13.5, 15.0), (7.0, 7.4)]})
+        finally:
+            bulk_screen.set_calibration(previous)
 
 
 class TestDeepDrift(unittest.TestCase):
