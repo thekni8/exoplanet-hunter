@@ -49,7 +49,11 @@ so a compromised or re-uploaded wheel cannot slip in (pip
 verifies each hash). Regenerate the lock after any dependency
 change with `pip-compile --generate-hashes
 --output-file=requirements.lock requirements.txt`, then re-run
-the golden suite. Do not unpin without re-running the suite.
+the golden suite. If pip-compile cannot reach PyPI reliably,
+`scripts/make_lockfile.py` is the fallback: it builds the same
+lockfile from the verified venv + PyPI JSON hashes without
+downloading any distribution file. Do not unpin without
+re-running the suite.
 
 ## 2. Validate first — never run a sector on a red suite
 
