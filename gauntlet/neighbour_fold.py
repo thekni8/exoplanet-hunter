@@ -51,14 +51,21 @@ def fetch_neighbour(tic, outdir, max_sectors=6):
     """QLP first, then an unfiltered search. Returns
     {sector: (t, f)} (possibly empty)."""
     import lightkurve as lk
+    import netbound as _net
     os.makedirs(outdir, exist_ok=True)
     lcs = {}
     for author in ('QLP', None):
         try:
+            # C-1: lightkurve takes no timeout — watch the call.
             if author:
-                sr = lk.search_lightcurve(f'TIC {tic}', author=author)
+                sr = _net.mast_call(
+                    lambda: lk.search_lightcurve(f'TIC {tic}',
+                                                 author=author),
+                    name=f"neighbour search TIC {tic} ({author})")
             else:
-                sr = lk.search_lightcurve(f'TIC {tic}')
+                sr = _net.mast_call(
+                    lambda: lk.search_lightcurve(f'TIC {tic}'),
+                    name=f"neighbour search TIC {tic} (all)")
         except Exception as e:
             print(f'  search {author or "all"} failed: {e}', flush=True)
             continue
@@ -86,7 +93,11 @@ def fetch_neighbour(tic, outdir, max_sectors=6):
             lc = None
             for attempt in range(3):
                 try:
-                    lc = row.download()
+                    # C-1: watch the download too — a hung row
+                    # download retries like any other failure.
+                    lc = _net.mast_call(
+                        lambda: row.download(),
+                        name=f"neighbour download TIC {tic} s{sec}")
                     break
                 except Exception as e:
                     print(f'    download s{sec} attempt {attempt + 1} '

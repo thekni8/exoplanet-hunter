@@ -143,11 +143,13 @@ import os
 import sys
 import time
 import warnings
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import (FIRST_COMPLETED, ProcessPoolExecutor,
+                              ThreadPoolExecutor, wait as _futures_wait)
 from pathlib import Path
 
 import numpy as np
 
+import netbound as _net
 import provenance as _prov
 from atomic_io import atomic_write_json as _atomic_write_json
 from atomic_io import atomic_writer as _atomic_writer
@@ -327,11 +329,18 @@ def cone_star_list(ra, dec, cone_deg, min_mag, max_mag, min_rad, max_rad,
             centres.append((t_ra, t_dec))
 
     def _tile(tc):
-        tab = Catalogs.query_criteria(
-            catalog="Tic",
-            coordinates=SkyCoord(ra=tc[0] * u.deg, dec=tc[1] * u.deg),
-            radius=tile_deg * u.deg,
-            Tmag=[min_mag, max_mag], rad=[min_rad, max_rad])
+        # C-1: astroquery takes no timeout — watch the call, or a
+        # hung tile hangs the whole cone query. A timeout fails
+        # the run (fail-LOUD): a missing tile would silently drop
+        # stars from the window.
+        tab = _net.mast_call(
+            lambda: Catalogs.query_criteria(
+                catalog="Tic",
+                coordinates=SkyCoord(ra=tc[0] * u.deg,
+                                     dec=tc[1] * u.deg),
+                radius=tile_deg * u.deg,
+                Tmag=[min_mag, max_mag], rad=[min_rad, max_rad]),
+            name=f"TIC tile ({tc[0]:.2f},{tc[1]:.2f})")
         return [{"tic": str(row["ID"]), "ra": float(row["ra"]),
                  "dec": float(row["dec"]), "tmag": float(row["Tmag"]),
                  "radius": float(row["rad"])} for row in tab]
@@ -367,8 +376,10 @@ def _tic_batch(ids):
             return None
         return None if math.isnan(x) else x
 
-    tab = Catalogs.query_criteria(catalog="Tic",
-                                  ID=[int(i) for i in ids])
+    tab = _net.mast_call(
+        lambda: Catalogs.query_criteria(catalog="Tic",
+                                        ID=[int(i) for i in ids]),
+        name=f"TIC batch lookup ({len(ids)} ids)")
     out = {}
     for row in tab:
         out[str(row["ID"])] = {"ra": _f(row["ra"]), "dec": _f(row["dec"]),
@@ -395,14 +406,16 @@ def target_list_star_list(sector, min_mag, max_mag, min_rad, max_rad,
     a full sector is ~470-630k IDs and a lookup batch takes ~0.5-2 min
     through the proxy, so a cold build is a long, cache-building job,
     not a per-run cost. Returns (stars, stats)."""
-    import urllib.request
     tl_dir = Path(cache_dir) / "target_lists"
     tl_dir.mkdir(parents=True, exist_ok=True)
     raw_path = tl_dir / f"s{sector:04d}.csv"
     if not raw_path.exists():
         url = TARGET_LIST_URL.format(sec=sector)
         log(f"target list: downloading {url}", logf)
-        urllib.request.urlretrieve(url, raw_path)
+        # C-1: urlretrieve takes no timeout — a hung CSV download
+        # hung the build forever. Streaming + timeout + atomic
+        # rename instead.
+        _net.download_file(url, raw_path)
     ids, seen = [], set()
     with open(raw_path) as fh:
         fh.readline()  # '#TIC_ID,RA,DEC'
@@ -1077,6 +1090,64 @@ def emit_survivor_record(rec, prov):
     return out
 
 
+def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None):
+    """Submit every screen job and collect the records, with a
+    per-star watchdog (C-1).
+
+    Each future gets ``timeout_s`` from submission; a star that
+    has not returned by then is recorded as ``status="unmeasured"``
+    with a ``watchdog_timeout`` reason and the run moves on to
+    the next star — a pathological star must never hang a whole
+    slice. The late result, if it ever arrives, is ignored (the
+    star is already accounted for). ``worker`` is _screen_one in
+    production; tests pass a fake.
+
+    Caveat, stated plainly: with a ProcessPoolExecutor the hung
+    worker process keeps running the star's BLS until it finishes
+    (a worker cannot be killed mid-task), so executor shutdown
+    still waits for it. BLS is finite compute — the watchdog's
+    value is that the star is RECORDED as unmeasured and the
+    other stars keep screening, instead of the slice hanging
+    with no output at all. Returns (records, counts).
+    """
+    futures = {}
+    for job in jobs:
+        futures[ex.submit(worker, job)] = (job, time.monotonic())
+    records, counts = [], {}
+    pending = set(futures)
+    while pending:
+        done, pending = _futures_wait(
+            pending, timeout=timeout_s,
+            return_when=FIRST_COMPLETED)
+        for fut in done:
+            rec = fut.result()
+            records.append(rec)
+            counts[rec["status"]] = counts.get(rec["status"], 0) + 1
+        now = time.monotonic()
+        for fut in list(pending):
+            job, t0 = futures[fut]
+            if now - t0 > timeout_s:
+                pending.discard(fut)
+                tic, _path, sector, star = job
+                rec = {"tic": tic, "sector": int(sector),
+                       "product": PRODUCT,
+                       "ra": star.get("ra"), "dec": star.get("dec"),
+                       "tmag": star.get("tmag"),
+                       "radius_rsun": star.get("radius"),
+                       "status": "unmeasured",
+                       "reason": ("watchdog_timeout: screen "
+                                  f"exceeded {timeout_s:g}s")}
+                records.append(rec)
+                counts["unmeasured"] = counts.get("unmeasured", 0) + 1
+                log(f"star {tic}: WATCHDOG — screen exceeded "
+                    f"{timeout_s:g}s, recorded unmeasured", logf)
+    # Completion order is nondeterministic; sort by TIC so the
+    # slice's output files are identical run to run (the old
+    # ex.map loop preserved submission order).
+    records.sort(key=lambda r: r["tic"])
+    return records, counts
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -1229,12 +1300,11 @@ def main(argv=None):
     t = time.time()
     by_tic = {s["tic"]: s for s in kept}
     jobs = [(tic, paths[tic], args.sector, by_tic[tic]) for tic in paths]
-    records = []
-    counts = {}
     with ProcessPoolExecutor(max_workers=args.workers) as ex:
-        for rec in ex.map(_screen_one, jobs, chunksize=8):
-            records.append(rec)
-            counts[rec["status"]] = counts.get(rec["status"], 0) + 1
+        # C-1: per-star watchdog — a pathological star is recorded
+        # unmeasured instead of hanging the slice.
+        records, counts = _collect_screen_results(
+            ex, jobs, _screen_one, _net.STAR_TIMEOUT_S, logf)
     screen_seconds = time.time() - t
     summary["screen_seconds"] = screen_seconds
     summary["screen_counts"] = counts

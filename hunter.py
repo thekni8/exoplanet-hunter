@@ -129,6 +129,7 @@ from astropy.timeseries import BoxLeastSquares
 from astroquery.mast import Catalogs
 
 import provenance as _prov
+import netbound as _net
 
 OUTPUT_DIR = "reports"
 DISCOVERIES_CSV = "discoveries.csv"
@@ -304,7 +305,8 @@ def _purge_corrupt_files(paths):
 def _with_download_self_heal(step, progress_callback=None,
                              max_attempts=None, corrupt_max_retries=None,
                              connection_max_attempts=None,
-                             connection_backoff_seconds=None):
+                             connection_backoff_seconds=None,
+                             timeout_s=None, timeout_name="MAST step"):
     """Run ``step()`` (a network callable) with bounded retries.
 
     * Connection-class failure -> backoff (5 s, then 15 s) and retry;
@@ -324,11 +326,19 @@ def _with_download_self_heal(step, progress_callback=None,
     * Anything else — e.g. RuntimeError("No mission data found ...") —
       propagates immediately, and after the final failed attempt the
       ORIGINAL error is re-raised unchanged.
+    * Every attempt is bounded by ``timeout_s`` (default:
+      netbound.MAST_CALL_TIMEOUT_S — C-1): lightkurve's search and
+      download take no timeout of their own, so a hung MAST call
+      used to hang the attempt forever. A timeout counts as a
+      connection-class failure (NetworkTimeout is a TimeoutError)
+      and is retried with backoff like any dropped connection.
     """
     if max_attempts is None:
         max_attempts = _DOWNLOAD_MAX_ATTEMPTS
     if connection_max_attempts is None:
         connection_max_attempts = _CONNECTION_MAX_ATTEMPTS
+    if timeout_s is None:
+        timeout_s = _net.MAST_CALL_TIMEOUT_S
     if connection_backoff_seconds is None:
         connection_backoff_seconds = _CONNECTION_BACKOFF_SECONDS
     attempts = 0
@@ -337,7 +347,7 @@ def _with_download_self_heal(step, progress_callback=None,
     while True:
         attempts += 1
         try:
-            return step()
+            return _net.run_with_timeout(step, timeout_s, timeout_name)
         except Exception as e:
             corrupt_paths = _corrupt_cache_paths(e)
             if (corrupt_paths and attempts < max_attempts
@@ -2161,7 +2171,11 @@ def _query_tic_cone_healed(coord, radius_deg, progress_callback=None):
             progress_callback,
             max_attempts=_SWEEP_CONNECTION_MAX_ATTEMPTS,
             connection_max_attempts=_SWEEP_CONNECTION_MAX_ATTEMPTS,
-            connection_backoff_seconds=_SWEEP_CONNECTION_BACKOFF_SECONDS)
+            connection_backoff_seconds=_SWEEP_CONNECTION_BACKOFF_SECONDS,
+            # A catalog call should never take minutes: bound each
+            # attempt at 60 s (the deep budget is for transient
+            # drops, not hangs).
+            timeout_s=60.0, timeout_name="TIC cone query")
     except Exception as e:
         if _is_connection_error(e):
             _emit(progress_callback,

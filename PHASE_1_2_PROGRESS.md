@@ -22,9 +22,11 @@ Started 2026-11-14 ~13:50 IST on branch `standardize/phase-1` (HEAD `34bf313` at
 - [x] B-1 Mirror deprecation — `35f2639` (injection smoke tests 3/3 PASS, 275.7 s)
 - [x] B-2 MAD clip → bulk_v2 — pre-registration `8bdf693`; shared clip `d0012c7`; screen wiring `3203f63`; grid `c113a42` (300 runs, 135 s; floor_10pct by pre-registered tiebreak); profile `ffa04de`; sensitivity map `0dd9aa0`; CI clip-grid test `994075f`; rescore tool `a936d77`; EB behaviour pin `49d6958`; v1-gate tests `d5a0599`
 
-## Release C (not this sprint)
+## Release C
 
-- [ ] C-1 Network timeouts + watchdog
+Started 2026-11-14 ~14:47 IST on branch `standardize/phase-1` (HEAD `d8b4be8` at start, tree clean). NO PUSH per Dev's 2026-11-14 rule: nothing pushes until the work is completely finished and ready to publish — local commits only.
+
+- [x] C-1 Network timeouts + watchdog — `netbound.py` (daemon-thread watchdog + http_get + download_file); hunter self-heal per-attempt timeout (cone query 60 s); bulk screen urlretrieve→timeout'd streaming download, astroquery calls watched, per-star watchdog in the screen loop (`unmeasured` status, conserved); gauntlet fetchers watched
 - [ ] C-2 Crash-boundary + idempotency
 - [ ] C-3 Ledger durability
 - [ ] C-4 Fixture-vs-live hash diff

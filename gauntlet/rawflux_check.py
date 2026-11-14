@@ -84,7 +84,11 @@ def download_author(author, pfx, no_download=False):
         print(f'{author}: cached sectors {got}', flush=True)
         return got
     try:
-        sr = lk.search_lightcurve(f'TIC {TIC}', author=author)
+        import netbound as _net
+        # C-1: lightkurve takes no timeout — watch the call.
+        sr = _net.mast_call(
+            lambda: lk.search_lightcurve(f'TIC {TIC}', author=author),
+            name=f"rawflux search TIC {TIC} ({author})")
     except Exception as e:
         print(f'{author}: search failed {e}', flush=True)
         return []

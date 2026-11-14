@@ -114,6 +114,18 @@ class TestCheckConservation(unittest.TestCase):
         self.assertTrue(any("screen counts" in p
                             for p in problems))
 
+    def test_unmeasured_status_conserves(self):
+        # C-1: a star the per-star watchdog timed out is a final
+        # status like any other — it conserves, it is not a
+        # dropped star.
+        s = _slice(counts={"survivor": 1, "recorded": 2,
+                           "unmeasured": 1})
+        ok, buckets, problems = check_conservation(
+            4, [s], merged_survivors=1, toi_removed=0,
+            vsx_removed=0)
+        self.assertTrue(ok, msg=problems)
+        self.assertEqual(buckets["screen_counts"]["unmeasured"], 1)
+
     def test_unknown_status_is_a_problem(self):
         # "searched" is the pre-screen placeholder: if it leaks
         # into a summary's counts, a record never got a final

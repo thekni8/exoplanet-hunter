@@ -163,7 +163,11 @@ def tic_lookup(tic_id):
     Raises on failure — callers that can proceed without a row should
     catch and fall back to CLI values."""
     from astroquery.mast import Catalogs
-    rows = Catalogs.query_object(f"TIC {tic_id}", catalog="TIC")
+    import netbound as _net
+    # C-1: astroquery takes no timeout — watch the call.
+    rows = _net.mast_call(
+        lambda: Catalogs.query_object(f"TIC {tic_id}", catalog="TIC"),
+        name=f"TIC lookup {tic_id}")
     if len(rows) == 0:
         raise ValueError(f"TIC {tic_id} not found in the TIC catalog")
     r = rows[0]

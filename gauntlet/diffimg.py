@@ -256,9 +256,13 @@ def tic_cone_census(ra, dec, target_tmag, radius_arcsec=60.0,
     from astroquery.mast import Catalogs
     import astropy.units as u
     from astropy.coordinates import SkyCoord
+    import netbound as _net
     coord = SkyCoord(ra, dec, unit='deg')
-    rows = Catalogs.query_region(coord, catalog='TIC',
-                                 radius=radius_arcsec * u.arcsec)
+    # C-1: astroquery takes no timeout — watch the call.
+    rows = _net.mast_call(
+        lambda: Catalogs.query_region(coord, catalog='TIC',
+                                      radius=radius_arcsec * u.arcsec),
+        name=f"TIC cone census ({ra:.2f},{dec:.2f})")
     out = []
     for r in rows:
         if r['Tmag'] is None or r['Tmag'] > tmag_limit:

@@ -186,9 +186,12 @@ def _checkpoint_path():
 # record starts as "searched" and every return path overwrites
 # it — "searched" itself must never appear in a summary's
 # screen_counts, and neither may any unknown status.
+# "unmeasured" (C-1) is a star the per-star watchdog timed out:
+# recorded, counted, and conserved like any other outcome — a
+# timeout is data, not a dropped star.
 SCREEN_STATUSES = frozenset({
     "survivor", "recorded", "demoted", "below_floor",
-    "too_few_points", "error"})
+    "too_few_points", "error", "unmeasured"})
 
 
 def check_conservation(window_stars, slice_summaries,
