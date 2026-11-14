@@ -65,6 +65,8 @@ warnings.filterwarnings("ignore")
 
 import hunter  # noqa: E402
 import persistence  # noqa: E402
+from gauntlet.refine import (  # noqa: E402
+    REFINE_GRID_HALF_FRAC, REFINE_PERIOD_TOL_FRAC, refine_ephemeris)
 
 # --- Verdict constants (set in advance; see header) ------------------------
 MIN_USABLE_FOLDS = 3
@@ -72,44 +74,11 @@ MIN_TOTAL_FULL_EVENTS = 3
 FOLD_SIGNIF_BAR = 3.0        # the house raw-flux bar (pass-2 gate)
 OPPOSITE_BAR = -3.0
 MAX_FOLDS_SINGLE_SECTOR = 6  # <= this many sectors -> one fold per sector
-REFINE_PERIOD_TOL_FRAC = 0.01
-REFINE_GRID_HALF_FRAC = 0.015
 
-
-def _refine_ephemeris(t, f, period_in, duration_d):
-    """BLS refit on TRAINING flux only, narrow grid around the filed
-    period. Returns (period, t0) or None if the refit fails or lands
-    outside +/- REFINE_PERIOD_TOL_FRAC of the filed period."""
-    import astropy.units as u
-    from astropy.timeseries import BoxLeastSquares
-
-    t = np.asarray(t, dtype=float)
-    f = np.asarray(f, dtype=float)
-    ok = np.isfinite(t) & np.isfinite(f)
-    t, f = t[ok], f[ok]
-    if len(t) < 500 or period_in <= 0 or duration_d <= 0:
-        return None
-    baseline = float(t.max() - t.min())
-    if baseline <= 0:
-        return None
-    f_lo = 1.0 / (period_in * (1.0 + REFINE_GRID_HALF_FRAC))
-    f_hi = 1.0 / (period_in * (1.0 - REFINE_GRID_HALF_FRAC))
-    n_freq = int(min(20000, max(2000, 5.0 * baseline * (f_hi - f_lo) + 500)))
-    periods = (1.0 / np.linspace(f_lo, f_hi, n_freq)) * u.day
-    durations = np.unique(np.clip(
-        np.array([0.6, 1.0, 1.5]) * duration_d, 0.02, 0.35)) * u.day
-    try:
-        bls = BoxLeastSquares(t * u.day, f)
-        res = bls.power(periods, durations)
-        i = int(np.argmax(res.power))
-        p_ref = float(res.period[i].value)
-        t0_ref = float(res.transit_time[i].value)
-    except Exception:
-        return None
-    if not np.isfinite(p_ref) or abs(p_ref - period_in) > (
-            REFINE_PERIOD_TOL_FRAC * period_in):
-        return None
-    return p_ref, t0_ref
+# The refit lives in gauntlet/refine.py (Phase 2, 2A) so the desk
+# driver can use it; this alias keeps holdout_test's existing
+# callers (holdout_extended, holdout_supp) working unchanged.
+_refine_ephemeris = refine_ephemeris
 
 
 def _window_coverage(t, tmin, tmax, period, t0, duration_d):
