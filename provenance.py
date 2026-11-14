@@ -264,7 +264,8 @@ def input_identity(product_ids=None, sectors=None, author=None,
 
 
 def provenance_header(run_id, calibration_versions, recipe_hash=None,
-                      sha=None, timestamp_utc=None):
+                      sha=None, timestamp_utc=None,
+                      mixed_pipeline=False):
     """The header dict stamped onto every output record.
 
     `calibration_versions` is a per-subsystem map, e.g.
@@ -278,7 +279,10 @@ def provenance_header(run_id, calibration_versions, recipe_hash=None,
     stamped whenever they can be computed; a missing profile
     file omits the calibration hash rather than crashing the
     writer (the run already failed at profile load if its
-    calibration is unreadable).
+    calibration is unreadable). `mixed_pipeline` is stamped
+    only when True (A-3): the run resumed across a
+    result-affecting code change under --accept-code-change,
+    so its records come from two pipelines.
     """
     header = {
         "schema_version": SCHEMA_VERSION,
@@ -296,6 +300,8 @@ def provenance_header(run_id, calibration_versions, recipe_hash=None,
         pass
     if recipe_hash is not None:
         header["recipe_hash"] = recipe_hash
+    if mixed_pipeline:
+        header["mixed_pipeline"] = True
     return header
 
 

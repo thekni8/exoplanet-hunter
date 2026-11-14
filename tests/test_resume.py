@@ -39,6 +39,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import provenance as prov  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 STUB = ROOT / "tests" / "stub_screen.py"
 DRIVER = ROOT / "bulk" / "run_chunked.py"
@@ -87,7 +89,8 @@ def _build_workdir(base):
     return work, recipe
 
 
-def _run_driver(work, recipe, stub_log, sleep=0.0, timeout=120):
+def _run_driver(work, recipe, stub_log, sleep=0.0, timeout=120,
+                extra_args=()):
     """Run the driver to completion in a subprocess. Returns
     (returncode, stdout)."""
     env = dict(os.environ)
@@ -95,10 +98,52 @@ def _run_driver(work, recipe, stub_log, sleep=0.0, timeout=120):
         f"{sys.executable} {STUB} --sleep {sleep}")
     env["EXHUNT_STUB_LOG"] = str(stub_log)
     cmd = [sys.executable, str(DRIVER), "--recipe", str(recipe),
-           "--work-dir", str(work), "--skip-known-filter"]
+           "--work-dir", str(work), "--skip-known-filter",
+           *extra_args]
     r = subprocess.run(cmd, capture_output=True, text=True,
                        env=env, timeout=timeout)
     return r.returncode, r.stdout + r.stderr
+
+
+def _seed_run_with_checkpoint(td, fingerprint):
+    """A run dir with slice_00 complete (stub-built) + a checkpoint
+    claiming it, stamped with `fingerprint` (a hex string, or None
+    to omit the key — a pre-A-3 checkpoint). The slice-00 entry's
+    summary hash is CORRECT here (unlike the partial-slice test's
+    hand-wrong one): the resume trusts the entry, so slice 00 is
+    never re-screened. Returns (work, recipe, run)."""
+    work, recipe = _build_workdir(td)
+    run = work / "run_s0999"
+    chunks = run / "chunks"
+    chunks.mkdir(parents=True)
+    slices = [TICS[i:i + 4] for i in range(0, len(TICS), 4)]
+    for i, part in enumerate(slices):
+        with open(chunks / f"slice_{i:02d}.csv", "w",
+                  newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["tic", "ra", "dec", "tmag", "radius"])
+            for t in part:
+                gi = TICS.index(t)
+                w.writerow([t, 100.0 + gi, -65.0 + gi * 0.1,
+                            12.0 + gi * 0.1, 0.5])
+    env = dict(os.environ)
+    env["EXHUNT_STUB_LOG"] = str(Path(td) / "seed.log")
+    subprocess.run(
+        [sys.executable, str(STUB), "--sector", "999",
+         "--stars-file", str(chunks / "slice_00.csv"),
+         "--out-dir", str(run / "chunk_00"),
+         "--run-id", "seed-run"],
+        check=True, capture_output=True, env=env)
+    cp = {"run_dir": str(run), "sector": 999, "n_slices": 1,
+          "completed": {"0": {"chunk": "chunk_00",
+                              "summary_sha256": prov.file_sha256(
+                                  run / "chunk_00" / "summary.json"),
+                              "stars_searched": 4, "survivors": 1}},
+          "updated_at": "2026-11-14T00:00:00+00:00"}
+    if fingerprint is not None:
+        cp["code_fingerprint"] = fingerprint
+    (run / "checkpoint.json").write_text(json.dumps(cp))
+    return work, recipe, run
 
 
 def _merged_survivors(run_dir):
@@ -136,6 +181,17 @@ class TestResume(unittest.TestCase):
             cp = json.loads((run / "checkpoint.json").read_text())
             self.assertEqual(sorted(int(k) for k in cp["completed"]),
                              [0, 1, 2])
+            # A-3: the checkpoint stamps the live code fingerprint
+            # and the clean run is explicitly not mixed.
+            self.assertEqual(cp["code_fingerprint"],
+                             prov.fingerprint_result_affecting())
+            self.assertFalse(cp["mixed_pipeline"])
+            summary = json.loads(
+                (run / "summary.json").read_text())
+            self.assertFalse(summary["mixed_pipeline"])
+            manifest = json.loads(
+                (run / "manifest.json").read_text())
+            self.assertFalse(manifest["mixed_pipeline"])
             inv = _invocations(stub_log)
             self.assertEqual(sorted(inv),
                              ["slice_00.csv", "slice_01.csv",
@@ -248,8 +304,17 @@ class TestResume(unittest.TestCase):
                 '{"stars_searched": 4, "survivo')
             # A checkpoint claiming BOTH slices complete, with a
             # WRONG hash for slice 1 — the driver must distrust it.
+            # The checkpoint itself carries the LIVE code
+            # fingerprint (A-3): the seed simulates a checkpoint
+            # from the same code — a docs-only change between
+            # checkpoint and resume leaves the fingerprint equal
+            # and must NOT refuse (the fingerprint property is
+            # proven in test_provenance2; this test proves an
+            # equal fingerprint resumes).
             (run / "checkpoint.json").write_text(json.dumps({
                 "run_dir": str(run), "sector": 999, "n_slices": 2,
+                "code_fingerprint":
+                    prov.fingerprint_result_affecting(),
                 "completed": {
                     "0": {"chunk": "chunk_00",
                           "summary_sha256": "seeded-by-hand",
@@ -268,6 +333,85 @@ class TestResume(unittest.TestCase):
             self.assertNotIn("slice_00.csv", inv)
             self.assertIn("slice_01.csv", inv)
             self.assertIn("slice_02.csv", inv)
+            got = [r["tic"] for r in _merged_survivors(run)]
+            self.assertEqual(got, EXPECTED_SURVIVORS)
+
+
+class TestResumeCodeChange(unittest.TestCase):
+    """A-3: a mid-screen code fix must not silently mix two
+    pipelines in one sector. The resume compares the fingerprint
+    of RESULT-AFFECTING files (not the git SHA) and refuses on
+    mismatch unless --accept-code-change, which stamps
+    mixed_pipeline=true."""
+
+    def test_resume_refuses_code_change(self):
+        with tempfile.TemporaryDirectory() as td:
+            work, recipe, run = _seed_run_with_checkpoint(
+                td, "0" * 64)
+            stub_log = Path(td) / "invocations.log"
+            rc, out = _run_driver(work, recipe, stub_log)
+            self.assertNotEqual(rc, 0)
+            self.assertIn("REFUSING TO RESUME", out)
+            self.assertIn("fingerprint", out)
+            self.assertIn("--accept-code-change", out)
+            # The refusal lands before the slice loop: nothing
+            # was screened.
+            self.assertEqual(_invocations(stub_log), [])
+
+    def test_accept_code_change_resumes_and_stamps_mixed(self):
+        with tempfile.TemporaryDirectory() as td:
+            work, recipe, run = _seed_run_with_checkpoint(
+                td, "0" * 64)
+            stub_log = Path(td) / "invocations.log"
+            rc, out = _run_driver(
+                work, recipe, stub_log,
+                extra_args=["--accept-code-change"])
+            self.assertEqual(rc, 0, msg=out[-2000:])
+            got = [r["tic"] for r in _merged_survivors(run)]
+            self.assertEqual(got, EXPECTED_SURVIVORS)
+            # Slice 0 was NOT re-screened (valid checkpoint entry).
+            inv = _invocations(stub_log)
+            self.assertNotIn("slice_00.csv", inv)
+            self.assertIn("slice_01.csv", inv)
+            self.assertIn("slice_02.csv", inv)
+            # Run-level stamps: summary, manifest, checkpoint.
+            summary = json.loads(
+                (run / "summary.json").read_text())
+            self.assertTrue(summary["mixed_pipeline"])
+            manifest = json.loads(
+                (run / "manifest.json").read_text())
+            self.assertTrue(manifest["mixed_pipeline"])
+            cp = json.loads((run / "checkpoint.json").read_text())
+            self.assertTrue(cp["mixed_pipeline"])
+            # Record-level stamps: slices screened AFTER the
+            # accepted resume carry the flag; slice 0's record
+            # (written by the original run) keeps its original
+            # provenance — the run-level flag covers the run.
+            # Survivors: 100000002 (slice 0), 100000005 and
+            # 100000008 (slice 1); slice 2 has no survivors.
+            recs = {r["tic"]: r for r in _merged_survivors(run)}
+            self.assertNotIn("mixed_pipeline", recs["100000002"])
+            self.assertTrue(recs["100000005"]["mixed_pipeline"])
+            self.assertTrue(recs["100000008"]["mixed_pipeline"])
+
+    def test_fingerprintless_checkpoint_refused(self):
+        # A pre-A-3 checkpoint cannot prove what code produced
+        # it — fail closed, unless explicitly accepted.
+        with tempfile.TemporaryDirectory() as td:
+            work, recipe, run = _seed_run_with_checkpoint(td, None)
+            stub_log = Path(td) / "invocations.log"
+            rc, out = _run_driver(work, recipe, stub_log)
+            self.assertNotEqual(rc, 0)
+            self.assertIn("REFUSING TO RESUME", out)
+            self.assertIn("no code fingerprint", out)
+            self.assertEqual(_invocations(stub_log), [])
+            rc, out = _run_driver(
+                work, recipe, stub_log,
+                extra_args=["--accept-code-change"])
+            self.assertEqual(rc, 0, msg=out[-2000:])
+            summary = json.loads(
+                (run / "summary.json").read_text())
+            self.assertTrue(summary["mixed_pipeline"])
             got = [r["tic"] for r in _merged_survivors(run)]
             self.assertEqual(got, EXPECTED_SURVIVORS)
 

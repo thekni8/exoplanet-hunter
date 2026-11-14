@@ -1023,6 +1023,11 @@ def main(argv=None):
                     help="sha256 of the resolved recipe driving this "
                          "run (the chunked driver passes it); "
                          "omitted when the run had no recipe")
+    ap.add_argument("--mixed-pipeline", action="store_true",
+                    help="stamp mixed_pipeline=true on every record "
+                         "(A-3): the chunked driver passes this when "
+                         "the run resumed across a result-affecting "
+                         "code change under --accept-code-change")
     args = ap.parse_args(argv)
 
     out_dir = Path(args.out_dir)
@@ -1037,7 +1042,8 @@ def main(argv=None):
     prov = _prov.provenance_header(
         run_id, CALIBRATION_MAP,
         recipe_hash=args.recipe_hash,
-        timestamp_utc=started_at)
+        timestamp_utc=started_at,
+        mixed_pipeline=args.mixed_pipeline)
     manifest = _prov.build_manifest(
         run_id, CALIBRATION_MAP, sector=args.sector,
         product=PRODUCT, sha=prov["pipeline_git_sha"],

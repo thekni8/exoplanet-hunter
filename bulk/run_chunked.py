@@ -52,6 +52,14 @@ RUN = None  # set in main() from --sector
 RECIPE = None  # resolved recipe dict, set in main()
 N_STARS = 0  # set by build_slices()
 CHUNKS = None  # set in main()
+# A-3: fingerprint of the result-affecting files this process runs
+# (computed once in main()); MIXED_PIPELINE is True when the run
+# resumed across a result-affecting code change under
+# --accept-code-change, and is stamped on the checkpoint, the
+# manifest, the summary, and (via --mixed-pipeline) every record
+# the resumed run writes.
+CODE_FINGERPRINT = None
+MIXED_PIPELINE = False
 def _find_py():
     """Interpreter with the screen deps. VM uses .venv-cal, Mac uses
     .venv-mac (2026-11-12: the S98 Mac driver was hand-patched for
@@ -192,10 +200,18 @@ def write_checkpoint(completed):
     survivors, completed_at}. Written after EVERY slice, so a
     kill costs at most the in-flight slice — and the summary hash
     lets a resume VERIFY a checkpoint instead of trusting that a
-    summary file merely exists."""
+    summary file merely exists. Also stamps the code fingerprint
+    (A-3): a resume compares it against the current
+    result-affecting files and refuses on mismatch unless
+    --accept-code-change, which sets mixed_pipeline."""
+    global CODE_FINGERPRINT
+    if CODE_FINGERPRINT is None:
+        CODE_FINGERPRINT = _prov.fingerprint_result_affecting()
     cp = {"run_dir": str(RUN),
           "sector": SECTOR,
           "n_slices": len(completed),
+          "code_fingerprint": CODE_FINGERPRINT,
+          "mixed_pipeline": MIXED_PIPELINE,
           "completed": {str(k): v for k, v in completed.items()},
           "updated_at": _prov.utc_now_iso()}
     _atomic_write_json(_checkpoint_path(), cp)
@@ -223,6 +239,7 @@ def _screen_cmd():
 
 def main():
     global RUN, CHUNKS, SECTOR, RECIPE, SLICE, BULK
+    global CODE_FINGERPRINT, MIXED_PIPELINE
     ap = argparse.ArgumentParser()
     ap.add_argument("--recipe", default=str(default_recipe_path()),
                     help="YAML recipe file (default: bulk/recipes/default.yaml)")
@@ -237,6 +254,14 @@ def main():
                          "checks (offline re-merge; the checks are "
                          "fail-open, so skipping them explicitly is "
                          "the same as MAST being down)")
+    ap.add_argument("--accept-code-change", action="store_true",
+                    help="resume across a result-affecting code "
+                         "change (A-3): the resumed run is stamped "
+                         "mixed_pipeline=true on the checkpoint, "
+                         "manifest, summary, and every record it "
+                         "writes. Without it, a checkpoint from "
+                         "different result-affecting files refuses "
+                         "to resume.")
     ap.add_argument("--min-mag", type=float, default=None)
     ap.add_argument("--max-mag", type=float, default=None)
     ap.add_argument("--min-rad", type=float, default=None)
@@ -282,6 +307,13 @@ def main():
         RUN_ID, {"bulk": "v1"}, sector=SECTOR, product="QLP",
         recipe=RECIPE, recipe_file=RECIPE.get("_file"),
         status="started")
+    # A-3: the fingerprint of the result-affecting files THIS
+    # process runs. Computed once; the resume check below compares
+    # it against the checkpoint's. A docs-only or test-only commit
+    # does not move this fingerprint, so a legitimate resume is
+    # never refused for one (test_provenance2 proves the property).
+    CODE_FINGERPRINT = _prov.fingerprint_result_affecting()
+    MIXED_PIPELINE = False
     _prov.write_manifest(RUN, MANIFEST)
     log(f"run_id: {RUN_ID} (recipe hash {R_HASH[:12]}…, "
         f"calibration bulk_v1)")
@@ -300,7 +332,42 @@ def main():
     # validates is dropped and the slice re-runs.
     completed = {}
     prev = read_checkpoint()
-    if prev:
+    if prev and (prev.get("completed") or {}):
+        # A-3: refuse to resume work produced by different
+        # result-affecting files — a mid-screen code fix would
+        # silently mix two pipelines in one sector. The comparison
+        # is the fingerprint, NOT the git SHA: a docs-only commit
+        # between checkpoint and resume does not refuse. A
+        # fingerprint-less checkpoint (pre-A-3) is fail-closed:
+        # it cannot prove what code produced it.
+        prev_fp = prev.get("code_fingerprint")
+        if prev_fp is None:
+            reason = ("checkpoint has no code fingerprint "
+                      "(pre-A-3 checkpoint)")
+        elif prev_fp != CODE_FINGERPRINT:
+            reason = ("code fingerprint mismatch: checkpoint "
+                      f"{prev_fp[:12]}… vs current "
+                      f"{CODE_FINGERPRINT[:12]}…")
+        else:
+            reason = None
+        if reason is not None:
+            if not args.accept_code_change:
+                log(f"REFUSING TO RESUME: {reason}. The completed "
+                    f"slices were screened by different "
+                    f"result-affecting code; resuming would mix "
+                    f"two pipelines in one sector. Re-run from "
+                    f"scratch (delete {RUN}) or pass "
+                    f"--accept-code-change to resume with "
+                    f"mixed_pipeline=true stamped on the run.")
+                return 1
+            MIXED_PIPELINE = True
+            log(f"WARNING: resuming across a code change "
+                f"(--accept-code-change): {reason}. This run is "
+                f"stamped mixed_pipeline=true.")
+        else:
+            # Same code — but a previous resume may already have
+            # mixed the run; the flag persists.
+            MIXED_PIPELINE = bool(prev.get("mixed_pipeline"))
         for k, v in (prev.get("completed") or {}).items():
             i = int(k)
             out = RUN / f"chunk_{i:02d}"
@@ -317,6 +384,11 @@ def main():
         if completed:
             log(f"resuming: {len(completed)}/{len(slices)} slices "
                 f"already complete")
+    # The mixed flag is final now (fresh run: False; clean resume:
+    # inherited; accepted code change: True) — stamp the manifest
+    # and rewrite it, so even a killed run's manifest is honest.
+    MANIFEST["mixed_pipeline"] = MIXED_PIPELINE
+    _prov.write_manifest(RUN, MANIFEST)
     t_start = time.time()
     for i, sl in enumerate(slices):
         out = RUN / f"chunk_{i:02d}"
@@ -334,6 +406,10 @@ def main():
                "--out-dir", str(out),
                "--run-id", RUN_ID, "--recipe-hash", R_HASH,
                "--dl-workers", str(recipe["dl_workers"])]
+        if MIXED_PIPELINE:
+            # A-3: every record the resumed run writes carries the
+            # stamp (bulk_screen --mixed-pipeline).
+            cmd += ["--mixed-pipeline"]
         if recipe["workers"] is not None:
             cmd += ["--workers", str(recipe["workers"])]
         r = subprocess.run(cmd, capture_output=True, text=True)
@@ -433,6 +509,7 @@ def main():
         "stars_searched": agg["stars_searched"],
         "hits_recorded": agg["hits_recorded"],
         "screen_counts": agg["screen_counts"],
+        "mixed_pipeline": MIXED_PIPELINE,
         "survivors": len(survivors), "survivor_tiers": tiers,
         "survivor_tics": [r["tic"] for r in survivors],
         "wall_seconds_chunked_driver": round(time.time() - t_start),

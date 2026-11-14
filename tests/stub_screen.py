@@ -37,7 +37,8 @@ from atomic_io import atomic_write_json, atomic_writer  # noqa: E402
 FIXED_TIMESTAMP = "2026-11-14T00:00:00+00:00"
 
 
-def record_for(tic, ra, dec, tmag, radius, sector, run_id):
+def record_for(tic, ra, dec, tmag, radius, sector, run_id,
+               mixed_pipeline=False):
     n = int(tic)
     survivor = (n % 3 == 0)
     rec = {
@@ -71,6 +72,8 @@ def record_for(tic, ra, dec, tmag, radius, sector, run_id):
         "calibration_version": "bulk_v1",
         "timestamp_utc": FIXED_TIMESTAMP,
     }
+    if mixed_pipeline:
+        rec["mixed_pipeline"] = True
     return rec
 
 
@@ -86,6 +89,9 @@ def main(argv=None):
     ap.add_argument("--dl-workers", default=None)
     ap.add_argument("--workers", default=None)
     ap.add_argument("--sleep", type=float, default=0.0)
+    ap.add_argument("--mixed-pipeline", action="store_true",
+                    help="stamp mixed_pipeline=true on every record "
+                         "(A-3 test seam — mirrors bulk_screen.py)")
     args = ap.parse_args(argv)
 
     out = Path(args.out_dir)
@@ -103,7 +109,8 @@ def main(argv=None):
         for row in csv.DictReader(fh):
             stars.append(row)
     records = [record_for(r["tic"], r["ra"], r["dec"], r["tmag"],
-                          r["radius"], args.sector, args.run_id)
+                          r["radius"], args.sector, args.run_id,
+                          mixed_pipeline=args.mixed_pipeline)
                for r in stars]
     survivors = [r for r in records if r["status"] == "survivor"]
     with atomic_writer(out / "survivors.jsonl") as fh:

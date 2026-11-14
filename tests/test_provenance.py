@@ -47,6 +47,15 @@ class TestProvenanceHeader(unittest.TestCase):
                                     recipe_hash="deadbeef")
         self.assertEqual(h2["recipe_hash"], "deadbeef")
 
+    def test_mixed_pipeline_stamped_only_when_true(self):
+        # A-3: the flag appears on resumed-across-code-change
+        # runs only; clean runs omit it (not null).
+        h = prov.provenance_header("r1", {"bulk": "v1"})
+        self.assertNotIn("mixed_pipeline", h)
+        h2 = prov.provenance_header("r1", {"bulk": "v1"},
+                                    mixed_pipeline=True)
+        self.assertTrue(h2["mixed_pipeline"])
+
     def test_git_sha_matches_repo(self):
         # In this repo git is available: the stamped SHA must be the
         # real HEAD, not a placeholder.
