@@ -476,8 +476,11 @@ def build_manifest(run_id, calibration_versions, sector=None,
             "python": sys.version.split()[0],
             "requirements_sha256": file_sha256(
                 root / "requirements.txt"),
+            # C-9: this used to read requirements-lock.txt,
+            # which does not exist — the hash was always None.
+            # The lockfile is requirements.lock.
             "requirements_lock_sha256": file_sha256(
-                root / "requirements-lock.txt"),
+                root / "requirements.lock"),
         },
         "calibration": {
             "versions": dict(calibration_versions),

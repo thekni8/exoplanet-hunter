@@ -11,6 +11,10 @@
 # outage must never turn the PR gate red. They run on a weekly
 # schedule instead (.github/workflows/live.yml), non-blocking.
 #
+# The lockfile-clean-install job proves requirements.lock
+# installs from scratch with hash verification — a lockfile
+# that only works in the dev venv is not a lockfile.
+#
 # A red run here is a real signal: do not "fix" it by loosening a
 # threshold. Find what changed in the search, the stamp, or the data.
 name: golden
@@ -56,3 +60,31 @@ jobs:
 
       - name: Run golden suite (offline — no downloads)
         run: python tests/run_golden.py --fast
+
+  lockfile-clean-install:
+    # C-9: a clean-environment install from the lockfile, with
+    # hash verification. Runs alongside the golden job on every
+    # push/PR — a broken lockfile blocks the gate, because a run
+    # nobody can reproduce is not a run.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        # No pip cache here: this job proves PyPI serves the
+        # pinned wheels, so it downloads them fresh.
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Clean install from the lockfile
+        run: |
+          python -m venv .venv-lockfile-test
+          .venv-lockfile-test/bin/pip install --upgrade pip
+          .venv-lockfile-test/bin/pip install --require-hashes -r requirements.lock
+
+      - name: Smoke test the clean install
+        run: |
+          .venv-lockfile-test/bin/python -c "import hunter, bulk_screen, provenance; print('imports OK')"
+          .venv-lockfile-test/bin/python -m unittest tests.test_recipe tests.test_stamp

@@ -110,6 +110,17 @@ class TestRunFingerprint(unittest.TestCase):
         self.assertEqual(prov.env_hash(), prov.env_hash())
         self.assertEqual(len(prov.env_hash()), 64)
 
+    def test_manifest_lockfile_hash_is_real(self):
+        # C-9: build_manifest used to read requirements-lock.txt,
+        # which does not exist — the hash was always None. It
+        # must be the requirements.lock hash.
+        m = prov.build_manifest("test-run-1", {"bulk": "v1"})
+        self.assertEqual(
+            m["environment"]["requirements_lock_sha256"],
+            prov.file_sha256(ROOT / "requirements.lock"))
+        self.assertIsNotNone(
+            m["environment"]["requirements_lock_sha256"])
+
 
 class TestResumeFingerprintCheck(unittest.TestCase):
     def test_resume_refuses_tampered_resume_fingerprint(self):
