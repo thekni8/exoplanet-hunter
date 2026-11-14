@@ -1,0 +1,24 @@
+# Vetting-gauntlet calibration profile v1.
+# IMMUTABLE once used in a run: to change a threshold, copy this file
+# to gauntlet_v2.yaml, bump `version`, and update the code + golden
+# suite in the same change. See calibration/README.md for the rules.
+# The values here are drift-tested against the gauntlet's named
+# constants (tests/test_calibration.py).
+version: gauntlet_v1
+
+# --- trapezoid shape gate (gauntlet/rawflux_check.py) -------------------
+shape_v_max_t23_t14: 0.30  # T23/T14 <= 0.30 is V-shaped / grazing
+shape_u_min_t23_t14: 0.50  # T23/T14 >= 0.50 is U-shaped / flat-bottomed
+density_ratio_min: 0.80    # rho_circ/rho_star below this flags the
+                           # fitted duration as impossible for a
+                           # circular-orbit planet on this star
+
+# --- persistence stamp (persistence.py) ---------------------------------
+chi2_sys_frac: 0.15  # 15% systematic floor in the chi2 consistency
+                     # test (2026-11-13 fix: without it the test
+                     # vetoes REAL signals, stronger ones more)
+
+# --- MAD-sigma clip floor (rawflux_check.py, transit_fit.py) ------------
+mad_clip_floor_frac: 0.10  # lower clip cut floored at 10% below the
+                           # median, so the clip can never eat a deep
+                           # transit on a quiet star (2026-11-14 fix)

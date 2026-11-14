@@ -158,7 +158,7 @@ def load_stitched(pfx, secs):
     # is 75 sigma, so every in-transit point was clipped and the star
     # read as refuted; even a 0.5% transit loses most of its points.
     # Genuine outliers (excursions >> 10%) are still clipped both sides.
-    keep = (f < med + 5 * sig) & (f > med - max(5 * sig, 0.10))
+    keep = (f < med + 5 * sig) & (f > med - max(5 * sig, MAD_CLIP_FLOOR_FRAC))
     return t[keep], f[keep], spans
 
 
@@ -328,6 +328,16 @@ def raw_measure(pfx, secs, P, T0, DUR):
 
 _G_SI = 6.67430e-11       # m^3 kg^-1 s^-2
 _RHO_SUN = 1408.0         # kg/m^3
+
+# Gauntlet calibration (calibration/gauntlet_v1.yaml — drift-tested
+# in tests/test_calibration.py; change the profile + the code together).
+V_SHAPE_MAX_T23_T14 = 0.30  # T23/T14 <= 0.30 is V-shaped / grazing
+U_SHAPE_MIN_T23_T14 = 0.50  # T23/T14 >= 0.50 is U-shaped / flat-bottomed
+DENSITY_RATIO_MIN = 0.80    # rho_circ/rho_star below this flags the
+                            # fitted duration as impossible for a
+                            # circular-orbit planet on this star
+MAD_CLIP_FLOOR_FRAC = 0.10  # MAD-sigma clip lower cut, floored at 10%
+                            # below the median (2026-11-14 fix)
 
 
 def _trap_model(x, depth, t14, frac, dt0):
@@ -577,9 +587,9 @@ def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
         't14_at_bound': bool(t14 >= 1.8 * hw * 0.999),
     })
     # shape verdict from the flat-bottom fraction
-    if frac <= 0.30:
+    if frac <= V_SHAPE_MAX_T23_T14:
         shape = 'V-shaped'
-    elif frac >= 0.50:
+    elif frac >= U_SHAPE_MIN_T23_T14:
         shape = 'U-shaped'
     else:
         shape = 'ambiguous'
@@ -604,7 +614,7 @@ def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
         t14max_h = (P / math.pi
                     * math.asin(min((1.0 + rp_est) / a_R_star, 1.0))
                     * 24.0)
-        if ratio0 < 0.80:
+        if ratio0 < DENSITY_RATIO_MIN:
             dflag = True
             dreason = 'rho_circ/rho_star < 0.80'
         elif shape == 'V-shaped' and ratio0 < 1.0:

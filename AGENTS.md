@@ -23,9 +23,11 @@ and do not skip the validation step.
 
 Key numbers: a sweep hit needs SDE ≥ 8.5. The bulk screen's
 survivor bar and tier thresholds are versioned calibration
-constants in `bulk_screen.py` (see `bulk/CALIBRATION_V1_1.md`) —
-they are code, not configuration, and changing them means changing
-the code, the calibration doc, and the golden suite together.
+constants in `calibration/bulk_v1.yaml` (loaded by
+`bulk_screen.py` at import; see `bulk/CALIBRATION_V1_1.md` and
+`calibration/README.md`) — they are code, not configuration, and
+changing them means a new profile version + the code + the golden
+suite, together.
 
 ## 1. Set up
 
@@ -116,6 +118,10 @@ hits the pipeline already found.
 - **Never loosen a threshold to make a test pass.** Thresholds
   change deliberately, with the calibration doc and the golden
   suite updated in the same change.
+- **Never change a threshold without bumping calibration_version
+  and re-running the injection harness.** A threshold change
+  without a completeness re-measurement is flying blind — the
+  version bump is what keeps old and new records distinguishable.
 - **Never use a bulk-screen period as a fold anchor.** Refine it
   first (manual stage 2) or every cross-sector fold reads zero.
 - **Never call a transit flat-bottomed from a box-vs-wave test.**

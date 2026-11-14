@@ -533,6 +533,12 @@ _AUTHOR_PRIORITY = ("SPOC", "TESS-SPOC", "QLP")
 # so the artifact forest stops taxing every real peak's SDE.
 _SYSTEMATIC_PERIODS = (13.7, 6.85, 27.4)
 
+# Deep-pipeline calibration (calibration/deep_v1.yaml — drift-tested
+# in tests/test_calibration.py; change the profile + the code together).
+HIT_SDE = 8.5     # discovery bar: a sweep hit needs SDE >= 8.5
+ACCEPT_SDE = 6.5  # refined-peak acceptance floor: a refined peak
+                  # below this is not a signal
+
 
 def _near_systematic(period):
     """True if a period sits within 3% of the TESS systematic family."""
@@ -900,7 +906,7 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         _head_idx = 0
         for _k, _c in enumerate(_cands):
             if not _c["near_systematic"]:
-                if _c["sde"] >= 6.5:
+                if _c["sde"] >= ACCEPT_SDE:
                     _head_idx = _k
                 break
         _head = _cands[_head_idx]
@@ -1013,7 +1019,7 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # candidate is adopted only at SDE >= 10. Any TLS failure leaves
     # the BLS result untouched. Validated on TOI-700 c (binned SPOC
     # curve): TLS recovers P 16.053 d at SDE 11.1, depth 0.174%.
-    if sde < 8.5 and any((not c["near_systematic"]) and c["sde"] >= 5.0
+    if sde < HIT_SDE and any((not c["near_systematic"]) and c["sde"] >= 5.0
                          for c in candidates):
         try:
             from transitleastsquares import transitleastsquares as _tls
@@ -1233,7 +1239,7 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "tic_id": full["TIC"],
             "best_period_days": full["Period"],
             "sde": full["SDE"],
-            "classification": "Strong Transit" if full["SDE"] >= 8.5 else "Marginal / Noise",
+            "classification": "Strong Transit" if full["SDE"] >= HIT_SDE else "Marginal / Noise",
             "depth": full["Depth"],
             "depth_percent": full["Depth"] * 100.0,
             "duration_days": full["Duration_Days"],

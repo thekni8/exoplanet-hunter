@@ -51,6 +51,12 @@ from scipy.signal import savgol_filter
 RSUN_RE = 109.2                    # R_sun in R_earth
 RSUN_AU = 0.00465047               # R_sun in AU
 
+# Gauntlet calibration (calibration/gauntlet_v1.yaml — drift-tested
+# in tests/test_calibration.py; change the profile + the code together).
+MAD_CLIP_FLOOR_FRAC = 0.10  # MAD-sigma clip lower cut, floored at 10%
+                            # below the median (2026-11-14 fix, same
+                            # as rawflux_check.py)
+
 
 def flatten_qlp(t, f, period, t0, duration_d, window=1.5):
     """Transit-masked Savitzky-Golay flatten (the holdout recipe)."""
@@ -118,7 +124,7 @@ def load_data(data_dir, qlp_sectors, tesscut_sectors, period, t0,
         d['f'] = d['f'] / np.median(d['f'])
         med = np.median(d['f'])
         mad = 1.4826 * np.median(np.abs(d['f'] - med))
-        keep = (d['f'] < med + 5 * mad) & (d['f'] > med - max(5 * mad, 0.10))
+        keep = (d['f'] < med + 5 * mad) & (d['f'] > med - max(5 * mad, MAD_CLIP_FLOOR_FRAC))
         d['t'], d['f'] = d['t'][keep], d['f'][keep]
         ph = (((d['t'] - t0) / period + 0.5) % 1.0) - 0.5
         oot = np.abs(ph) > 0.08
