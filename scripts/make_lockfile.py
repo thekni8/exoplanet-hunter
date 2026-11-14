@@ -37,7 +37,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # Installed in the venv but not part of the pipeline's runtime
 # closure (build/dev tools) — never in the lockfile.
-EXCLUDE = {"pip", "pip-tools", "setuptools", "wheel", "build",
+# NOTE: setuptools is deliberately NOT in this set even though it
+# looks like a build tool — it is a runtime dependency: batman
+# imports distutils at runtime and setuptools 69 shims it on
+# Python 3.12 (see requirements.txt). It was excluded here until
+# 2026-11-14, which is how the undeclared-dependency defect
+# reached CI (scratch-repo rest shard failed on a clean runner).
+EXCLUDE = {"pip", "pip-tools", "wheel", "build",
            "pyproject_hooks"}
 
 PYPI_JSON = "https://pypi.org/pypi/{name}/{version}/json"

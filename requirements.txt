@@ -22,6 +22,14 @@ numpy==2.5.4
 # --- transit fitting (gauntlet/transit_fit.py; conditional imports) ---
 batman-package==2.5.3
 emcee==3.1.6
+# setuptools is a RUNTIME dependency, not just a build tool: batman
+# 2.5.x imports distutils at runtime (batman/openmp.py), and distutils
+# was removed from the Python 3.12 stdlib — setuptools 69 shims it.
+# gauntlet/transit_fit.py and gauntlet/transit_fit_report.py import
+# setuptools at module level (with SETUPTOOLS_USE_DISTUTILS=local).
+# Undeclared until 2026-11-14, when the scratch-repo CI rest shard
+# failed on a clean runner with ModuleNotFoundError: setuptools.
+setuptools==69.5.1
 
 # --- HTTP / config ---
 requests==2.34.2
