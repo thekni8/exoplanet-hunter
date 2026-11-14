@@ -53,6 +53,23 @@ class TestClipGrid(unittest.TestCase):
             sde_15, sde_10,
             "deeper transit must not score below the shallower one")
 
+    def test_monotonicity_under_v3(self):
+        # v3 adds only the quality mask; these fixtures have
+        # quality==0 everywhere, so the mask is a no-op and v3
+        # must reproduce v2's SDEs EXACTLY — the mask changes
+        # nothing on clean data. Monotonicity pins the pair too.
+        bs.set_calibration("bulk_v2")
+        v2_10 = _screen(1.0)["sde"]
+        v2_15 = _screen(1.5)["sde"]
+        bs.set_calibration("bulk_v3")
+        v3_10 = _screen(1.0)["sde"]
+        v3_15 = _screen(1.5)["sde"]
+        self.assertEqual(v3_10, v2_10)
+        self.assertEqual(v3_15, v2_15)
+        self.assertGreaterEqual(
+            v3_15, v3_10,
+            "deeper transit must not score below the shallower one")
+
     @unittest.expectedFailure
     def test_monotonicity_under_v1(self):
         # STRICT xfail: v1's symmetric clip inverts this pair

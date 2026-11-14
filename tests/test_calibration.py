@@ -110,6 +110,44 @@ class TestBulkProfile(unittest.TestCase):
         finally:
             bulk_screen.set_calibration(previous)
 
+    def test_bulk_v3_values(self):
+        p3 = load_profile("bulk_v3")
+        p2 = load_profile("bulk_v2")
+        self.assertEqual(p3["version"], "bulk_v3")
+        self.assertEqual(p3["status"], "active")
+        self.assertTrue(p3["rationale"].strip())
+        # The only new field: the quality mask adds bits 29/30
+        # (TESS scattered light) to the lightkurve default.
+        self.assertEqual(p3["quality_mask"], 1610629823)
+        self.assertEqual(p3["quality_mask"],
+                         17087 | (1 << 29) | (1 << 30))
+        # Every v2 threshold carried over unchanged.
+        for key in ("clip_option", "systematic_windows",
+                    "record_floor_sde", "survivor_sde",
+                    "depth_min_pct", "depth_eb_pct", "tier_a_mes",
+                    "tier_a_min_events", "tier_a_min_strong",
+                    "strong_event_snr", "tier_b_event_snr",
+                    "tier_b_max_depth_pct", "min_period_d",
+                    "max_period_d", "bls_grid_points",
+                    "bls_durations_d", "systematic_periods"):
+            self.assertEqual(p3[key], p2[key], key)
+
+    def test_bulk_screen_loads_v3_on_request(self):
+        previous = bulk_screen.CALIBRATION_VERSION
+        try:
+            bulk_screen.set_calibration("bulk_v3")
+            self.assertEqual(bulk_screen.CALIBRATION_VERSION,
+                             "bulk_v3")
+            self.assertEqual(bulk_screen.CLIP_OPTION, "floor_10pct")
+            self.assertEqual(bulk_screen.QUALITY_MASK, 1610629823)
+            # v1/v2 predate the field and mean the default mask.
+            bulk_screen.set_calibration("bulk_v2")
+            self.assertEqual(bulk_screen.QUALITY_MASK, 17087)
+            bulk_screen.set_calibration("bulk_v1")
+            self.assertEqual(bulk_screen.QUALITY_MASK, 17087)
+        finally:
+            bulk_screen.set_calibration(previous)
+
 
 class TestV1Gate(unittest.TestCase):
     def test_v1_allows_its_sectors(self):
