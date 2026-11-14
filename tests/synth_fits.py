@@ -24,7 +24,8 @@ def make_qlp_fits(path, *, n_points=1296, cadence_min=30.0,
                   t_start=1500.0, period_d=None, depth_frac=0.01,
                   duration_d=0.1, t0=None, noise_pct=0.003, seed=42,
                   quality=None, odd_even_ratio=1.0,
-                  secondary_depth_frac=0.0, flagged_only_frac=None):
+                  secondary_depth_frac=0.0, flagged_only_frac=None,
+                  flag_bit=30):
     """Write a synthetic QLP FITS to `path` and return the Path.
 
     period_d=None means pure noise (no transit). odd_even_ratio
@@ -35,7 +36,9 @@ def make_qlp_fits(path, *, n_points=1296, cadence_min=30.0,
     flags array — used to put a signal on flagged cadences only.
     flagged_only_frac (e.g. 0.7) builds the TIC 344334378 class:
     the dip exists ONLY on that fraction of in-transit cadences,
-    and exactly those cadences carry quality bit 30 — the screen
+    and exactly those cadences carry quality bit `flag_bit`
+    (default 30 — the S96 gauntlet artifacts live in bits 29/30;
+    pass flag_bit=29 for the bit-29 variant) — the screen
     (bitmask 17087) keeps them and sees the signal, but the
     clean-data gate (quality==0) sees no dip at all.
     """
@@ -79,7 +82,7 @@ def make_qlp_fits(path, *, n_points=1296, cadence_min=30.0,
     else:
         q = np.asarray(quality, dtype=np.int32)
     if flagged.any():
-        q = q | np.where(flagged, np.int32(1 << 30),
+        q = q | np.where(flagged, np.int32(1 << flag_bit),
                          np.int32(0)).astype(np.int32)
     cols = [
         fits.Column(name="TIME", format="D", array=t),
