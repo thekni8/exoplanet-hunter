@@ -1,0 +1,62 @@
+# Vetting-gauntlet calibration profile v2 (Phase 1.2, item A-4).
+# IMMUTABLE once used in a run: to change a threshold, copy this
+# file to gauntlet_v3.yaml, bump `version`, and update the code +
+# golden suite in the same change. See calibration/README.md for
+# the rules. Registered in calibration/registry.json — the loader
+# verifies this file's sha256 against the registry and refuses a
+# mismatch.
+version: gauntlet_v2
+status: active
+rationale: "Gauntlet calibration v2 (2026-11-14, Phase 1.2 A-4): carries the stage-result decision policy (raw-flux/parity bars, minimum-data bars, blend bars) and the waiver allowlist. v1's thresholds carried over unchanged; the policy values were hardcoded constants in gauntlet/stage_result.py before this version."
+
+# --- trapezoid shape gate (gauntlet/rawflux_check.py) -------------------
+# Carried over unchanged from gauntlet_v1.
+shape_v_max_t23_t14: 0.30  # T23/T14 <= 0.30 is V-shaped / grazing
+shape_u_min_t23_t14: 0.50  # T23/T14 >= 0.50 is U-shaped / flat-bottomed
+density_ratio_min: 0.80    # rho_circ/rho_star below this flags the
+                           # fitted duration as impossible for a
+                           # circular-orbit planet on this star
+
+# --- persistence stamp (persistence.py) ---------------------------------
+chi2_sys_frac: 0.15  # 15% systematic floor in the chi2 consistency
+                     # test (2026-11-13 fix: without it the test
+                     # vetoes REAL signals, stronger ones more)
+
+# --- MAD-sigma clip floor (rawflux_check.py, transit_fit.py) ------------
+mad_clip_floor_frac: 0.10  # lower clip cut floored at 10% below the
+                           # median, so the clip can never eat a deep
+                           # transit on a quiet star (2026-11-14 fix)
+
+# --- decision policy (gauntlet/stage_result.py) -------------------------
+# Interpretation thresholds for the stage adapters. They live HERE,
+# in the versioned policy, not in code: a threshold change is a
+# calibration change, with a version bump and a registry entry.
+raw_flux_min_signif: 3.0  # raw-flux pass bar: a genuine dip at >= 3
+                          # sigma in unflattened flux
+parity_fail_sigma: 3.0    # odd/even disagreement bar: families
+                          # differing by more than this many combined
+                          # white-noise sigma are an EB
+min_in_cadences: 20       # minimum in-transit cadences for a
+                          # testable fold verdict (same bar as the
+                          # clean-data gate)
+min_events: 2             # minimum distinct transit events for a
+                          # testable fold verdict
+blend_min_signif: 3.0     # blend bar: the neighbour's dip must clear
+                          # this significance to count as a photocopy
+blend_min_depth_ratio: 3.0  # blend bar: the neighbour's dip must be
+                            # at least this many times deeper than the
+                            # target's
+
+# --- waiver allowlist ---------------------------------------------------
+# A stage's INCONCLUSIVE or NOT_APPLICABLE blocks candidacy UNLESS
+# the stage is listed here, per-stage, with the grounds. The run
+# records the applied waiver (stage + per-target reason) in the
+# verdict record; this map is the allowlist, the run supplies the
+# reason. UNMEASURED and FAIL are never waivable — "not yet vetted"
+# and "failed" cannot be waived away. The allowlist is deliberately
+# small: only stages whose non-applicability is STRUCTURAL (a
+# property of the target, not of the measurement) may be waived.
+waivers:
+  holdout: "single-sector target: no held-out sector exists to test against"
+  clean_refold: "target is not a bulk survivor: no clean-data gate applies"
+  pixel_check: "period under 8 d: the TPF pixel check does not apply"

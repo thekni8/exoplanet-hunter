@@ -21,6 +21,13 @@
       "status": "active",
       "rationale": "Gauntlet thresholds as vetted through S96-S98 (shape-gate V/U bounds, 15% chi2 floor, 10% MAD-clip floor). Snapshot of the gauntlet's named constants plus the stage-result decision policy.",
       "supersedes": null
+    },
+    {
+      "calibration_id": "gauntlet_v2",
+      "sha256": "8f33c9e9c14fa0ebf2840412455c0e8183c1f2ceaca6884ad8daaedaff344fd0",
+      "status": "active",
+      "rationale": "Gauntlet calibration v2 (2026-11-14, Phase 1.2 A-4): carries the stage-result decision policy (raw-flux/parity bars, minimum-data bars, blend bars) and the waiver allowlist. v1's thresholds carried over unchanged; the policy values were hardcoded constants in gauntlet/stage_result.py before this version.",
+      "supersedes": "gauntlet_v1"
     }
   ]
 }

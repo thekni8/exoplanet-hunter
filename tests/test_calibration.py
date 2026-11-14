@@ -96,6 +96,32 @@ class TestGauntletDrift(unittest.TestCase):
         self.assertEqual(p["chi2_sys_frac"], 0.15)
 
 
+class TestGauntletV2Policy(unittest.TestCase):
+    def test_gauntlet_v2_carries_v1_thresholds(self):
+        # v2 carries v1's thresholds unchanged (the drift test
+        # for v1 still pins v1; this pins the carry-over).
+        v1 = load_profile("gauntlet_v1")
+        v2 = load_profile("gauntlet_v2")
+        for key in ("shape_v_max_t23_t14", "shape_u_min_t23_t14",
+                    "density_ratio_min", "chi2_sys_frac",
+                    "mad_clip_floor_frac"):
+            self.assertEqual(v2[key], v1[key], msg=key)
+
+    def test_gauntlet_v2_has_status_rationale_and_policy(self):
+        # v2+ profiles must declare status + rationale IN THE
+        # FILE (the loader enforces this); the policy fields and
+        # the waiver allowlist are what A-4 adds.
+        v2 = load_profile("gauntlet_v2")
+        self.assertEqual(v2["status"], "active")
+        self.assertTrue(v2["rationale"])
+        for key in ("raw_flux_min_signif", "parity_fail_sigma",
+                    "min_in_cadences", "min_events",
+                    "blend_min_signif", "blend_min_depth_ratio"):
+            self.assertIn(key, v2)
+        self.assertEqual(sorted(v2["waivers"]),
+                         ["clean_refold", "holdout", "pixel_check"])
+
+
 class TestLoader(unittest.TestCase):
     def test_profile_name_and_short_version_round_trip(self):
         # The provenance map carries bare versions ({"bulk": "v1"});

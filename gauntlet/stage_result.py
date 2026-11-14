@@ -10,14 +10,25 @@ a stage could not measure. The contract:
     not_applicable.
   * "unmeasured" means NOT YET VETTED — the stage had too little
     data to judge. It is NEVER a pass: no aggregation may treat
-    it as one, and no CANDIDATE verdict may stand on it.
+    it as one, and no CANDIDATE verdict may stand on it. It is
+    NEVER waivable.
   * "inconclusive" means the stage measured but could not decide
-    (e.g. an ambiguous trapezoid shape). Also never a pass.
+    (e.g. an ambiguous trapezoid shape). Also never a pass. It
+    blocks candidacy unless the decision policy waives that
+    stage explicitly (per-stage, in the policy, with a reason —
+    see aggregate_verdict).
   * "not_applicable" means the stage does not apply to this
     target (e.g. a holdout test on a single-sector candidate).
-    It is the ONLY non-pass status that does not block a
-    candidate — and only the runner may assign it, when the
-    stage's prerequisites say it does not apply.
+    It BLOCKS candidacy unless the decision policy waives that
+    stage explicitly — a stage that does not apply is a gap in
+    the case until the policy says the gap is structural and the
+    run records the waiver with its reason. (v1 let it pass
+    silently; v2 reverses that.)
+  * Promotion is an ALLOWLIST: only COMPLETED + PASS passes. A
+    FAIL kills, an UNMEASURED blocks, an INCONCLUSIVE or
+    NOT_APPLICABLE blocks unless waived — and the waiver must
+    name the stage and carry a reason, and the stage must be in
+    the policy's waiver allowlist.
   * A result carries EVIDENCE, not just a verdict: value,
     uncertainty, threshold, detection limit, transits used,
     metrics, artifacts, tool version, config hash, input
@@ -27,7 +38,7 @@ a stage could not measure. The contract:
     verdict auditable. The raw result and its interpretation
     stay separate: the interpretation thresholds live in the
     versioned gauntlet calibration profile (the decision
-    policy), not in the result.
+    policy, gauntlet_v2), not in the result.
   * Scientific outcome and execution outcome are separate axes:
     execution_status is completed / not_started / skipped /
     error. A crashed external tool is NOT a scientific failure
@@ -37,6 +48,10 @@ a stage could not measure. The contract:
   * Every result carries provenance (calibration_version,
     pipeline_git_sha, run_id, timestamp_utc) so a verdict can
     always be traced to the code and calibration that produced it.
+  * Every result carries a record_type discriminator
+    ("stage_result") alongside schema_version, so a standalone
+    stage-result record is self-describing (schema/
+    stage_result-schema.json).
 
 Adapters map each existing stage's native output onto this type
 without changing the stage itself: the shape gate, the
@@ -47,6 +62,9 @@ into a final verdict; `gauntlet/verdict.py:build_verdict`
 assembles and validates the verdict record.
 """
 from dataclasses import dataclass, field
+from functools import lru_cache
+
+import provenance as _provenance
 
 STATUS_PASS = "pass"
 STATUS_FAIL = "fail"
@@ -66,16 +84,32 @@ EXEC_ERROR = "error"
 EXEC_STATUSES = (EXEC_COMPLETED, EXEC_NOT_STARTED, EXEC_SKIPPED,
                  EXEC_ERROR)
 
-# Minimum data for a testable fold verdict — the same bars as the
-# clean-data gate (bulk/clean_refold_gate.py MIN_IN / MIN_EVENTS).
-MIN_IN_CADENCES = 20
-MIN_EVENTS = 2
-# Raw-flux pass bar — the hunter._raw_fold_depth bar: a genuine
-# dip at >= 3 sigma in unflattened flux.
-RAW_FLUX_MIN_SIGNIF = 3.0
-# Odd/even disagreement bar: families differing by more than this
-# many combined white-noise sigma are an EB.
-PARITY_FAIL_SIGMA = 3.0
+# Decision policy (Phase 1.2, item A-4): the interpretation
+# thresholds live in the versioned gauntlet calibration profile
+# (gauntlet_v2), NOT in code. A threshold change is a calibration
+# change — version bump + registry entry. The adapters take an
+# explicit `policy` dict (tests pass one); when omitted they load
+# the default policy, cached (the profile never changes mid-run).
+DEFAULT_POLICY_VERSION = "gauntlet_v2"
+RECORD_TYPE = "stage_result"
+
+
+@lru_cache(maxsize=4)
+def load_decision_policy(version=DEFAULT_POLICY_VERSION):
+    """The decision-policy dict for a gauntlet calibration
+    version (default gauntlet_v2). Cached; call
+    load_decision_policy.cache_clear() after changing the
+    calibration dir in tests."""
+    from calibration import load_profile
+    return load_profile(version)
+
+
+def _policy_value(policy, key, version=DEFAULT_POLICY_VERSION):
+    """One threshold from an explicit policy dict, or the
+    default policy when none is passed."""
+    if policy is None:
+        policy = load_decision_policy(version)
+    return policy[key]
 
 # Stages every candidate must pass (vetting-manual order). A stage
 # that never ran is unmeasured — aggregate_verdict treats a missing
@@ -174,7 +208,9 @@ class StageResult:
                                    STATUS_NOT_APPLICABLE)
 
     def to_dict(self):
-        d = {"stage": self.stage, "status": self.status,
+        d = {"record_type": RECORD_TYPE,
+             "schema_version": _provenance.SCHEMA_VERSION,
+             "stage": self.stage, "status": self.status,
              "reason": self.reason,
              "execution_status": self.execution_status,
              "provenance": dict(self.provenance),
@@ -307,17 +343,21 @@ def clean_gate_result(fold, verdict, prov=None):
         _prov(prov), details, **ev)
 
 
-def raw_flux_result(fold, prov=None):
+def raw_flux_result(fold, prov=None, policy=None):
     """A raw-flux fold_depth dict -> StageResult.
 
-    Depth > 0 at >= 3 sigma in unflattened flux -> PASS. No dip
-    or insignificant -> FAIL (RAW-REFUTED). Too few in-transit
-    cadences/events -> UNMEASURED.
+    Depth > 0 at >= the policy's raw_flux_min_signif sigma in
+    unflattened flux -> PASS. No dip or insignificant -> FAIL
+    (RAW-REFUTED). Too few in-transit cadences/events (policy
+    min_in_cadences / min_events) -> UNMEASURED.
 
     Evidence: value is the fold depth (%), uncertainty its
     1-sigma error from the white significance, threshold the
-    3-sigma bar in the same units.
+    policy's sigma bar in the same units.
     """
+    min_signif = _policy_value(policy, "raw_flux_min_signif")
+    min_in = _policy_value(policy, "min_in_cadences")
+    min_events = _policy_value(policy, "min_events")
     details = {k: fold.get(k) for k in
                ("depth_pct", "signif_white", "signif_red",
                 "n_in", "n_events")
@@ -329,17 +369,17 @@ def raw_flux_result(fold, prov=None):
                                and signif > 0 and depth > 0) \
         else None
     ev = {"value": depth, "uncertainty": unc,
-          "threshold": (RAW_FLUX_MIN_SIGNIF * unc)
+          "threshold": (min_signif * unc)
           if unc is not None else None,
           "n_transits": fold.get("n_events")}
-    if (fold.get("n_in") or 0) < MIN_IN_CADENCES or \
-            (fold.get("n_events") or 0) < MIN_EVENTS:
+    if (fold.get("n_in") or 0) < min_in or \
+            (fold.get("n_events") or 0) < min_events:
         return StageResult(
             "raw_flux", STATUS_UNMEASURED,
             "too few in-transit cadences/events for a raw-flux "
             "verdict", _prov(prov), details, **ev)
     if depth is not None and signif is not None \
-            and depth > 0 and signif >= RAW_FLUX_MIN_SIGNIF:
+            and depth > 0 and signif >= min_signif:
         return StageResult(
             "raw_flux", STATUS_PASS,
             f"dip in raw flux: {depth:.3f}% "
@@ -351,13 +391,15 @@ def raw_flux_result(fold, prov=None):
         _prov(prov), details, **ev)
 
 
-def parity_result(odd, even, prov=None):
+def parity_result(odd, even, prov=None, policy=None):
     """event_parity_depths output -> StageResult.
 
     Either family unmeasured (None) -> UNMEASURED. Families
-    differing by > 3 combined sigma -> FAIL (EB at twice the
-    period). Agreeing families -> PASS.
+    differing by more than the policy's parity_fail_sigma
+    combined sigma -> FAIL (EB at twice the period). Agreeing
+    families -> PASS.
     """
+    fail_sigma = _policy_value(policy, "parity_fail_sigma")
     if odd is None or even is None:
         return StageResult(
             "parity", STATUS_UNMEASURED,
@@ -371,12 +413,12 @@ def parity_result(odd, even, prov=None):
                "even_depth_pct": even["depth_pct"],
                "diff_sigma": diff / sig if sig > 0 else None}
     # Evidence: value is the odd/even disagreement in combined
-    # white-noise sigma, threshold the 3-sigma EB bar in the
+    # white-noise sigma, threshold the policy's EB bar in the
     # same units.
     ev = {"value": (diff / sig) if sig > 0 else None,
           "uncertainty": 1.0 if sig > 0 else None,
-          "threshold": PARITY_FAIL_SIGMA}
-    if sig > 0 and diff > PARITY_FAIL_SIGMA * sig:
+          "threshold": fail_sigma}
+    if sig > 0 and diff > fail_sigma * sig:
         return StageResult(
             "parity", STATUS_FAIL,
             f"odd/even depths differ: {odd['depth_pct']:.2f}% vs "
@@ -439,29 +481,104 @@ def holdout_result(verdict, prov=None):
 # Aggregation: stage results + imaging -> final verdict
 # ---------------------------------------------------------------------------
 
-def aggregate_verdict(results, imaging=None):
+def _normalize_waivers(waivers):
+    """Waivers as {stage: reason}. Accepts a dict or a list of
+    {"stage", "reason"} dicts (the verdict record's shape).
+    Raises ValueError on a malformed entry — a waiver with no
+    reason is not a waiver."""
+    if not waivers:
+        return {}
+    if isinstance(waivers, dict):
+        items = waivers.items()
+    else:
+        items = [(w["stage"], w["reason"]) for w in waivers]
+    out = {}
+    for stage, reason in items:
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(
+                f"waiver for stage {stage!r} has no reason — a "
+                f"waiver must name the stage and carry a reason")
+        out[stage] = reason
+    return out
+
+
+def validate_waivers(results, waivers, policy=None):
+    """Check applied waivers against the decision policy. A waiver
+    is valid only when ALL of these hold:
+      * the stage ran (it is in `results`);
+      * the stage's status is inconclusive or not_applicable
+        (a PASS needs no waiver; a FAIL or UNMEASURED can never
+        be waived);
+      * the stage is in the policy's waiver allowlist
+        (policy["waivers"] — the policy gates WHAT may be
+        waived; the run supplies the per-target reason).
+    Returns the normalized {stage: reason} dict. Raises
+    ValueError on the first invalid waiver — an invalid waiver
+    is a caller bug, and failing loud beats promoting a
+    candidate on a waiver nobody authorized."""
+    waived = _normalize_waivers(waivers)
+    if not waived:
+        return {}
+    if policy is None:
+        policy = load_decision_policy()
+    allowlist = policy.get("waivers") or {}
+    by_stage = {r.stage: r for r in results}
+    for stage, reason in sorted(waived.items()):
+        result = by_stage.get(stage)
+        if result is None:
+            raise ValueError(
+                f"waiver for stage {stage!r}, but that stage "
+                f"never ran — a waiver names a stage that "
+                f"measured inconclusive or not-applicable")
+        if result.status not in (STATUS_INCONCLUSIVE,
+                                 STATUS_NOT_APPLICABLE):
+            raise ValueError(
+                f"stage {stage!r} has status "
+                f"{result.status!r} — only inconclusive or "
+                f"not_applicable may be waived (a pass needs no "
+                f"waiver; a fail or unmeasured can never be "
+                f"waived)")
+        if stage not in allowlist:
+            raise ValueError(
+                f"stage {stage!r} is not in the decision "
+                f"policy's waiver allowlist — the policy waives "
+                f"stages explicitly, per-stage, and {stage!r} "
+                f"is not among them")
+    return waived
+
+
+def aggregate_verdict(results, imaging=None, waivers=None,
+                      policy=None):
     """Decide the final verdict from stage results and imaging.
 
+    Promotion is an ALLOWLIST: only COMPLETED + PASS passes.
     Order of decision (first match wins):
+      0. Waivers are validated against the decision policy
+         (validate_waivers) — an invalid waiver raises
+         ValueError before any verdict is decided.
       1. Any FAIL -> the kill verdict of the FIRST failing stage
          in vetting-manual order.
       2. Imaging localises the source OFF-target -> BLEND.
-      3. Any stage UNMEASURED or INCONCLUSIVE — required or
-         newly registered — -> INCONCLUSIVE (not yet vetted —
-         never a candidate). A stage that ran and could not
-         measure is a gap in the case, whoever registered it;
-         the escape hatch is not_applicable, which only the
-         runner assigns when the stage does not apply.
-      4. Any required stage never run -> INCONCLUSIVE.
-      5. All required stages PASS or not_applicable and imaging
-         is on-target -> CANDIDATE.
-      6. All required stages PASS/not_applicable but imaging is
+      3. Any stage UNMEASURED — required or newly registered —
+         -> INCONCLUSIVE (not yet vetted — never a candidate,
+         never waivable).
+      4. Any stage INCONCLUSIVE or NOT_APPLICABLE that is not
+         waived -> INCONCLUSIVE. A waived stage is a gap the
+         policy calls structural, recorded with its reason.
+      5. Any required stage never run -> INCONCLUSIVE.
+      6. All required stages PASS (or waived) and imaging is
+         on-target -> CANDIDATE.
+      7. All required stages PASS (or waived) but imaging is
          missing or unmeasured -> INCONCLUSIVE (a candidate
          needs imaging).
 
     Returns (final_verdict, note). `imaging` is None or a dict
-    with an `on_target` key (True / False / None).
+    with an `on_target` key (True / False / None). `waivers` is
+    a {stage: reason} dict or a list of {"stage", "reason"}
+    dicts; `policy` is the decision-policy dict (default:
+    gauntlet_v2).
     """
+    waived = validate_waivers(results, waivers, policy)
     by_stage = {r.stage: r for r in results}
     fails = [r for r in results if r.status == STATUS_FAIL]
     if fails:
@@ -480,16 +597,24 @@ def aggregate_verdict(results, imaging=None):
         if r.status == STATUS_UNMEASURED:
             return ("INCONCLUSIVE",
                     f"stage {r.stage} unmeasured: {r.reason}")
-        if r.status == STATUS_INCONCLUSIVE:
+        if r.status in (STATUS_INCONCLUSIVE,
+                        STATUS_NOT_APPLICABLE) \
+                and r.stage not in waived:
             return ("INCONCLUSIVE",
-                    f"stage {r.stage} inconclusive: {r.reason}")
+                    f"stage {r.stage} {r.status}: {r.reason} "
+                    f"(not waived)")
     for stage in REQUIRED_STAGES:
         if stage not in by_stage:
             return ("INCONCLUSIVE",
                     f"stage {stage} never ran — not yet vetted")
     if imaging is not None and imaging.get("on_target") is True:
-        return ("CANDIDATE",
-                "all required stages pass; imaging on-target")
+        note = "all required stages pass"
+        if waived:
+            names = ", ".join(f"{s} ({waived[s]})"
+                              for s in sorted(waived))
+            note += f" (waived: {names})"
+        note += "; imaging on-target"
+        return ("CANDIDATE", note)
     return ("INCONCLUSIVE",
             "all required stages pass but imaging is missing or "
             "unmeasured — a candidate needs on-target imaging")
