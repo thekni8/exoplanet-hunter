@@ -1,0 +1,50 @@
+# Live MAST golden tests — on merge to main, weekly, + manual dispatch.
+#
+# Runs the FULL golden suite (tests/run_golden.py), including the
+# download-backed tests on TOI-700, WASP-126 b, and TIC 308851365
+# against live MAST data. This job is NOT a merge gate: a MAST
+# outage, a rate limit, or a product change at STScI must not look
+# like a code regression, so the test step is continue-on-error —
+# failures are visible in the Actions tab but never block a PR.
+#
+# If this job goes red while the PR gate (golden.yml) stays green,
+# either MAST changed its data or the offline fixtures are stale
+# (regenerate with tests/make_fixtures.py). If BOTH go red, the
+# pipeline itself changed — find what broke before merging anything.
+name: live-mast
+
+on:
+  push:
+    # Every merge to main runs the full suite against live MAST —
+    # the PR gate (golden.yml) is offline-only, so this is where
+    # live data and committed fixtures are compared.
+    branches: [main]
+  schedule:
+    # Mondays 06:00 UTC — a weekly check that live MAST still
+    # agrees with the committed fixtures.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run full golden suite (live MAST)
+        # Non-blocking by design: a MAST outage is not a code
+        # regression. See the header comment.
+        continue-on-error: true
+        run: python tests/run_golden.py

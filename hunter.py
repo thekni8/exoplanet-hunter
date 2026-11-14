@@ -634,9 +634,33 @@ def _select_products(tic_id, max_sectors, progress_callback=None):
     search = lk.search_lightcurve(f"TIC {tic_id}")
     if len(search) == 0:
         raise RuntimeError(f"No mission data found for TIC {tic_id}.")
-    if max_sectors is not None:
-        search = search[:max_sectors]
-    return search
+    # Deterministic fallback (Phase 1.1, item 4): MAST row order is
+    # NOT stable across queries, and the old search[:max_sectors]
+    # could stitch a different HLSP product on different days — the
+    # EB golden test flipped between V-shaped and ambiguous across
+    # identical-code live runs. Pick one product per sector,
+    # earliest sectors first, ties broken by (author, exptime) so
+    # the choice is reproducible.
+    try:
+        table = search.table
+        by_sector = {}
+        for idx in range(len(table)):
+            sector = int(table["sequence_number"][idx])
+            key = (str(table["author"][idx]),
+                   float(table["exptime"][idx]))
+            cur = by_sector.get(sector)
+            if cur is None or key < cur[0]:
+                by_sector[sector] = (key, idx)
+        row_idx = [by_sector[s][1] for s in sorted(by_sector)]
+        if max_sectors is not None:
+            row_idx = row_idx[:max_sectors]
+        return search[row_idx]
+    except Exception:
+        # Unexpected table shape: degrade to the old behaviour
+        # rather than failing the star.
+        if max_sectors is not None:
+            search = search[:max_sectors]
+        return search
 
 
 # --- Pass-2 raw-flux gate (2026-11-10) ------------------------------------
@@ -703,6 +727,40 @@ def _raw_fold_depth(t, f, period, t0, duration):
 # Core pipeline (internal: returns scalars + arrays)
 # ---------------------------------------------------------------------------
 
+def _fixture_lightcurve(tic_id, max_sectors):
+    """Offline test seam (Phase 1.1, item 4): if EXHUNT_FIXTURE_DIR
+    is set and holds TIC_<tic>.npz built for the requested sector
+    cap, return (lc_raw, n_sectors) from the fixture instead of
+    hitting MAST. The fixture stores the stitched, cleaned arrays
+    exactly as _run_pipeline's live path produces them (raw_time /
+    raw_flux), so everything downstream — detrend window, flatten,
+    BLS — runs identically and the result must match the live run.
+
+    Returns None when the seam is inactive (env var unset), the
+    fixture is missing, or it was built for a different sector cap
+    — production behaviour is then unchanged. A fixture built for
+    the wrong cap is never silently used: the live path runs
+    instead (and fails loudly in an offline environment).
+    """
+    from pathlib import Path as _Path
+
+    d = os.environ.get("EXHUNT_FIXTURE_DIR")
+    if not d:
+        return None
+    path = _Path(d) / f"TIC_{tic_id}.npz"
+    if not path.exists():
+        return None
+    z = np.load(path)
+    meta = json.loads(str(z["meta_json"]))
+    if (max_sectors is not None
+            and meta.get("max_sectors") != max_sectors):
+        return None
+    import lightkurve as lk
+    lc = lk.LightCurve(time=np.asarray(z["t"], dtype=float),
+                       flux=np.asarray(z["f"], dtype=float))
+    return lc, int(meta.get("n_sectors", 1))
+
+
 def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
                   bls_points=25000, max_sectors=None, progress_callback=None,
                   detrend_window=101):
@@ -715,17 +773,26 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     """
     tic_id = str(tic_id).strip()
 
-    _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
-    sectors_to_fetch = _with_download_self_heal(
-        lambda: _select_products(tic_id, max_sectors, progress_callback),
-        progress_callback)
-    _emit(progress_callback,
-          f"Downloading {len(sectors_to_fetch)} sector product(s) for TIC {tic_id}...")
-    lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
-    n_sectors = len(lc_collection)
+    _fixture = _fixture_lightcurve(tic_id, max_sectors)
+    lc_collection = None  # only bound on the live path; the cleanup
+    # del below must not fail on the fixture path (Phase 1.1, item 4).
+    if _fixture is not None:
+        lc_raw, n_sectors = _fixture
+        _emit(progress_callback,
+              f"Using offline fixture for TIC {tic_id} "
+              f"({len(lc_raw)} points, {n_sectors} sector(s))...")
+    else:
+        _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
+        sectors_to_fetch = _with_download_self_heal(
+            lambda: _select_products(tic_id, max_sectors, progress_callback),
+            progress_callback)
+        _emit(progress_callback,
+              f"Downloading {len(sectors_to_fetch)} sector product(s) for TIC {tic_id}...")
+        lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
+        n_sectors = len(lc_collection)
 
-    lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
-              .remove_nans().remove_outliers(sigma=5.0))
+        lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
+                  .remove_nans().remove_outliers(sigma=5.0))
 
     # --- Detrend window in TIME units (2026-11-08 upgrade) -------------
     # detrend_window=101 was born on 30-minute data, where 101 points is

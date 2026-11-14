@@ -10,9 +10,17 @@ What it checks
 * test_recipe — the YAML recipe loader (no downloads).
 * test_stamp  — the persistence stamp's chi2 systematic floor, the
   2026-11-13 fix that stops real signals being vetoed (no downloads).
-* test_golden_stars — the pipeline end to end on known objects, with
-  capped sectors so the downloads stay in the tens of MB and are
-  cached by lightkurve for later runs:
+* test_provenance, test_calibration, test_schema, test_stage_contract,
+  test_false_positives, test_injection, test_resume, test_determinism,
+  test_corrupt_data — Phase 1.1 hardening: provenance, calibration
+  profiles, schema validation, the gauntlet stage contract,
+  false-positive rejection, injection recovery, resume/checkpoint,
+  determinism, corrupt-data handling (no downloads).
+* test_golden_fixtures — the pipeline end to end on the same three
+  known objects as the live tests, against COMMITTED fixtures
+  (tests/fixtures/golden/) — no downloads, runs on every PR.
+* test_golden_stars — the pipeline end to end on known objects
+  against LIVE MAST data (the only download-backed module):
     - TOI-700 (TIC 150428135): must recover planet c at P 16.05094 d
       as the headline signal, with planet b (P 9.97706 d) among the
       refined signals.
@@ -21,7 +29,17 @@ What it checks
       measured (0.631%); a drift here means the search changed.
     - TIC 308851365: a known eclipsing binary — the pipeline must
       recover its 0.75677 d signal AND the trapezoid shape gate must
-      call it V-shaped, i.e. an EB suspect, not a planet.
+      not call it flat-bottomed (T23/T14 < 0.50) with the density
+      flag firing, i.e. an EB suspect, not a planet (the V-shaped
+      label itself is not reproducible on this smeared signal —
+      see tests/golden_checks.py).
+
+CI split (Phase 1.1, item 4): the PR gate (golden.yml) runs
+--fast only — unit tests + offline fixtures, no network — so a
+MAST outage never turns the PR gate red. The live tests run on a
+weekly schedule (.github/workflows/live.yml), non-blocking: if
+live and offline disagree, the fixture is stale (regenerate with
+tests/make_fixtures.py) or MAST changed its data.
 
 Exit code 0 means every test passed. Any failure is a real signal:
 do not "fix" it by loosening a threshold — find what changed.

@@ -1,10 +1,15 @@
 # Golden validation suite — runs on every push and pull request.
 #
-# The suite (tests/run_golden.py) proves the pipeline still works:
-# recipe loader + persistence-stamp unit tests (no downloads), then the
-# pipeline end to end on known objects — TOI-700 c, WASP-126 b, and
-# the known eclipsing binary TIC 308851365 — with capped sectors so
-# the MAST downloads stay in the tens of MB.
+# The suite (tests/run_golden.py --fast) proves the pipeline still
+# works WITHOUT any network: recipe loader + persistence-stamp unit
+# tests + Phase 1.1 hardening tests + the pipeline end to end on
+# known objects against COMMITTED fixtures (TOI-700 c, WASP-126 b,
+# and the known eclipsing binary TIC 308851365 — see
+# tests/fixtures/golden/).
+#
+# The live MAST tests (test_golden_stars) do NOT run here: a MAST
+# outage must never turn the PR gate red. They run on a weekly
+# schedule instead (.github/workflows/live.yml), non-blocking.
 #
 # A red run here is a real signal: do not "fix" it by loosening a
 # threshold. Find what changed in the search, the stamp, or the data.
@@ -34,5 +39,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run golden suite
-        run: python tests/run_golden.py
+      - name: Run golden suite (offline — no downloads)
+        run: python tests/run_golden.py --fast
