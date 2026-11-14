@@ -366,12 +366,66 @@ def write_checkpoint(completed):
 
 
 def _checkpoint_entry(out, summary):
+    """One checkpoint entry: the chunk name, the summary hash,
+    AND (C-2) the hashes of the slice's output files. The summary
+    hash alone proves the summary; the output hashes prove the
+    files the summary describes — a resume must verify the
+    outputs before treating a work item as completed, not just
+    trust that a summary file exists."""
     return {"chunk": out.name,
             "summary_sha256": _prov.file_sha256(
                 out / "summary.json"),
+            "survivors_sha256": _prov.file_sha256(
+                out / "survivors.jsonl"),
+            "hits_sha256": _prov.file_sha256(
+                out / "screen_hits.jsonl"),
             "stars_searched": summary.get("stars_searched"),
             "survivors": summary.get("survivors"),
             "completed_at": _prov.utc_now_iso()}
+
+
+def _checkpoint_entry_status(out, entry):
+    """How a checkpoint entry compares with the files on disk.
+
+    Returns one of:
+      "ok" — the summary hash matches, and every output hash the
+        entry records matches too. The slice is checkpoint-complete.
+      "stale" — the summary hash does not match (or the entry
+        predates output hashes and the summary disagrees): the
+        checkpoint's claim about the slice is outdated. The entry
+        is dropped and chunk_ok re-derives the truth from the
+        slice's current summary — this is the existing behaviour
+        (a stale checkpoint never forces a re-screen on its own).
+      "outputs-changed" — the summary hash MATCHES but a recorded
+        output hash does not: the slice's outputs were altered
+        after the checkpoint was written (tampering or
+        corruption), while the summary still describes the old
+        outputs. The slice must be re-screened — merging altered
+        outputs under an unchanged summary would be silent data
+        corruption.
+
+    Entries written before C-2 carry only summary_sha256: with
+    no output hashes to check, a matching summary is "ok" (an
+    in-flight sector's checkpoints predate this check, and
+    re-screening it on upgrade would waste hours of compute for
+    a transitional case). New entries always carry all three.
+    """
+    if _prov.file_sha256(out / "summary.json") != \
+            entry.get("summary_sha256"):
+        return "stale"
+    for key, name in (("survivors_sha256", "survivors.jsonl"),
+                      ("hits_sha256", "screen_hits.jsonl")):
+        if key in entry and _prov.file_sha256(out / name) != \
+                entry[key]:
+            return "outputs-changed"
+    return "ok"
+
+
+def _checkpoint_hashes_match(out, entry):
+    """True when a checkpoint entry is fully verified ("ok" per
+    _checkpoint_entry_status). Kept as the simple predicate for
+    callers that only need a boolean."""
+    return _checkpoint_entry_status(out, entry) == "ok"
 
 
 def _screen_cmd():
@@ -496,6 +550,9 @@ def main():
     # the authority — a checkpoint entry whose slice no longer
     # validates is dropped and the slice re-runs.
     completed = {}
+    rescreen = set()  # C-2: slices whose outputs changed after
+    # checkpointing (summary matches, output hash does not) —
+    # chunk_ok alone must not skip them.
     prev = read_checkpoint()
     if prev and (prev.get("completed") or {}):
         # A-3: refuse to resume work produced by different
@@ -536,9 +593,18 @@ def main():
         for k, v in (prev.get("completed") or {}).items():
             i = int(k)
             out = RUN / f"chunk_{i:02d}"
-            if chunk_ok(out) and _prov.file_sha256(
-                    out / "summary.json") == v.get("summary_sha256"):
+            status = _checkpoint_entry_status(out, v)
+            if status == "ok" and chunk_ok(out):
                 completed[i] = v
+            elif status == "outputs-changed" and chunk_ok(out):
+                # The summary still matches but an output file
+                # changed after checkpointing — the slice's
+                # outputs are untrustworthy and chunk_ok must not
+                # skip them. Re-screen from scratch.
+                rescreen.add(i)
+                log(f"slice {i}: checkpoint entry INVALID — "
+                    f"summary matches but an output file changed "
+                    f"after checkpointing; re-screening")
             else:
                 # The checkpoint ENTRY is dropped — the slice loop
                 # below still decides from chunk_ok alone, so a
@@ -557,7 +623,7 @@ def main():
     t_start = time.time()
     for i, sl in enumerate(slices):
         out = RUN / f"chunk_{i:02d}"
-        if chunk_ok(out):
+        if chunk_ok(out) and i not in rescreen:
             log(f"slice {i}: valid checkpoint exists, skipping")
             if i not in completed:
                 s = json.loads((out / "summary.json").read_text())

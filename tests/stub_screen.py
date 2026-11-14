@@ -89,6 +89,15 @@ def main(argv=None):
     ap.add_argument("--dl-workers", default=None)
     ap.add_argument("--workers", default=None)
     ap.add_argument("--sleep", type=float, default=0.0)
+    ap.add_argument("--die-at", default=None,
+                    choices=["before-survivors", "after-survivors",
+                             "after-hits"],
+                    help="crash-test seam (C-2): exit(1) via "
+                         "os._exit at a write boundary — before "
+                         "survivors.jsonl, after it, or after "
+                         "screen_hits.jsonl (before summary.json). "
+                         "The driver must resume cleanly from any "
+                         "of these states.")
     ap.add_argument("--mixed-pipeline", action="store_true",
                     help="stamp mixed_pipeline=true on every record "
                          "(A-3 test seam — mirrors bulk_screen.py)")
@@ -121,12 +130,24 @@ def main(argv=None):
                           mixed_pipeline=args.mixed_pipeline)
                for r in stars]
     survivors = [r for r in records if r["status"] == "survivor"]
+    if args.die_at == "before-survivors":
+        print("stub: dying before survivors.jsonl (crash test)",
+              flush=True)
+        os._exit(1)
     with atomic_writer(out / "survivors.jsonl") as fh:
         for r in survivors:
             fh.write(json.dumps(r) + "\n")
+    if args.die_at == "after-survivors":
+        print("stub: dying after survivors.jsonl (crash test)",
+              flush=True)
+        os._exit(1)
     with atomic_writer(out / "screen_hits.jsonl") as fh:
         for r in records:
             fh.write(json.dumps(r) + "\n")
+    if args.die_at == "after-hits":
+        print("stub: dying after screen_hits.jsonl (crash test)",
+              flush=True)
+        os._exit(1)
     summary = {
         "stars_in": len(records),
         "skipped_known": {"toi": 0, "vsx": 0},

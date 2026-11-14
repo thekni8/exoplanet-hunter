@@ -27,7 +27,7 @@ Started 2026-11-14 ~13:50 IST on branch `standardize/phase-1` (HEAD `34bf313` at
 Started 2026-11-14 ~14:47 IST on branch `standardize/phase-1` (HEAD `d8b4be8` at start, tree clean). NO PUSH per Dev's 2026-11-14 rule: nothing pushes until the work is completely finished and ready to publish — local commits only.
 
 - [x] C-1 Network timeouts + watchdog — `netbound.py` (daemon-thread watchdog + http_get + download_file); hunter self-heal per-attempt timeout (cone query 60 s); bulk screen urlretrieve→timeout'd streaming download, astroquery calls watched, per-star watchdog in the screen loop (`unmeasured` status, conserved); gauntlet fetchers watched
-- [ ] C-2 Crash-boundary + idempotency
+- [x] C-2 Crash-boundary + idempotency — `provenance.work_item_id` (TIC + sector + code fingerprint + calibration hash + recipe hash, no input hash); stamped on every screen record (schema: `work_item_id` + `unmeasured` status); checkpoint records + verifies output hashes (summary-match + output-mismatch forces re-screen; stale summary lets chunk_ok decide); stub `--die-at` crash points; merge idempotency tested
 - [ ] C-3 Ledger durability
 - [ ] C-4 Fixture-vs-live hash diff
 - [ ] C-5 Live CI opens issue on failure

@@ -1224,6 +1224,23 @@ def main(argv=None):
         recipe_hash=args.recipe_hash,
         timestamp_utc=started_at,
         mixed_pipeline=args.mixed_pipeline)
+    # C-2: the run-level components of every record's work-item
+    # id (TIC + sector vary per record; these three are fixed for
+    # the run). Computed once — fingerprint_result_affecting walks
+    # the repo tree.
+    _code_fp = _prov.fingerprint_result_affecting()
+    try:
+        _cal_hash = _prov.calibration_content_hash(CALIBRATION_MAP)
+    except Exception:
+        _cal_hash = None
+
+    def _stamp_work_item_id(rec):
+        """Stamp the deterministic work-item id (C-2) on an
+        emitted record, in place."""
+        rec["work_item_id"] = _prov.work_item_id(
+            rec["tic"], args.sector, _code_fp, _cal_hash,
+            args.recipe_hash)
+        return rec
     manifest = _prov.build_manifest(
         run_id, CALIBRATION_MAP, sector=args.sector,
         product=PRODUCT, sha=prov["pipeline_git_sha"],
@@ -1337,6 +1354,7 @@ def main(argv=None):
     with _atomic_writer(out_dir / "survivors.jsonl") as fh:
         for r in novel:
             rec = emit_survivor_record(r, prov)
+            _stamp_work_item_id(rec)
             # Fail loud on a malformed record (Phase 1.1, item 3):
             # a bad record is a code bug, and the run must stop,
             # not write a corrupt handoff to the gauntlet.
@@ -1345,6 +1363,7 @@ def main(argv=None):
     with _atomic_writer(out_dir / "screen_hits.jsonl") as fh:
         for r in hits:
             rec = emit_survivor_record(r, prov)
+            _stamp_work_item_id(rec)
             _validate_survivor(rec)
             fh.write(json.dumps(rec) + "\n")
 

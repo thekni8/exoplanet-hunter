@@ -190,6 +190,34 @@ def fingerprint_result_affecting(root=None):
         canonical_json(files).encode("utf-8")).hexdigest()
 
 
+def work_item_id(tic, sector, code_fingerprint, calibration_hash,
+                 recipe_hash=None):
+    """Deterministic identity of one unit of screen work (C-2):
+    sha256 over {tic, sector, code fingerprint, calibration hash,
+    recipe hash}. Two runs with equal work-item ids screened the
+    same star with the same code, calibration and recipe — their
+    outputs must be identical, so a resume can skip the item and
+    a re-run can verify it without re-screening.
+
+    Deliberately NO input_hash in the identity: the id must be
+    computable BEFORE any download, so resume can skip finished
+    items cheaply. The input hash is verified afterwards — the
+    record's input_identity carries it (bls_input_hash,
+    input_file_sha256) and the checkpoint verifies the output
+    hashes (run_chunked._checkpoint_hashes_match). An id that
+    needed the input would force a download just to learn what
+    work was already done.
+    """
+    return hashlib.sha256(
+        canonical_json({
+            "tic": str(tic),
+            "sector": int(sector),
+            "code_fingerprint": code_fingerprint,
+            "calibration_hash": calibration_hash,
+            "recipe_hash": recipe_hash,
+        }).encode("utf-8")).hexdigest()
+
+
 def calibration_content_hash(calibration_versions):
     """sha256 over the calibration CONTENT: the canonical JSON of
     {subsystem: profile-file sha256} for the given versions map
