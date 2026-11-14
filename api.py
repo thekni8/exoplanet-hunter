@@ -49,7 +49,7 @@ Note on `pipelines`: hunter.py's engine hardcodes its author filter to
 ["SPOC", "TESS-SPOC", "QLP"] with an unfiltered fallback (Dev's original
 spec, not changed in Stage 2). The analyze request accepts and records a
 `pipelines` field for forward compatibility, but the engine's filter is
-what actually runs; see STAGE2_REPORT.md.
+what actually runs; see archive/reports/STAGE2_REPORT.md.
 """
 
 import json

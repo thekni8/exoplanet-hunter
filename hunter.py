@@ -5,7 +5,7 @@ Exoplanet Hunter — local CLI engine (Dev's original, reconciled).
 This is Dev's local ``hunter.py`` — the version that lived only on his own
 machine and was never committed to GitHub — rebuilt to his exact spec:
 same function signatures, defaults, CLI flags, QA benchmarks, and
-discoveries.csv / PNG behaviour. See STAGE1_REPORT.md for the reconciliation
+discoveries.csv / PNG behaviour. See archive/reports/STAGE1_REPORT.md for the reconciliation
 notes.
 
 Behaviour preserved from the original:
@@ -21,7 +21,7 @@ Behaviour preserved from the original:
     Streamlit app (removed 2026-11-02), which purged on every run.
   * ``sweep_sky`` calls ``analyze_target`` per star (so sweep targets are
     also logged to discoveries.csv and get a full PNG each — a known issue
-    in the original design, preserved deliberately; see STAGE1_REPORT.md).
+    in the original design, preserved deliberately; see archive/reports/STAGE1_REPORT.md).
   * ``run_qa`` benchmarks TOI-114 / Pi Mensae c / WASP-126 b at
     bls_points=10000 with 1–2 sectors; PASS if |recovered - expected| < 0.05 d.
   * No CLI arguments -> interactive ``terminal_menu()``.
@@ -87,7 +87,7 @@ SELFHEAL_REPORT.md). They change nothing on the happy path:
       (NaN removal, 5-sigma clip, median-normalized to brightness %)
       and stride-downsampled for the frontend. It imports the one
       advantage of Gemini's pilot Colab QA
-      (gemini_pilot_qa_odd_even.py) — the raw-data view that exposes
+      (archive/scripts/gemini_pilot_qa_odd_even.py) — the raw-data view that exposes
       stormy light curves the flattened numeric test can iron flat
       (TIC 294665246) — while the numeric verdict stays the judge,
       byte-for-byte unchanged. A failed raw fetch degrades to
@@ -103,6 +103,7 @@ CLI (original flags):
 import argparse
 import csv
 import gc
+import hashlib
 import json
 import math
 import os
@@ -126,6 +127,10 @@ import pandas as pd  # noqa: F401  (original import; kept for parity / ad-hoc us
 from astropy.coordinates import SkyCoord
 from astropy.timeseries import BoxLeastSquares
 from astroquery.mast import Catalogs
+
+import provenance as _prov
+import ingest as _ingest
+import netbound as _net
 
 OUTPUT_DIR = "reports"
 DISCOVERIES_CSV = "discoveries.csv"
@@ -301,7 +306,8 @@ def _purge_corrupt_files(paths):
 def _with_download_self_heal(step, progress_callback=None,
                              max_attempts=None, corrupt_max_retries=None,
                              connection_max_attempts=None,
-                             connection_backoff_seconds=None):
+                             connection_backoff_seconds=None,
+                             timeout_s=None, timeout_name="MAST step"):
     """Run ``step()`` (a network callable) with bounded retries.
 
     * Connection-class failure -> backoff (5 s, then 15 s) and retry;
@@ -321,11 +327,19 @@ def _with_download_self_heal(step, progress_callback=None,
     * Anything else — e.g. RuntimeError("No mission data found ...") —
       propagates immediately, and after the final failed attempt the
       ORIGINAL error is re-raised unchanged.
+    * Every attempt is bounded by ``timeout_s`` (default:
+      netbound.MAST_CALL_TIMEOUT_S — C-1): lightkurve's search and
+      download take no timeout of their own, so a hung MAST call
+      used to hang the attempt forever. A timeout counts as a
+      connection-class failure (NetworkTimeout is a TimeoutError)
+      and is retried with backoff like any dropped connection.
     """
     if max_attempts is None:
         max_attempts = _DOWNLOAD_MAX_ATTEMPTS
     if connection_max_attempts is None:
         connection_max_attempts = _CONNECTION_MAX_ATTEMPTS
+    if timeout_s is None:
+        timeout_s = _net.MAST_CALL_TIMEOUT_S
     if connection_backoff_seconds is None:
         connection_backoff_seconds = _CONNECTION_BACKOFF_SECONDS
     attempts = 0
@@ -334,7 +348,7 @@ def _with_download_self_heal(step, progress_callback=None,
     while True:
         attempts += 1
         try:
-            return step()
+            return _net.run_with_timeout(step, timeout_s, timeout_name)
         except Exception as e:
             corrupt_paths = _corrupt_cache_paths(e)
             if (corrupt_paths and attempts < max_attempts
@@ -533,6 +547,12 @@ _AUTHOR_PRIORITY = ("SPOC", "TESS-SPOC", "QLP")
 # so the artifact forest stops taxing every real peak's SDE.
 _SYSTEMATIC_PERIODS = (13.7, 6.85, 27.4)
 
+# Deep-pipeline calibration (calibration/deep_v1.yaml — drift-tested
+# in tests/test_calibration.py; change the profile + the code together).
+HIT_SDE = 8.5     # discovery bar: a sweep hit needs SDE >= 8.5
+ACCEPT_SDE = 6.5  # refined-peak acceptance floor: a refined peak
+                  # below this is not a signal
+
 
 def _near_systematic(period):
     """True if a period sits within 3% of the TESS systematic family."""
@@ -628,9 +648,33 @@ def _select_products(tic_id, max_sectors, progress_callback=None):
     search = lk.search_lightcurve(f"TIC {tic_id}")
     if len(search) == 0:
         raise RuntimeError(f"No mission data found for TIC {tic_id}.")
-    if max_sectors is not None:
-        search = search[:max_sectors]
-    return search
+    # Deterministic fallback (Phase 1.1, item 4): MAST row order is
+    # NOT stable across queries, and the old search[:max_sectors]
+    # could stitch a different HLSP product on different days — the
+    # EB golden test flipped between V-shaped and ambiguous across
+    # identical-code live runs. Pick one product per sector,
+    # earliest sectors first, ties broken by (author, exptime) so
+    # the choice is reproducible.
+    try:
+        table = search.table
+        by_sector = {}
+        for idx in range(len(table)):
+            sector = int(table["sequence_number"][idx])
+            key = (str(table["author"][idx]),
+                   float(table["exptime"][idx]))
+            cur = by_sector.get(sector)
+            if cur is None or key < cur[0]:
+                by_sector[sector] = (key, idx)
+        row_idx = [by_sector[s][1] for s in sorted(by_sector)]
+        if max_sectors is not None:
+            row_idx = row_idx[:max_sectors]
+        return search[row_idx]
+    except Exception:
+        # Unexpected table shape: degrade to the old behaviour
+        # rather than failing the star.
+        if max_sectors is not None:
+            search = search[:max_sectors]
+        return search
 
 
 # --- Pass-2 raw-flux gate (2026-11-10) ------------------------------------
@@ -697,6 +741,76 @@ def _raw_fold_depth(t, f, period, t0, duration):
 # Core pipeline (internal: returns scalars + arrays)
 # ---------------------------------------------------------------------------
 
+def _search_result_identity(search):
+    """Input identity for a selected SearchResult (Phase 1.2, A-2):
+    product IDs (obsID, falling back to dataURI), sectors, author,
+    cadence, and a hash of the selected-product manifest — the exact
+    list of products the analysis ran on. Returns {} when the table
+    is unreadable: provenance must never crash the pipeline."""
+    try:
+        table = search.table
+        cols = table.colnames
+        id_col = ("obsID" if "obsID" in cols else
+                  "dataURI" if "dataURI" in cols else None)
+        products = []
+        for idx in range(len(table)):
+            prod = {"sector": int(table["sequence_number"][idx]),
+                    "author": str(table["author"][idx]),
+                    "exptime": float(table["exptime"][idx])}
+            if id_col is not None:
+                prod["product_id"] = str(table[id_col][idx])
+            products.append(prod)
+        products.sort(key=lambda p: (p["sector"],
+                                     p.get("product_id", "")))
+        authors = sorted({p["author"] for p in products})
+        exptimes = sorted({p["exptime"] for p in products})
+        return _prov.input_identity(
+            product_ids=[p["product_id"] for p in products
+                         if "product_id" in p],
+            sectors=[p["sector"] for p in products],
+            author=authors[0] if len(authors) == 1 else "mixed",
+            cadence_s=exptimes[0] if len(exptimes) == 1 else None,
+            input_manifest_sha256=hashlib.sha256(
+                _prov.canonical_json(products).encode(
+                    "utf-8")).hexdigest())
+    except Exception:
+        return {}
+
+
+def _fixture_lightcurve(tic_id, max_sectors):
+    """Offline test seam (Phase 1.1, item 4): if EXHUNT_FIXTURE_DIR
+    is set and holds TIC_<tic>.npz built for the requested sector
+    cap, return (lc_raw, n_sectors) from the fixture instead of
+    hitting MAST. The fixture stores the stitched, cleaned arrays
+    exactly as _run_pipeline's live path produces them (raw_time /
+    raw_flux), so everything downstream — detrend window, flatten,
+    BLS — runs identically and the result must match the live run.
+
+    Returns None when the seam is inactive (env var unset), the
+    fixture is missing, or it was built for a different sector cap
+    — production behaviour is then unchanged. A fixture built for
+    the wrong cap is never silently used: the live path runs
+    instead (and fails loudly in an offline environment).
+    """
+    from pathlib import Path as _Path
+
+    d = os.environ.get("EXHUNT_FIXTURE_DIR")
+    if not d:
+        return None
+    path = _Path(d) / f"TIC_{tic_id}.npz"
+    if not path.exists():
+        return None
+    z = np.load(path)
+    meta = json.loads(str(z["meta_json"]))
+    if (max_sectors is not None
+            and meta.get("max_sectors") != max_sectors):
+        return None
+    import lightkurve as lk
+    lc = lk.LightCurve(time=np.asarray(z["t"], dtype=float),
+                       flux=np.asarray(z["f"], dtype=float))
+    return lc, int(meta.get("n_sectors", 1))
+
+
 def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
                   bls_points=25000, max_sectors=None, progress_callback=None,
                   detrend_window=101):
@@ -709,17 +823,51 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     """
     tic_id = str(tic_id).strip()
 
-    _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
-    sectors_to_fetch = _with_download_self_heal(
-        lambda: _select_products(tic_id, max_sectors, progress_callback),
-        progress_callback)
-    _emit(progress_callback,
-          f"Downloading {len(sectors_to_fetch)} sector product(s) for TIC {tic_id}...")
-    lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
-    n_sectors = len(lc_collection)
+    _fixture = _fixture_lightcurve(tic_id, max_sectors)
+    lc_collection = None  # only bound on the live path; the cleanup
+    # del below must not fail on the fixture path (Phase 1.1, item 4).
+    if _fixture is not None:
+        lc_raw, n_sectors = _fixture
+        # Offline test data, not MAST products — marked as such so
+        # a fixture result can never be mistaken for a live one.
+        _input_identity = _prov.input_identity(
+            fixture=True, product_ids=[f"fixture:TIC_{tic_id}"])
+        _emit(progress_callback,
+              f"Using offline fixture for TIC {tic_id} "
+              f"({len(lc_raw)} points, {n_sectors} sector(s))...")
+    else:
+        _emit(progress_callback, f"Querying MAST for TIC {tic_id}...")
+        sectors_to_fetch = _with_download_self_heal(
+            lambda: _select_products(tic_id, max_sectors, progress_callback),
+            progress_callback)
+        # Layer 2 provenance (A-2): the exact products selected,
+        # recorded before download — selection is deterministic,
+        # so this identity is reproducible from the TIC alone.
+        _input_identity = _search_result_identity(sectors_to_fetch)
+        _emit(progress_callback,
+              f"Downloading {len(sectors_to_fetch)} sector product(s) for TIC {tic_id}...")
+        lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
+        n_sectors = len(lc_collection)
 
-    lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
-              .remove_nans().remove_outliers(sigma=5.0))
+        lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
+                  .remove_nans().remove_outliers(sigma=5.0))
+
+    # --- Float64 normalisation (Phase 1.2, item C-4; shared
+    # ingest since follow-up F-4) ---------------------------------
+    # The pipeline's numerics must not depend on the storage dtype
+    # of whichever FITS file MAST served. FITS flux is typically
+    # float32 while the offline fixtures store float64, and
+    # scipy's savgol accumulates in the input dtype: the pass-1
+    # trends then differ by ~4e-7, which flips the BLS argmax
+    # between adjacent fine-grid points on a near-tie (EB:
+    # P 0.758011 live vs 0.757982 fixture), which diverges the
+    # pass-2 transit mask and hence the BLS input hash. The
+    # normalisation lives in ingest.py now (one function for
+    # hunter, the bulk screen and the gauntlet fetchers); the
+    # POSITION is unchanged — the C-4 live/fixture hash test pins
+    # the post-stitch normalisation, so this call stays here
+    # rather than moving to the download.
+    lc_raw = _ingest.normalise_lightcurve(lc_raw)
 
     # --- Detrend window in TIME units (2026-11-08 upgrade) -------------
     # detrend_window=101 was born on 30-minute data, where 101 points is
@@ -744,6 +892,11 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
             _emit(progress_callback,
                   f"Detrend window: {_win} points "
                   f"(~{_win * _dt:.2f} d at {_dt * 1440.0:.0f}-min cadence).")
+    # F-4 tripwire: the detrend must never see a float32 curve —
+    # a path that bypassed ingest fails here, loudly, instead of
+    # searching dtype-dependent arrays.
+    _ingest.assert_float64(lc_raw.time.value, lc_raw.flux.value,
+                           "detrend entry (_run_pipeline pass 1)")
     lc_flat, trend = lc_raw.flatten(window_length=_win, return_trend=True)
     t = lc_flat.time.value
     f = lc_flat.flux.value
@@ -788,6 +941,8 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         refined_signals). candidates and refined_signals are both the
         top-3 refined DISTINCT signals (same list at this stage; they
         diverge later only because TLS rescue prepends to candidates)."""
+        # F-4 tripwire: BLS must never see a float32 array.
+        _ingest.assert_float64(tt, ff, "BLS entry (_bls_best)")
         _bls = BoxLeastSquares(tt * u.day, ff)
         _res = _bls.power(periods, durations)
         _pv = np.asarray(_res.period.value, dtype=float)
@@ -900,7 +1055,7 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         _head_idx = 0
         for _k, _c in enumerate(_cands):
             if not _c["near_systematic"]:
-                if _c["sde"] >= 6.5:
+                if _c["sde"] >= ACCEPT_SDE:
                     _head_idx = _k
                 break
         _head = _cands[_head_idx]
@@ -949,6 +1104,11 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         _emit(progress_callback,
               "Refining depth: re-detrending with transits masked out of the trend fit...")
         try:
+            # F-4 tripwire: the pass-2 detrend reads the same
+            # raw curve — it must still be float64.
+            _ingest.assert_float64(
+                lc_raw.time.value, lc_raw.flux.value,
+                "detrend entry (_run_pipeline pass 2)")
             _lc2, _trend2 = lc_raw.flatten(window_length=_win,
                                            return_trend=True,
                                            mask=_transit_mask)
@@ -1013,7 +1173,7 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # candidate is adopted only at SDE >= 10. Any TLS failure leaves
     # the BLS result untouched. Validated on TOI-700 c (binned SPOC
     # curve): TLS recovers P 16.053 d at SDE 11.1, depth 0.174%.
-    if sde < 8.5 and any((not c["near_systematic"]) and c["sde"] >= 5.0
+    if sde < HIT_SDE and any((not c["near_systematic"]) and c["sde"] >= 5.0
                          for c in candidates):
         try:
             from transitleastsquares import transitleastsquares as _tls
@@ -1083,6 +1243,15 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
             float(np.std(vals, ddof=1) / math.sqrt(len(vals))) if len(vals) > 1 else 0.0
         )
 
+    # Layer 2 provenance (A-2): the exact arrays the REPORTED
+    # headline BLS ran on. Computed here — after pass-2 adoption —
+    # because an adopted pass 2 rebinds t/f to the masked
+    # re-flattened arrays, and the hash must describe the arrays
+    # behind the reported result (flat_time/flat_flux below), not
+    # the pass-1 arrays they replaced. When pass 2 is rejected or
+    # never runs, t/f are still the pass-1 arrays.
+    _input_identity["bls_input_hash"] = _prov.bls_input_hash(t, f)
+
     full = {
         "TIC": tic_id,
         "Period": best_period,
@@ -1095,6 +1264,9 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         "Star_Radius_Rsun": float(star_radius),
         "Sectors_Analyzed": int(n_sectors),
         "Total_Points": int(len(lc_raw)),
+        # Layer 2 provenance (A-2): which inputs this result was
+        # computed from (MAST products / fixture, BLS input hash).
+        "input_identity": _input_identity,
         # 2026-11-08: top-3 BLS peaks (headline first is NOT guaranteed;
         # consumers should treat Period/SDE as the headline candidate and
         # this list as the full peak set for triage). Since 2026-11-13
@@ -1233,7 +1405,7 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "tic_id": full["TIC"],
             "best_period_days": full["Period"],
             "sde": full["SDE"],
-            "classification": "Strong Transit" if full["SDE"] >= 8.5 else "Marginal / Noise",
+            "classification": "Strong Transit" if full["SDE"] >= HIT_SDE else "Marginal / Noise",
             "depth": full["Depth"],
             "depth_percent": full["Depth"] * 100.0,
             "duration_days": full["Duration_Days"],
@@ -1243,6 +1415,7 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "host_radius_solar": full["Star_Radius_Rsun"],
             "sectors_analyzed": full["Sectors_Analyzed"],
             "total_points": full["Total_Points"],
+            "input_identity": full.get("input_identity", {}),
             "candidates": full.get("Candidates", []),
             "refined_signals": full.get("refined_signals", []),
             "pass1_sde": full.get("pass1_sde"),
@@ -1460,11 +1633,22 @@ def _fetch_stitched(tic_id, max_sectors=None, progress_callback=None):
     lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
     n_sectors = len(lc_collection)
 
+    # F-4: the FITS-read boundary — normalise every downloaded
+    # curve to float64 BEFORE stitching, so the stitch
+    # corrector, the cleaning and the flatten all see float64
+    # (FITS flux is typically float32; scipy's savgol
+    # accumulates in the input dtype — see ingest.py).
+    lc_collection = lk.LightCurveCollection(
+        [_ingest.normalise_lightcurve(lc)
+         for lc in lc_collection])
     lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
               .remove_nans().remove_outliers(sigma=5.0))
     del lc_collection
     gc.collect()
-    return lc_raw, n_sectors
+    # Defensive: the stitch of float64 inputs is float64, but
+    # the return is the fetchers' contract — normalise again
+    # (idempotent) so callers never see a float32 curve.
+    return _ingest.normalise_lightcurve(lc_raw), n_sectors
 
 
 def _fetch_flattened(tic_id, max_sectors=None, progress_callback=None,
@@ -1478,6 +1662,10 @@ def _fetch_flattened(tic_id, max_sectors=None, progress_callback=None,
     lc_raw, n_sectors = _fetch_stitched(
         tic_id, max_sectors=max_sectors, progress_callback=progress_callback)
     total_points = int(len(lc_raw))
+    # F-4 tripwire: _fetch_stitched normalises, so this must
+    # already be float64 — if it is not, a path bypassed ingest.
+    _ingest.assert_float64(lc_raw.time.value, lc_raw.flux.value,
+                           "detrend entry (_fetch_flattened)")
     lc_flat = lc_raw.flatten(window_length=detrend_window)
     t = np.asarray(lc_flat.time.value, dtype=float)
     f = np.asarray(lc_flat.flux.value, dtype=float)
@@ -2028,7 +2216,11 @@ def _query_tic_cone_healed(coord, radius_deg, progress_callback=None):
             progress_callback,
             max_attempts=_SWEEP_CONNECTION_MAX_ATTEMPTS,
             connection_max_attempts=_SWEEP_CONNECTION_MAX_ATTEMPTS,
-            connection_backoff_seconds=_SWEEP_CONNECTION_BACKOFF_SECONDS)
+            connection_backoff_seconds=_SWEEP_CONNECTION_BACKOFF_SECONDS,
+            # A catalog call should never take minutes: bound each
+            # attempt at 60 s (the deep budget is for transient
+            # drops, not hangs).
+            timeout_s=60.0, timeout_name="TIC cone query")
     except Exception as e:
         if _is_connection_error(e):
             _emit(progress_callback,

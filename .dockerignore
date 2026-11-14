@@ -1,8 +1,15 @@
 data/
 .venv/
+.venv-cal/
 __pycache__/
 reports/
 results/
 discoveries.csv
 .git/
 *.md
+# Bulk-screen cache is 3+ GB of TESS light curves — never send to Docker
+bulk/cache/
+# Archive is provenance, not runtime code — the API image doesn't need it
+archive/
+# Tests run in CI, not in the serving image
+tests/

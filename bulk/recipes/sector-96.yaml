@@ -1,0 +1,15 @@
+# Sector 96 screen recipe — frozen record of the live run.
+# Fired 2026-11-14 from the Mac. Same window as S97/S98; picked over
+# S95 for best bullseye count (26,552) and best S97/S98 overlap.
+sector: 96
+window:
+  min_mag: 10.0
+  max_mag: 13.5
+  min_rad: 0.2
+  max_rad: 0.8
+  require_radius: true
+  limit_ids: null
+tag: window_default
+slice_size: 1250
+dl_workers: 8
+workers: null

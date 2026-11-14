@@ -1,0 +1,17 @@
+# Deep-pipeline (hunter.py) calibration profile v1.
+# IMMUTABLE once used in a run: to change a threshold, copy this file
+# to deep_v2.yaml, bump `version`, and update the code + golden suite
+# in the same change. See calibration/README.md for the rules.
+# The values here are drift-tested against hunter.py's named
+# constants (tests/test_calibration.py) — if the code and the
+# profile disagree, the suite goes red.
+version: deep_v1
+
+hit_sde: 8.5              # discovery bar (hunter.HIT_SDE): a sweep hit
+                          # needs SDE >= 8.5
+acceptance_floor_sde: 6.5 # refined-peak acceptance floor (hunter.ACCEPT_SDE):
+                          # a refined peak below this is not a signal
+systematic_periods: [13.7, 6.85, 27.4]  # TESS orbital family
+min_period_d: 0.5         # BLS search floor (hunter._run_pipeline default)
+max_period_d: 25.0        # BLS search ceiling (hunter._run_pipeline default)
+detrend_window_d: 2.0     # flatten window target, days (cadence-derived)

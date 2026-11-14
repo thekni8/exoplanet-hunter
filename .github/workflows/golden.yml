@@ -1,0 +1,171 @@
+# Golden validation suite — runs on every push and pull request.
+#
+# Tiered (Phase 1.2 follow-up F-10): the "fast" suite (888 s) is
+# not fast, so it is split into a <=3-minute smoke tier (the PR
+# check) plus three shards that run in parallel and together
+# cover the full offline suite. No scientific test was removed
+# to achieve speed — reclassified, never reduced.
+#
+#   smoke     — tests/run_golden.py --smoke (runner, status
+#               matrix, blend, conservation, registry,
+#               fingerprint, idempotency, ingest). The PR check:
+#               fast feedback on every push/PR. The registry +
+#               expected-values checks run here.
+#   golden    — tests/run_golden.py --shard golden (the
+#               pipeline-run modules: fixtures, census, TOI
+#               population, perturbation).
+#   injection — tests/run_golden.py --shard injection (the
+#               injection harness + clip grid).
+#   rest      — tests/run_golden.py --shard rest (everything
+#               else offline).
+#
+# The job named `golden` is kept (it is a required check in the
+# branch protection rule, with lockfile-clean-install) — it now
+# runs the golden shard. To make smoke/injection/rest blocking
+# too, add them as required checks in the repo settings.
+#
+# The live MAST tests (test_golden_stars) do NOT run here: a MAST
+# outage must never turn the PR gate red. They run on a weekly
+# schedule instead (.github/workflows/live.yml), non-blocking.
+#
+# The lockfile-clean-install job proves requirements.lock
+# installs from scratch with hash verification — a lockfile
+# that only works in the dev venv is not a lockfile.
+#
+# A red run here is a real signal: do not "fix" it by loosening a
+# threshold. Find what changed in the search, the stamp, or the data.
+name: golden
+
+on:
+  push:
+    branches: [main, standardize/**]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The registry check diffs calibration/registry.json
+          # against origin/main — it needs the full history.
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check calibration registry (hashes + append-only)
+        run: python scripts/check_registry.py --base origin/main
+
+      - name: Flag expected-values / calibration changes
+        # C-7: flags (never blocks) any change to the golden-star
+        # acceptance numbers or to calibration/ vs the base
+        # branch, with a plain-words summary + ::warning::
+        # annotations. A changed expected value can be
+        # legitimate — but it must never slip through unnoticed.
+        run: python scripts/check_expected_values.py --base origin/main
+
+      - name: Run smoke tier (<=3 min PR check, offline)
+        run: python tests/run_golden.py --smoke
+
+  golden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run golden shard (pipeline-run modules, offline)
+        run: python tests/run_golden.py --shard golden
+
+  injection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run injection shard (offline)
+        run: python tests/run_golden.py --shard injection
+
+  rest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run rest shard (everything else offline)
+        run: python tests/run_golden.py --shard rest
+
+  lockfile-clean-install:
+    # C-9: a clean-environment install from the lockfile, with
+    # hash verification. Runs alongside the golden job on every
+    # push/PR — a broken lockfile blocks the gate, because a run
+    # nobody can reproduce is not a run.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        # No pip cache here: this job proves PyPI serves the
+        # pinned wheels, so it downloads them fresh.
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Clean install from the lockfile
+        run: |
+          python -m venv .venv-lockfile-test
+          .venv-lockfile-test/bin/pip install --upgrade pip
+          .venv-lockfile-test/bin/pip install --require-hashes -r requirements.lock
+
+      - name: Smoke test the clean install
+        # gauntlet.transit_fit is imported deliberately: the
+        # 2026-11-14 scratch-CI rest shard caught an undeclared
+        # setuptools dependency through its import chain, which
+        # this smoke step had not imported.
+        run: |
+          .venv-lockfile-test/bin/python -c "import hunter, bulk_screen, provenance, gauntlet.transit_fit; print('imports OK')"
+          .venv-lockfile-test/bin/python -m unittest tests.test_recipe tests.test_stamp

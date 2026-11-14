@@ -1,0 +1,252 @@
+{
+ "167367406": {
+  "plateau": 1.0796710807862961,
+  "minI_level": 0.7790351943215844,
+  "minII_level": 0.7813900202855106,
+  "depthI_window_pct": 27.845136524891124,
+  "depthII_window_pct": 27.627030658592354,
+  "n": 154687,
+  "vertex_depthI_pct": 33.27232704684976,
+  "vertex_depthII_pct": 32.80265555931674,
+  "profile_max": 1.090177688548629,
+  "profile_min": 0.7215277131141824,
+  "amplitude_mag_binned": 0.44811068255337844,
+  "sectors_used": [
+   31,
+   35,
+   36,
+   39,
+   61,
+   62,
+   63,
+   64,
+   65,
+   66,
+   67,
+   69,
+   87,
+   88,
+   89,
+   93,
+   96,
+   98
+  ],
+  "per_sector": {
+   "31": {
+    "depthI_window_pct": 39.12496032034768,
+    "depthII_window_pct": 37.30719110045626,
+    "n": 3047
+   },
+   "35": {
+    "depthI_window_pct": 35.95677305991356,
+    "depthII_window_pct": 34.54014967186292,
+    "n": 2108
+   },
+   "36": {
+    "depthI_window_pct": 35.83257800272827,
+    "depthII_window_pct": 34.02727449324766,
+    "n": 2648
+   },
+   "39": {
+    "depthI_window_pct": 32.20501348156611,
+    "depthII_window_pct": 31.17073604330116,
+    "n": 3306
+   },
+   "61": {
+    "depthI_window_pct": 36.807603821792156,
+    "depthII_window_pct": 35.86947124290011,
+    "n": 9141
+   },
+   "62": {
+    "depthI_window_pct": 37.71819830214095,
+    "depthII_window_pct": 36.356179582315164,
+    "n": 10165
+   },
+   "63": {
+    "depthI_window_pct": 32.85640426375098,
+    "depthII_window_pct": 31.85519803352552,
+    "n": 10720
+   },
+   "64": {
+    "depthI_window_pct": 35.993817300031175,
+    "depthII_window_pct": 35.54037412877298,
+    "n": 11015
+   },
+   "65": {
+    "depthI_window_pct": 33.01254362134477,
+    "depthII_window_pct": 32.17194674376598,
+    "n": 11107
+   },
+   "66": {
+    "depthI_window_pct": 33.80724267234266,
+    "depthII_window_pct": 33.02301264306134,
+    "n": 10434
+   },
+   "67": {
+    "depthI_window_pct": 32.804367597349845,
+    "depthII_window_pct": 32.72106269096212,
+    "n": 9944
+   },
+   "69": {
+    "depthI_window_pct": 31.98401404478235,
+    "depthII_window_pct": 31.39594366735897,
+    "n": 8660
+   },
+   "87": {
+    "depthI_window_pct": 24.828965829764815,
+    "depthII_window_pct": 26.151342734562554,
+    "n": 10456
+   },
+   "88": {
+    "depthI_window_pct": 16.69741633232773,
+    "depthII_window_pct": 17.737821392308938,
+    "n": 11581
+   },
+   "89": {
+    "depthI_window_pct": 13.649789817148616,
+    "depthII_window_pct": 14.544218602547431,
+    "n": 11314
+   },
+   "93": {
+    "depthI_window_pct": 27.89715239288897,
+    "depthII_window_pct": 27.831410629452126,
+    "n": 9458
+   },
+   "96": {
+    "depthI_window_pct": 13.964686472750332,
+    "depthII_window_pct": 13.942395546967933,
+    "n": 7364
+   },
+   "98": {
+    "depthI_window_pct": 9.363000285151092,
+    "depthII_window_pct": 9.622918047687323,
+    "n": 12219
+   }
+  }
+ },
+ "167367400": {
+  "plateau": 1.1190231963714332,
+  "minI_level": 0.6487941181601998,
+  "minII_level": 0.6484437669211058,
+  "depthI_window_pct": 42.021387915461226,
+  "depthII_window_pct": 42.052696581825785,
+  "n": 154711,
+  "vertex_depthI_pct": 50.074211858794456,
+  "vertex_depthII_pct": 49.944057698360545,
+  "profile_max": 1.1364617268197965,
+  "profile_min": 0.5601260388148999,
+  "amplitude_mag_binned": 0.7681726299753431,
+  "sectors_used": [
+   31,
+   35,
+   36,
+   39,
+   61,
+   62,
+   63,
+   64,
+   65,
+   66,
+   67,
+   69,
+   87,
+   88,
+   89,
+   93,
+   96,
+   98
+  ],
+  "per_sector": {
+   "31": {
+    "depthI_window_pct": 44.4911141176917,
+    "depthII_window_pct": 42.36184381457988,
+    "n": 3047
+   },
+   "35": {
+    "depthI_window_pct": 43.18640766787318,
+    "depthII_window_pct": 41.47671982719001,
+    "n": 2108
+   },
+   "36": {
+    "depthI_window_pct": 43.65306089450183,
+    "depthII_window_pct": 41.34187103949869,
+    "n": 2648
+   },
+   "39": {
+    "depthI_window_pct": 42.96079024352204,
+    "depthII_window_pct": 41.6101525628389,
+    "n": 3306
+   },
+   "61": {
+    "depthI_window_pct": 43.37876920954328,
+    "depthII_window_pct": 42.3702739756866,
+    "n": 9141
+   },
+   "62": {
+    "depthI_window_pct": 43.21852194063308,
+    "depthII_window_pct": 41.671183092560824,
+    "n": 10165
+   },
+   "63": {
+    "depthI_window_pct": 43.433990040874335,
+    "depthII_window_pct": 41.95902534524869,
+    "n": 10720
+   },
+   "64": {
+    "depthI_window_pct": 43.14426425378426,
+    "depthII_window_pct": 42.58533700826634,
+    "n": 11015
+   },
+   "65": {
+    "depthI_window_pct": 43.03341436859429,
+    "depthII_window_pct": 42.021247277876185,
+    "n": 11107
+   },
+   "66": {
+    "depthI_window_pct": 42.50543141583272,
+    "depthII_window_pct": 41.63964907657019,
+    "n": 10434
+   },
+   "67": {
+    "depthI_window_pct": 42.46477614681309,
+    "depthII_window_pct": 42.2674142637122,
+    "n": 9944
+   },
+   "69": {
+    "depthI_window_pct": 42.07553076279851,
+    "depthII_window_pct": 41.40765178175002,
+    "n": 8660
+   },
+   "87": {
+    "depthI_window_pct": 40.93192056931143,
+    "depthII_window_pct": 42.92649129172228,
+    "n": 10456
+   },
+   "88": {
+    "depthI_window_pct": 40.22113160579246,
+    "depthII_window_pct": 42.72859690515543,
+    "n": 11581
+   },
+   "89": {
+    "depthI_window_pct": 40.721945515564606,
+    "depthII_window_pct": 43.25947548218932,
+    "n": 11314
+   },
+   "93": {
+    "depthI_window_pct": 41.31231596204671,
+    "depthII_window_pct": 41.32950183014987,
+    "n": 9458
+   },
+   "96": {
+    "depthI_window_pct": 40.7770554612395,
+    "depthII_window_pct": 41.262842985565065,
+    "n": 7384
+   },
+   "98": {
+    "depthI_window_pct": 39.775789243773815,
+    "depthII_window_pct": 41.23648380544102,
+    "n": 12223
+   }
+  }
+ }
+}

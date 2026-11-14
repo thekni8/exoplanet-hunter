@@ -16,7 +16,12 @@ CANDIDATE_374942698_FOLLOWUP.md exactly:
   (prices in red noise at the transit timescale).
 * Verdict rules (set in advance, same as the follow-up):
   CONSISTENT = >=70% of usable sectors show a dip >= 1.5 sigma AND
-  depths compatible with a constant (chi2 p > 0.01);
+  depths compatible with a constant (chi2 p > 0.01, with each
+  sector's sigma carrying a 15% fractional systematic floor in
+  quadrature — 2026-11-13 injection-recovery fix: per-sector
+  systematics scatter depths by ~23-29% while chunk sigmas claim
+  ~0.02-0.07%, so without the floor chi2 grows as depth^2 and
+  strong real signals are vetoed as MIXED);
   CONCENTRATED = positive (>=1.5 sigma) fraction <= 30%; else MIXED.
 """
 import gc
@@ -29,6 +34,48 @@ warnings.filterwarnings("ignore")
 
 import hunter  # noqa: E402
 import lightkurve as lk  # noqa: E402
+
+# Fractional systematic floor for the persistence chi2 test
+# (2026-11-13, injection-recovery INJECTION_RECOVERY.md §4).
+# Per-sector depths scatter by 23-29% (fractional) on a QLP star
+# (TIC 238620464) while the chunk-sigma noise model claims
+# ~0.02-0.07% precision, so chi2 grows as depth^2 and STRONGER real
+# signals are MORE likely to be vetoed as MIXED/"patchy" and dropped
+# without hand-vetting. Each sector's sigma gains the floor in
+# quadrature: sigma_eff^2 = sigma^2 + (0.15 * |sector depth|)^2,
+# using that sector's own |depth| as the reference — exactly as
+# diagnosed in diag_stamp.py §(c), which rescued trial 12
+# (chi2 p 0.0014 -> 0.26). The floor applies ONLY to the chi2
+# consistency test; the frac clause, the raw-depth clause and the
+# reported weighted mean keep the original sigmas.
+CHI2_SYS_FRAC = 0.15
+
+
+def _chi2_consistency(depths, sigmas):
+    """Chi2 consistency of per-sector depths against a constant depth,
+    with the systematic floor (CHI2_SYS_FRAC) on each sector's sigma.
+    The systematic uses each sector's own |depth| as its reference.
+    The weighted mean for the chi2 test is recomputed under the
+    inflated sigmas (the best-fit constant under the floored noise
+    model). Returns a dict with the floored chi2/dof/p plus the
+    unfloored values for auditing."""
+    d = np.asarray(depths, dtype=float)
+    sg = np.asarray(sigmas, dtype=float)
+    w = 1.0 / sg ** 2
+    wmean = float(np.sum(w * d) / np.sum(w))
+    chi2_unfloored = float(np.sum(((d - wmean) / sg) ** 2))
+    dof = len(d) - 1
+    p_unfloored = (float(stats.chi2.sf(chi2_unfloored, dof))
+                   if dof > 0 else None)
+    sg_eff = np.sqrt(sg ** 2 + (CHI2_SYS_FRAC * np.abs(d)) ** 2)
+    w_eff = 1.0 / sg_eff ** 2
+    wmean_eff = float(np.sum(w_eff * d) / np.sum(w_eff))
+    chi2 = float(np.sum(((d - wmean_eff) / sg_eff) ** 2))
+    p = float(stats.chi2.sf(chi2, dof)) if dof > 0 else None
+    return {"chi2": chi2, "dof": dof, "chi2_p": p,
+            "wmean_eff": wmean_eff,
+            "chi2_unfloored": chi2_unfloored,
+            "chi2_p_unfloored": p_unfloored}
 
 
 def _sector_ranges(tic_id, max_sectors, progress_callback=None):
@@ -192,9 +239,12 @@ def sector_persistence(tic_id, star_radius, period_days, t0_days,
         sg = np.array([s["sigma_pct"] for s in usable_secs])
         w = 1.0 / sg ** 2
         wmean = float(np.sum(w * d) / np.sum(w))
-        chi2 = float(np.sum(((d - wmean) / sg) ** 2))
-        dof = len(usable_secs) - 1
-        p = float(stats.chi2.sf(chi2, dof)) if dof > 0 else None
+        # Chi2 consistency test, with the systematic floor
+        # (CHI2_SYS_FRAC — see the constant's comment). The reported
+        # wmean / weighted_mean_sigma_pct keep the original sigmas;
+        # only the consistency test uses the inflated ones.
+        _c2 = _chi2_consistency(d, sg)
+        chi2, dof, p = _c2["chi2"], _c2["dof"], _c2["chi2_p"]
         n_pos = int(np.sum([s["signif"] >= 1.5 for s in usable_secs]))
         frac_pos = n_pos / len(usable_secs)
         if frac_pos >= 0.70 and (p is not None and p > 0.01):
@@ -239,6 +289,9 @@ def sector_persistence(tic_id, star_radius, period_days, t0_days,
             "weighted_mean_depth_pct": wmean,
             "weighted_mean_sigma_pct": float(1.0 / np.sqrt(np.sum(w))),
             "chi2": chi2, "dof": dof, "chi2_p": p, "verdict": verdict,
+            "chi2_sys_frac": CHI2_SYS_FRAC,
+            "chi2_unfloored": _c2["chi2_unfloored"],
+            "chi2_p_unfloored": _c2["chi2_p_unfloored"],
             "raw_weighted_mean_depth_pct": raw_wmean,
             "raw_combined_sigma_pct": raw_sigma,
             "raw_signif": raw_signif,

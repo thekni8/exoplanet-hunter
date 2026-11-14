@@ -1,0 +1,16 @@
+# Default sector screen recipe — Exoplanet Hunter bulk screen v1.2.
+# The window used for sectors 96/97/98: QLP FFI, Tmag 10.0-13.5,
+# radii 0.2-0.8 Rsun (small quiet dwarfs, the trial recipe adopted
+# 2026-11-11). Copy this file to freeze a per-sector recipe.
+sector: null # set with --sector, or fill in here for a frozen recipe
+window:
+  min_mag: 10.0
+  max_mag: 13.5
+  min_rad: 0.2
+  max_rad: 0.8
+  require_radius: true
+  limit_ids: null
+tag: window_default
+slice_size: 1250
+dl_workers: 8
+workers: null

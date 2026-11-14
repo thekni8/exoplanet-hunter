@@ -48,19 +48,30 @@ def fetch_sector(tic, sector, outdir, size=15, retries=(30, 60, 120, 300)):
     ladder. Returns (tpf, path), or (None, reason) if TESSCut has
     nothing or the download fails."""
     import lightkurve as lk
+    import netbound as _net
     path = os.path.join(outdir, f'tesscut_s{sector:03d}.fits')
     if os.path.exists(path):
         print(f'S{sector}: cached {path}', flush=True)
         return lk.read(path), path
     print(f'S{sector}: querying TESSCut ...', flush=True)
-    sr = lk.search_tesscut(f'TIC {tic}', sector=sectortor)
+    try:
+        # C-1: lightkurve takes no timeout — watch the search, or
+        # a hung MAST call hangs the fetch. A timeout is NO-DATA
+        # with a reason, never a hang.
+        sr = _net.mast_call(
+            lambda: lk.search_tesscut(f'TIC {tic}', sector=sectortor),
+            name=f"TESSCut search TIC {tic} S{sector}")
+    except _net.NetworkTimeout as e:
+        return None, f'TESSCut search timed out: {e}'
     print(f'S{sector}: {len(sr)} cutout(s) found', flush=True)
     if len(sr) == 0:
         return None, 'no TESSCut cutout found'
     tpf = None
     for attempt, wait in enumerate(retries):
         try:
-            tpf = sr.download(cutout_size=size)
+            tpf = _net.mast_call(
+                lambda: sr.download(cutout_size=size),
+                name=f"TESSCut download TIC {tic} S{sector}")
             break
         except Exception as e:
             print(f'S{sector}: download attempt {attempt + 1} failed '

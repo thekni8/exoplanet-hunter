@@ -1,11 +1,20 @@
 # Runtime state & test artifacts — never commit
 data/
 .venv/
+.venv-cal/
 __pycache__/
 reports/
 results/
 discoveries.csv
 *.pyc
+
+# Bulk-screen download cache (gigabytes of TESS light curves) — never commit
+bulk/cache/
+
+# Test/coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Frontend build artifacts (run.sh builds dist in the Codespace)
 frontend/node_modules/

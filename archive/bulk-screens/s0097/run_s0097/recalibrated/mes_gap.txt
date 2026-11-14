@@ -1,0 +1,14 @@
+Post-duration survivors: 42
+MES values (sorted): 9.1, 9.1, 9.2, 9.2, 9.2, 9.3, 9.3, 9.4, 9.4, 9.5, 9.5, 9.5, 9.6, 9.8, 9.8, 9.8, 9.9, 9.9, 9.9, 10.0, 10.3, 10.4, 10.8, 10.9, 11.1, 11.2, 11.3, 11.4, 11.4, 11.5, 11.5, 11.6, 12.0, 12.2, 12.4, 12.4, 12.6, 12.7, 13.6, 15.0, 23.3, 32.1
+
+Largest gaps:
+  8.8: 23.3 -> 32.1
+  8.3: 15.0 -> 23.3
+  1.4: 13.6 -> 15.0
+  0.9: 12.7 -> 13.6
+
+Threshold choice: MES >= 20 sits inside the 15.0 -> 23.3 gap, so any
+threshold in (15.0, 23.3] gives the identical 2-star list
+(TIC 139526205 MES 32.1, TIC 344334378 MES 23.3). The next star down,
+TIC 123270894 at MES 15.01, is a 2-event Tier B candidate with
+duration pegged at the grid max — excluded as the fragile near-miss.

@@ -1,0 +1,125 @@
+{
+  "by_option": {
+    "symmetric": {
+      "n_inject": 48,
+      "n_null": 12,
+      "recovery_all": 0.3958333333333333,
+      "recovery_deep_quiet": 0.25,
+      "null_false_alarm_rate": 0.0,
+      "mean_transit_kept_frac": 0.582766812865497
+    },
+    "upward_only": {
+      "n_inject": 48,
+      "n_null": 12,
+      "recovery_all": 0.7291666666666666,
+      "recovery_deep_quiet": 1.0,
+      "null_false_alarm_rate": 0.0,
+      "mean_transit_kept_frac": 1.0
+    },
+    "isolated_low_only": {
+      "n_inject": 48,
+      "n_null": 12,
+      "recovery_all": 0.7291666666666666,
+      "recovery_deep_quiet": 1.0,
+      "null_false_alarm_rate": 0.0,
+      "mean_transit_kept_frac": 0.9663559941520466
+    },
+    "floor_10pct": {
+      "n_inject": 48,
+      "n_null": 12,
+      "recovery_all": 0.7291666666666666,
+      "recovery_deep_quiet": 1.0,
+      "null_false_alarm_rate": 0.0,
+      "mean_transit_kept_frac": 1.0
+    },
+    "none": {
+      "n_inject": 48,
+      "n_null": 12,
+      "recovery_all": 0.7291666666666666,
+      "recovery_deep_quiet": 1.0,
+      "null_false_alarm_rate": 0.0,
+      "mean_transit_kept_frac": 1.0
+    }
+  },
+  "monotonicity": {
+    "symmetric": {
+      "n_violations": 5,
+      "violations": [
+        {
+          "noise_pct": 0.003,
+          "period_d": 2.17,
+          "seed": 42,
+          "sde_lo": 69.78600141634124,
+          "sde_hi": 62.60472858898081,
+          "depths": [
+            1.0,
+            1.5
+          ]
+        },
+        {
+          "noise_pct": 0.003,
+          "period_d": 2.17,
+          "seed": 42,
+          "sde_lo": 62.60472858898081,
+          "sde_hi": 5.407908573246428,
+          "depths": [
+            1.5,
+            3.0
+          ]
+        },
+        {
+          "noise_pct": 0.003,
+          "period_d": 2.17,
+          "seed": 43,
+          "sde_lo": 77.13232093868923,
+          "sde_hi": 7.096956283438251,
+          "depths": [
+            1.5,
+            3.0
+          ]
+        },
+        {
+          "noise_pct": 0.003,
+          "period_d": 7.31,
+          "seed": 42,
+          "sde_lo": 27.542306258298485,
+          "sde_hi": 5.56736304574516,
+          "depths": [
+            1.5,
+            3.0
+          ]
+        },
+        {
+          "noise_pct": 0.003,
+          "period_d": 7.31,
+          "seed": 43,
+          "sde_lo": 36.853730885970165,
+          "sde_hi": 7.235729105596056,
+          "depths": [
+            1.5,
+            3.0
+          ]
+        }
+      ]
+    },
+    "upward_only": {
+      "n_violations": 0,
+      "violations": []
+    },
+    "isolated_low_only": {
+      "n_violations": 0,
+      "violations": []
+    },
+    "floor_10pct": {
+      "n_violations": 0,
+      "violations": []
+    },
+    "none": {
+      "n_violations": 0,
+      "violations": []
+    }
+  },
+  "n_cells": 60,
+  "n_runs": 300,
+  "wall_s": 134.90964770317078
+}

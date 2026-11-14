@@ -1,0 +1,45 @@
+FUNNEL: {
+  "input_survivors": 8450,
+  "after_period_exclusion": 517,
+  "after_shape_cuts": 167,
+  "after_duration_cut": 27,
+  "after_mes_cut": 10,
+  "recalibrated": 10,
+  "rules": {
+    "sys_bands_days": [
+      [
+        13.5,
+        15.0
+      ],
+      [
+        7.0,
+        7.4
+      ],
+      [
+        0.98,
+        1.02
+      ]
+    ],
+    "depth_max_percent": 1.0,
+    "odd_even_range": [
+      0.7,
+      1.43
+    ],
+    "secondary_max_percent": 0.3,
+    "duration_frac_max": 0.08,
+    "mes_min": 15.0,
+    "mes_gap_note": "no duration-plausible candidate has MES in (14.3, 18.8]; any threshold in that range gives the identical list"
+  }
+}
+
+FINAL LIST (MES descending):
+  TIC 14081980 P=2.9195d dur=2.21h frac=0.032 depth=0.783% MES=55.9 SDE=284.5 nev=20 oe=0.97 Tmag=10.5 R=0.62 RA=76.62 Dec=-40.91
+  TIC 31054247 P=0.8737d dur=0.96h frac=0.046 depth=0.618% MES=31.7 SDE=93.8 nev=65 oe=0.87 Tmag=12.3 R=0.76 RA=80.57 Dec=-25.11
+  TIC 423498314 P=0.8270d dur=0.96h frac=0.048 depth=0.966% MES=24.8 SDE=83.1 nev=66 oe=0.97 Tmag=13.4 R=0.67 RA=71.47 Dec=-23.55
+  TIC 14174515 P=3.0895d dur=2.21h frac=0.030 depth=0.600% MES=22.5 SDE=68.2 nev=18 oe=0.82 Tmag=12.5 R=0.75 RA=78.18 Dec=-40.48
+  TIC 77437461 P=0.6079d dur=0.96h frac=0.066 depth=0.691% MES=20.8 SDE=51.0 nev=91 oe=0.99 Tmag=11.3 R=0.49 RA=73.14 Dec=-36.53
+  TIC 382069441 P=5.4908d dur=6.05h frac=0.046 depth=0.785% MES=20.7 SDE=131.8 nev=11 oe=0.92 Tmag=11.4 R=0.74 RA=79.67 Dec=-58.07
+  TIC 141708335 P=4.7602d dur=2.21h frac=0.019 depth=0.826% MES=20.2 SDE=76.5 nev=12 oe=0.88 Tmag=12.1 R=0.42 RA=90.46 Dec=-77.30
+  TIC 272431317 P=3.0109d dur=2.21h frac=0.031 depth=0.850% MES=19.8 SDE=54.5 nev=18 oe=0.94 Tmag=12.7 R=0.47 RA=120.21 Dec=-74.89
+  TIC 177283727 P=3.9554d dur=2.21h frac=0.023 depth=0.559% MES=19.1 SDE=68.0 nev=15 oe=0.97 Tmag=12.4 R=0.69 RA=102.63 Dec=-73.76
+  TIC 255569654 P=5.9994d dur=2.21h frac=0.015 depth=0.802% MES=18.8 SDE=57.0 nev=8 oe=0.89 Tmag=12.1 R=0.79 RA=96.57 Dec=-49.10

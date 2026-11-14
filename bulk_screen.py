@@ -143,10 +143,128 @@ import os
 import sys
 import time
 import warnings
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import (FIRST_COMPLETED, ProcessPoolExecutor,
+                              ThreadPoolExecutor, wait as _futures_wait)
 from pathlib import Path
 
 import numpy as np
+
+import netbound as _net
+import provenance as _prov
+from atomic_io import atomic_write_json as _atomic_write_json
+from atomic_io import atomic_writer as _atomic_writer
+from calibration import CalibrationError as _CalibrationError
+from calibration import load_profile as _load_profile
+from calibration import short_version as _short_version
+from mad_clip import PROFILE_OPTIONS as _CLIP_PROFILE_OPTIONS
+from mad_clip import ALL_OPTIONS as _CLIP_ALL_OPTIONS
+from mad_clip import mad_clip_mask as _mad_clip_mask
+import ingest as _ingest
+from validation import validate_survivor as _validate_survivor
+
+# Thresholds — loaded from the versioned calibration profile
+# (Phase 1.1, item 2; see calibration/README.md). The profile file
+# is the single source of truth: to change a threshold, copy
+# calibration/bulk_v1.yaml to bulk_v2.yaml, bump the version, and
+# point the loader at the new version — never edit a profile that
+# has already stamped records. Module-level names are kept so
+# importers (and the golden suite) see the same constants as before.
+#
+# Selection (Phase 1.2, item B-2): v1 stays the DEFAULT — the
+# import-time load below is bulk_v1 unless EXHUNT_BULK_CALIBRATION
+# names another profile (the offline-suite-under-v2 seam, same
+# pattern as EXHUNT_FIXTURE_DIR). Real runs select the version
+# once, up front, with --calibration; set_calibration() is what
+# the flag calls. Per-star switching would make screens
+# incomparable, so there is no per-call selection.
+def _apply_profile(prof):
+    """Derive the module constants from a loaded profile dict."""
+    global _BULK_CAL, CALIBRATION_VERSION, CALIBRATION_MAP
+    global RECORD_FLOOR_SDE, SURVIVOR_SDE, DEPTH_MIN_PCT, DEPTH_EB_PCT
+    global TIER_A_MES, TIER_A_MIN_EVENTS, TIER_A_MIN_STRONG
+    global STRONG_EVENT_SNR, TIER_B_EVENT_SNR, TIER_B_MAX_DEPTH_PCT
+    global MIN_PERIOD_D, MAX_PERIOD_D, BLS_GRID_POINTS, BLS_DURATIONS_D
+    global SYSTEMATIC_PERIODS, CLIP_OPTION, SYSTEMATIC_WINDOWS
+    _BULK_CAL = prof
+    CALIBRATION_VERSION = prof["version"]
+    # Provenance map (A-2): per-subsystem bare versions, {"bulk": "v1"}.
+    CALIBRATION_MAP = {"bulk": _short_version(CALIBRATION_VERSION)}
+    RECORD_FLOOR_SDE = prof["record_floor_sde"]
+    SURVIVOR_SDE = prof["survivor_sde"]
+    DEPTH_MIN_PCT = prof["depth_min_pct"]
+    DEPTH_EB_PCT = prof["depth_eb_pct"]
+    TIER_A_MES = prof["tier_a_mes"]
+    TIER_A_MIN_EVENTS = prof["tier_a_min_events"]
+    TIER_A_MIN_STRONG = prof["tier_a_min_strong"]
+    STRONG_EVENT_SNR = prof["strong_event_snr"]
+    TIER_B_EVENT_SNR = prof["tier_b_event_snr"]
+    TIER_B_MAX_DEPTH_PCT = prof["tier_b_max_depth_pct"]
+    MIN_PERIOD_D = prof["min_period_d"]
+    MAX_PERIOD_D = prof["max_period_d"]
+    BLS_GRID_POINTS = prof["bls_grid_points"]
+    BLS_DURATIONS_D = tuple(prof["bls_durations_d"])
+    SYSTEMATIC_PERIODS = tuple(prof["systematic_periods"])
+    # Clip option (B-2): v1 profiles predate the field and mean
+    # the symmetric 5-sigma clip. A profile may only declare a
+    # real option — "none" is the grid's unclipped reference and
+    # is rejected here, never a runnable calibration.
+    CLIP_OPTION = prof.get("clip_option", "symmetric")
+    if CLIP_OPTION not in _CLIP_PROFILE_OPTIONS:
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"clip_option {CLIP_OPTION!r} — expected one of "
+            f"{', '.join(_CLIP_PROFILE_OPTIONS)}")
+    # Per-sector systematic windows (B-2): measured pile-up bands
+    # from the RECALIBRATION reports, hard-coded in the profile —
+    # never derived from survivor histograms. v1 has none.
+    SYSTEMATIC_WINDOWS = {
+        int(sector): [tuple(w) for w in windows]
+        for sector, windows
+        in prof.get("systematic_windows", {}).items()}
+
+
+def set_calibration(name):
+    """Load profile `name` (registry-verified) and re-derive the
+    module constants. Restores are the caller's job (tests:
+    setUp/tearDown back to bulk_v1)."""
+    _apply_profile(_load_profile(name))
+
+
+def set_clip_option(option):
+    """Override the clip option in-process — GRID + TESTS ONLY.
+    Real runs get the option from the profile; this exists so the
+    clip grid can evaluate options through the real screen path
+    without a profile per option. "none" (the grid's unclipped
+    reference) is allowed here and only here."""
+    global CLIP_OPTION
+    if option not in _CLIP_ALL_OPTIONS:
+        raise ValueError(
+            f"unknown clip option {option!r} — expected one of "
+            f"{', '.join(_CLIP_ALL_OPTIONS)}")
+    CLIP_OPTION = option
+
+
+_apply_profile(_load_profile(
+    os.environ.get("EXHUNT_BULK_CALIBRATION", "bulk_v1")))
+
+
+# Sectors screened under v1 (S96-S98). v1's MAD clip has a known
+# sensitivity defect (no depth floor); no NEW sector may screen
+# under v1 without an explicit --allow-v1 (B-2).
+V1_SECTORS = (96, 97, 98)
+
+
+def enforce_v1_gate(calibration_name, sector, allow_v1):
+    """Refuse a screen outside the v1 sectors under a v1
+    calibration, unless --allow-v1 was passed. Raises
+    CalibrationError — main() turns it into a CLI error."""
+    if (calibration_name == "bulk_v1" and int(sector) not in V1_SECTORS
+            and not allow_v1):
+        raise _CalibrationError(
+            f"refusing to screen sector {sector} under bulk_v1: "
+            f"v1's MAD clip has no depth floor (bulk_v2 fixes it). "
+            f"Screen under bulk_v2 (--calibration bulk_v2) or pass "
+            f"--allow-v1 to proceed knowingly.")
 
 warnings.filterwarnings("ignore")
 
@@ -154,30 +272,8 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 # ---------------------------------------------------------------------------
-# Thresholds — set in advance (see module docstring). Do not tune per run.
+# Non-calibration constants (product + data source, not thresholds)
 # ---------------------------------------------------------------------------
-RECORD_FLOOR_SDE = 6.0
-SURVIVOR_SDE = 7.0
-DEPTH_MIN_PCT = 0.02
-DEPTH_EB_PCT = 3.0
-# v1.1 calibration (2026-11-11, tuned ONLY on the sector-1 proof run;
-# see bulk/CALIBRATION_V1_1.md). v1's flat SDE>=7 survivor rule passed
-# 31.6% of searched stars — unusable at 126k scale. Survivors must now
-# ALSO pass a pink-noise MES rescore (LEO-Vetter style, as in
-# Rabtsevich's screen) in one of two tiers:
-TIER_A_MES = 9.0            # periodic tier: MES_pink >= 9 (his floor)
-TIER_A_MIN_EVENTS = 3       # ... with >= 3 observed transit events
-TIER_A_MIN_STRONG = 2       # ... and >= 2 events individually >= 3 sigma
-STRONG_EVENT_SNR = 3.0
-TIER_B_EVENT_SNR = 8.0      # few-transit tier (1-2 events): the best
-                            # single event must stand at >= 8 sigma pink
-TIER_B_MAX_DEPTH_PCT = 1.0  # ... and depth <= 1% (deeper lone dips are
-                            # EB/artifact country; they stay recorded)
-MIN_PERIOD_D = 0.5
-MAX_PERIOD_D = 20.0
-BLS_GRID_POINTS = 12000
-BLS_DURATIONS_D = (0.04, 0.06, 0.09, 0.13, 0.18, 0.25)
-SYSTEMATIC_PERIODS = (13.7, 6.85, 27.4)  # mirrors hunter._SYSTEMATIC_PERIODS
 PRODUCT = "QLP"
 QLP_URL = ("https://mast.stsci.edu/api/v0.1/Download/file?uri="
            "mast:HLSP/qlp/s{sec:04d}/{a}/{b}/{c}/{d}/"
@@ -234,11 +330,18 @@ def cone_star_list(ra, dec, cone_deg, min_mag, max_mag, min_rad, max_rad,
             centres.append((t_ra, t_dec))
 
     def _tile(tc):
-        tab = Catalogs.query_criteria(
-            catalog="Tic",
-            coordinates=SkyCoord(ra=tc[0] * u.deg, dec=tc[1] * u.deg),
-            radius=tile_deg * u.deg,
-            Tmag=[min_mag, max_mag], rad=[min_rad, max_rad])
+        # C-1: astroquery takes no timeout — watch the call, or a
+        # hung tile hangs the whole cone query. A timeout fails
+        # the run (fail-LOUD): a missing tile would silently drop
+        # stars from the window.
+        tab = _net.mast_call(
+            lambda: Catalogs.query_criteria(
+                catalog="Tic",
+                coordinates=SkyCoord(ra=tc[0] * u.deg,
+                                     dec=tc[1] * u.deg),
+                radius=tile_deg * u.deg,
+                Tmag=[min_mag, max_mag], rad=[min_rad, max_rad]),
+            name=f"TIC tile ({tc[0]:.2f},{tc[1]:.2f})")
         return [{"tic": str(row["ID"]), "ra": float(row["ra"]),
                  "dec": float(row["dec"]), "tmag": float(row["Tmag"]),
                  "radius": float(row["rad"])} for row in tab]
@@ -274,8 +377,10 @@ def _tic_batch(ids):
             return None
         return None if math.isnan(x) else x
 
-    tab = Catalogs.query_criteria(catalog="Tic",
-                                  ID=[int(i) for i in ids])
+    tab = _net.mast_call(
+        lambda: Catalogs.query_criteria(catalog="Tic",
+                                        ID=[int(i) for i in ids]),
+        name=f"TIC batch lookup ({len(ids)} ids)")
     out = {}
     for row in tab:
         out[str(row["ID"])] = {"ra": _f(row["ra"]), "dec": _f(row["dec"]),
@@ -302,14 +407,16 @@ def target_list_star_list(sector, min_mag, max_mag, min_rad, max_rad,
     a full sector is ~470-630k IDs and a lookup batch takes ~0.5-2 min
     through the proxy, so a cold build is a long, cache-building job,
     not a per-run cost. Returns (stars, stats)."""
-    import urllib.request
     tl_dir = Path(cache_dir) / "target_lists"
     tl_dir.mkdir(parents=True, exist_ok=True)
     raw_path = tl_dir / f"s{sector:04d}.csv"
     if not raw_path.exists():
         url = TARGET_LIST_URL.format(sec=sector)
         log(f"target list: downloading {url}", logf)
-        urllib.request.urlretrieve(url, raw_path)
+        # C-1: urlretrieve takes no timeout — a hung CSV download
+        # hung the build forever. Streaming + timeout + atomic
+        # rename instead.
+        _net.download_file(url, raw_path)
     ids, seen = [], set()
     with open(raw_path) as fh:
         fh.readline()  # '#TIC_ID,RA,DEC'
@@ -656,6 +763,19 @@ def download_all(stars, sector, cache_dir, workers=8, logf=None):
 # Per-star screen — one fast BLS + free vetoes (process worker)
 # ---------------------------------------------------------------------------
 
+def _near_systematic(period, sector):
+    """True when the period sits in the generic systematic family
+    (+-3% of 13.7/6.85/27.4 d) or inside a measured per-sector
+    systematic window (bulk_v2+; v1 has no windows). A flag, not
+    a veto — the recalibration step is the defense."""
+    if any(abs(period - s) <= 0.03 * s for s in SYSTEMATIC_PERIODS):
+        return True
+    for lo, hi in SYSTEMATIC_WINDOWS.get(int(sector), ()):
+        if lo <= period <= hi:
+            return True
+    return False
+
+
 def _robust_sde(powers, period_vals):
     """hunter.py BLS-v2 SDE: (peak - median) / MAD-sigma of the
     periodogram, excluding the 13.7 d systematic family."""
@@ -777,8 +897,24 @@ def _screen_one(args):
         from astropy.timeseries import BoxLeastSquares
         with fits.open(path, memmap=True) as hdul:
             data = hdul[1].data
-            t = np.asarray(data["TIME"], dtype=float)
-            flux = np.asarray(data["KSPSAP_FLUX"], dtype=float)
+            # Flux column differs by QLP HLSP version: older sectors
+            # (e.g. S1) carry KSPSAP_FLUX; newer ones (e.g. S98) dropped
+            # it for SYS_RM_FLUX (the systematics-removed flux — the
+            # column Rabtsevich's S98 screen used) with DET_FLUX as the
+            # plain detrended fallback. Lesson 2026-11-11: chunk_00 of
+            # the S98 run errored on all 5,000 stars with
+            # KeyError KSPSAP_FLUX before this fallback existed.
+            cols = data.columns.names
+            fcol = next((c for c in ("KSPSAP_FLUX", "SYS_RM_FLUX",
+                                     "DET_FLUX") if c in cols), None)
+            if fcol is None:
+                raise KeyError(f"no known flux column in {cols}")
+            # F-4: the FITS-read boundary — time/flux go through
+            # the shared float64 ingest (FITS flux is typically
+            # float32; the savgol detrend below accumulates in
+            # the input dtype — see ingest.py).
+            t, flux, _ = _ingest.as_float64(data["TIME"],
+                                            data[fcol])
             qual = np.asarray(data["QUALITY"], dtype=int)
         # Quality mask = lightkurve's TESS DEFAULT bitmask (17087), NOT
         # quality==0. Lesson (proof-run smoke test, 2026-11-11): TOI-700
@@ -792,15 +928,20 @@ def _screen_one(args):
         if len(t) < 200:
             rec["status"] = "too_few_points"
             return rec
-        # normalise + clip (QLP KSPSAP is already detrended/normalised)
+        # normalise + clip (QLP KSPSAP is already detrended/normalised).
+        # The clip is the shared function (mad_clip.py, B-2); the
+        # OPTION comes from the calibration profile (v1: symmetric
+        # 5-sigma — the inline expression this replaces, bit for
+        # bit; v2: the grid's choice).
         med = np.median(f)
         f = f / med
-        sd = 1.4826 * np.median(np.abs(f - 1.0))
-        if sd > 0:
-            keep = np.abs(f - 1.0) < 5 * sd
-            t, f = t[keep], f[keep]
+        keep = _mad_clip_mask(f, CLIP_OPTION)
+        t, f = t[keep], f[keep]
         # light flatten at the deep pipeline's ~2 d scale (Savitzky-Golay)
         from scipy.signal import savgol_filter
+        # F-4 tripwire: the detrend must never see a float32
+        # array — a path that bypassed ingest fails here.
+        _ingest.assert_float64(t, f, "detrend entry (_screen_one)")
         dt = float(np.median(np.diff(t)))
         win = int(round(2.0 / dt)) if dt > 0 else 97
         win += (win % 2 == 0)
@@ -811,6 +952,13 @@ def _screen_one(args):
             f = f / trend
         f = f - np.median(f) + 1.0
 
+        # Layer 2 provenance (A-2): the exact arrays entering BLS,
+        # hashed so a result can be traced to the data it was
+        # computed from — not just the code that ran. In-memory
+        # and cheap; attached to every record that reaches BLS.
+        # F-4 tripwire: BLS must never see a float32 array.
+        _ingest.assert_float64(t, f, "BLS entry (_screen_one)")
+        bls_hash = _prov.bls_input_hash(t, f)
         periods = 1.0 / np.linspace(1.0 / MAX_PERIOD_D, 1.0 / MIN_PERIOD_D,
                                     BLS_GRID_POINTS)
         bls = BoxLeastSquares(t, f)
@@ -828,9 +976,11 @@ def _screen_one(args):
         rec.update({"period_days": period, "t0_btjd": t0,
                     "duration_hours": duration * 24.0,
                     "depth_percent": depth * 100.0, "sde": sde,
-                    "near_systematic": bool(any(
-                        abs(period - s) <= 0.03 * s
-                        for s in SYSTEMATIC_PERIODS))})
+                    "near_systematic": _near_systematic(period, sector),
+                    "input_identity": _prov.input_identity(
+                        product_ids=[Path(path).name],
+                        sectors=[int(sector)], author=PRODUCT,
+                        bls_input_hash=bls_hash)})
         # Next two distinct peaks (hunter v2 pattern) ride along: a
         # single-sector screen can pin the wrong alias on a lone transit
         # (proof control: sector 1 holds ONE TOI-700 c transit; the
@@ -911,11 +1061,146 @@ def _screen_one(args):
             rec["status"] = "survivor"
         else:
             rec["status"] = "recorded"
+        if rec["status"] == "survivor":
+            # Input file hash, survivors only (bounded cost): the
+            # file was just read, so it is warm in the page cache.
+            # A survivor's identity is its data, not just its numbers.
+            file_sha = _prov.file_sha256(path)
+            if file_sha is not None:
+                rec["input_identity"]["input_file_sha256"] = file_sha
         return rec
     except Exception as e:
         rec["status"] = "error"
         rec["error"] = f"{type(e).__name__}: {e}"
         return rec
+
+
+# ---------------------------------------------------------------------------
+# Output records
+# ---------------------------------------------------------------------------
+
+_EMIT_KEYS = ("tic", "period_days", "t0_btjd", "duration_hours",
+              "depth_percent", "sde", "sector", "product", "ra", "dec",
+              "tmag", "radius_rsun", "flags", "odd_even_ratio",
+              "secondary_depth_percent", "near_systematic", "control",
+              "status", "known_source", "alt_peaks", "mes_pink",
+              "cdpp_pct", "n_events", "n_strong_events",
+              "max_event_snr", "v_ratio", "tier", "input_identity")
+
+
+def emit_survivor_record(rec, prov):
+    """The gauntlet-shaped record for one screened star: the
+    schema fields from the raw screen record plus the run's
+    provenance header (Phase 1.1, item 1). None-valued fields are
+    dropped — a missing measurement is absent, never a null that
+    downstream code has to defend against. The provenance fields
+    are always present (they are never None)."""
+    out = {k: rec.get(k) for k in _EMIT_KEYS if rec.get(k) is not None}
+    out.update(prov)
+    return out
+
+
+class CircuitBreakerError(RuntimeError):
+    """Raised when MAX_CONSECUTIVE_TIMEOUTS watchdog timeouts
+    occur in a row (F-13): the screen is timing out
+    systematically — an outage, not a pathological star — and
+    continuing would record the outage as '0 survivors'.
+    main() catches it, logs a clear error, and returns non-zero
+    WITHOUT writing a summary, so the slice is not checkpointed
+    and the driver stops the run instead of merging a hollow
+    result."""
+
+
+# Consecutive watchdog timeouts that trip the circuit breaker
+# (F-13). One pathological star is data; 25 in a row with no
+# success in between is a systematic failure (a MAST outage, a
+# hung filesystem, a broken worker). The limit counts timeout
+# EVENTS in collection order — a successful completion resets
+# it to 0 — so a healthy screen with occasional slow stars
+# never trips.
+MAX_CONSECUTIVE_TIMEOUTS = 25
+
+
+def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
+                            max_consecutive_timeouts=None):
+    """Submit every screen job and collect the records, with a
+    per-star watchdog (C-1) and a consecutive-timeout circuit
+    breaker (F-13).
+
+    Each future gets ``timeout_s`` from submission; a star that
+    has not returned by then is recorded as ``status="unmeasured"``
+    with a ``watchdog_timeout`` reason and the run moves on to
+    the next star — a pathological star must never hang a whole
+    slice. The late result, if it ever arrives, is ignored (the
+    star is already accounted for). ``worker`` is _screen_one in
+    production; tests pass a fake.
+
+    Circuit breaker: consecutive watchdog timeouts are counted
+    in collection order (a successful completion resets the
+    count to 0); at ``max_consecutive_timeouts`` (default
+    MAX_CONSECUTIVE_TIMEOUTS) the function raises
+    CircuitBreakerError instead of recording another unmeasured
+    star — the screen stops with a clear error rather than
+    turning an outage into a hollow '0 survivors' slice.
+
+    Caveat, stated plainly: with a ProcessPoolExecutor the hung
+    worker process keeps running the star's BLS until it finishes
+    (a worker cannot be killed mid-task), so executor shutdown
+    still waits for it. BLS is finite compute — the watchdog's
+    value is that the star is RECORDED as unmeasured and the
+    other stars keep screening, instead of the slice hanging
+    with no output at all. Returns (records, counts).
+    """
+    if max_consecutive_timeouts is None:
+        max_consecutive_timeouts = MAX_CONSECUTIVE_TIMEOUTS
+    futures = {}
+    for job in jobs:
+        futures[ex.submit(worker, job)] = (job, time.monotonic())
+    records, counts = [], {}
+    consecutive_timeouts = 0
+    pending = set(futures)
+    while pending:
+        done, pending = _futures_wait(
+            pending, timeout=timeout_s,
+            return_when=FIRST_COMPLETED)
+        for fut in done:
+            rec = fut.result()
+            records.append(rec)
+            counts[rec["status"]] = counts.get(rec["status"], 0) + 1
+            # A success breaks the consecutive-timeout run.
+            consecutive_timeouts = 0
+        now = time.monotonic()
+        for fut in list(pending):
+            job, t0 = futures[fut]
+            if now - t0 > timeout_s:
+                pending.discard(fut)
+                tic, _path, sector, star = job
+                rec = {"tic": tic, "sector": int(sector),
+                       "product": PRODUCT,
+                       "ra": star.get("ra"), "dec": star.get("dec"),
+                       "tmag": star.get("tmag"),
+                       "radius_rsun": star.get("radius"),
+                       "status": "unmeasured",
+                       "reason": ("watchdog_timeout: screen "
+                                  f"exceeded {timeout_s:g}s")}
+                records.append(rec)
+                counts["unmeasured"] = counts.get("unmeasured", 0) + 1
+                consecutive_timeouts += 1
+                if consecutive_timeouts >= max_consecutive_timeouts:
+                    raise CircuitBreakerError(
+                        f"{consecutive_timeouts} consecutive "
+                        f"watchdog timeouts (limit "
+                        f"{max_consecutive_timeouts}) — the "
+                        f"screen is timing out systematically, "
+                        f"not on one pathological star; "
+                        f"stopping the slice")
+                log(f"star {tic}: WATCHDOG — screen exceeded "
+                    f"{timeout_s:g}s, recorded unmeasured", logf)
+    # Completion order is nondeterministic; sort by TIC so the
+    # slice's output files are identical run to run (the old
+    # ex.map loop preserved submission order).
+    records.sort(key=lambda r: r["tic"])
+    return records, counts
 
 
 # ---------------------------------------------------------------------------
@@ -949,20 +1234,86 @@ def main(argv=None):
                                                           or 2) - 1))
     ap.add_argument("--cache-dir", default=str(ROOT / "bulk" / "cache"))
     ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--run-id", default=None,
+                    help="run id stamped on every record (default: "
+                         "auto-generated; the chunked driver passes "
+                         "one id for the whole run so all slices "
+                         "share it)")
+    ap.add_argument("--recipe-hash", default=None,
+                    help="sha256 of the resolved recipe driving this "
+                         "run (the chunked driver passes it); "
+                         "omitted when the run had no recipe")
+    ap.add_argument("--mixed-pipeline", action="store_true",
+                    help="stamp mixed_pipeline=true on every record "
+                         "(A-3): the chunked driver passes this when "
+                         "the run resumed across a result-affecting "
+                         "code change under --accept-code-change")
+    ap.add_argument("--calibration", default="bulk_v1",
+                    help="bulk calibration profile (default: bulk_v1; "
+                         "bulk_v2 fixes the MAD-clip defect)")
+    ap.add_argument("--allow-v1", action="store_true",
+                    help="allow screening a sector outside 96-98 "
+                         "under bulk_v1 (known MAD-clip defect — "
+                         "prefer --calibration bulk_v2)")
     args = ap.parse_args(argv)
+
+    # Calibration selection + the v1 gate (B-2) — before any work:
+    # a refused run must not download anything or write records.
+    try:
+        set_calibration(args.calibration)
+        enforce_v1_gate(args.calibration, args.sector, args.allow_v1)
+    except _CalibrationError as exc:
+        ap.error(str(exc))
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     logf = open(out_dir / "run.log", "a")
     run_t0 = time.time()
+    # Provenance, built once for the whole run (Phase 1.1, item 1):
+    # one run id, one timestamp, one calibration version — every
+    # record this run writes carries the same header.
+    run_id = args.run_id or _prov.new_run_id("bulk")
+    started_at = _prov.utc_now_iso()
+    prov = _prov.provenance_header(
+        run_id, CALIBRATION_MAP,
+        recipe_hash=args.recipe_hash,
+        timestamp_utc=started_at,
+        mixed_pipeline=args.mixed_pipeline)
+    # C-2: the run-level components of every record's work-item
+    # id (TIC + sector vary per record; these three are fixed for
+    # the run). Computed once — fingerprint_result_affecting walks
+    # the repo tree.
+    _code_fp = _prov.fingerprint_result_affecting()
+    try:
+        _cal_hash = _prov.calibration_content_hash(CALIBRATION_MAP)
+    except Exception:
+        _cal_hash = None
+
+    def _stamp_work_item_id(rec):
+        """Stamp the deterministic work-item id (C-2) on an
+        emitted record, in place."""
+        rec["work_item_id"] = _prov.work_item_id(
+            rec["tic"], args.sector, _code_fp, _cal_hash,
+            args.recipe_hash)
+        return rec
+    manifest = _prov.build_manifest(
+        run_id, CALIBRATION_MAP, sector=args.sector,
+        product=PRODUCT, sha=prov["pipeline_git_sha"],
+        timestamp_utc=started_at, status="started",
+        code_fingerprint=_code_fp)
+    _prov.write_manifest(out_dir, manifest)
+    log(f"run_id: {run_id} (calibration {CALIBRATION_VERSION}, "
+        f"git {prov['pipeline_git_sha']})", logf)
     summary = {"tool": "bulk_screen v1.2", "sector": args.sector,
                "product": PRODUCT,
+               "provenance": prov,
                "window": {"min_mag": args.min_mag, "max_mag": args.max_mag,
                           "min_rad": args.min_rad, "max_rad": args.max_rad},
                "thresholds": {"record_floor_sde": RECORD_FLOOR_SDE,
                               "survivor_sde": SURVIVOR_SDE,
                               "depth_min_pct": DEPTH_MIN_PCT,
                               "depth_eb_pct": DEPTH_EB_PCT,
+                              "clip_option": CLIP_OPTION,
                               "period_range_d": [MIN_PERIOD_D,
                                                  MAX_PERIOD_D],
                               "tier_a_mes": TIER_A_MES,
@@ -1022,16 +1373,31 @@ def main(argv=None):
     t = time.time()
     by_tic = {s["tic"]: s for s in kept}
     jobs = [(tic, paths[tic], args.sector, by_tic[tic]) for tic in paths]
-    records = []
-    counts = {}
     with ProcessPoolExecutor(max_workers=args.workers) as ex:
-        for rec in ex.map(_screen_one, jobs, chunksize=8):
-            records.append(rec)
-            counts[rec["status"]] = counts.get(rec["status"], 0) + 1
+        # C-1: per-star watchdog — a pathological star is recorded
+        # unmeasured instead of hanging the slice. F-13: the
+        # circuit breaker stops the slice on systematic timeouts
+        # — no summary is written, so the slice is not
+        # checkpointed and the driver stops the run.
+        try:
+            records, counts = _collect_screen_results(
+                ex, jobs, _screen_one, _net.STAR_TIMEOUT_S, logf)
+        except CircuitBreakerError as exc:
+            log(f"CIRCUIT BREAKER: {exc}", logf)
+            log("slice NOT checkpointed (no summary written) — "
+                "the driver will stop the run rather than merge "
+                "a hollow result", logf)
+            logf.close()
+            return 1
     screen_seconds = time.time() - t
     summary["screen_seconds"] = screen_seconds
     summary["screen_counts"] = counts
     summary["stars_searched"] = len(jobs)
+    # F-13: stars MEASURED (searched minus watchdog timeouts) is
+    # the number to quote as "N screened" — a run that timed out
+    # on half its stars did not screen them.
+    summary["stars_measured"] = (
+        len(jobs) - counts.get("unmeasured", 0))
     if screen_seconds > 0:
         summary["screen_stars_per_hour"] = round(
             len(jobs) / screen_seconds * 3600)
@@ -1053,22 +1419,25 @@ def main(argv=None):
     novel, zoo_known = annotate_survivors_zooniverse(survivors, logf)
     summary["zooniverse_known_survivors"] = [r["tic"] for r in zoo_known]
 
-    def emit(rec):
-        keys = ("tic", "period_days", "t0_btjd", "duration_hours",
-                "depth_percent", "sde", "sector", "product", "ra", "dec",
-                "tmag", "radius_rsun", "flags", "odd_even_ratio",
-                "secondary_depth_percent", "near_systematic", "control",
-                "status", "known_source", "alt_peaks", "mes_pink",
-                "cdpp_pct", "n_events", "n_strong_events",
-                "max_event_snr", "v_ratio", "tier")
-        return {k: rec.get(k) for k in keys if rec.get(k) is not None}
-
-    with open(out_dir / "survivors.jsonl", "w") as fh:
+    # Atomic writes (Phase 1.1, item 8): a VM kill mid-write must
+    # never leave a truncated survivors/hits file behind — the
+    # chunk checkpoint (summary.json, written last) is only valid
+    # if the files it describes are complete.
+    with _atomic_writer(out_dir / "survivors.jsonl") as fh:
         for r in novel:
-            fh.write(json.dumps(emit(r)) + "\n")
-    with open(out_dir / "screen_hits.jsonl", "w") as fh:
+            rec = emit_survivor_record(r, prov)
+            _stamp_work_item_id(rec)
+            # Fail loud on a malformed record (Phase 1.1, item 3):
+            # a bad record is a code bug, and the run must stop,
+            # not write a corrupt handoff to the gauntlet.
+            _validate_survivor(rec)
+            fh.write(json.dumps(rec) + "\n")
+    with _atomic_writer(out_dir / "screen_hits.jsonl") as fh:
         for r in hits:
-            fh.write(json.dumps(emit(r)) + "\n")
+            rec = emit_survivor_record(r, prov)
+            _stamp_work_item_id(rec)
+            _validate_survivor(rec)
+            fh.write(json.dumps(rec) + "\n")
 
     # control verdict — the run's honesty check
     if args.control_tic:
@@ -1098,8 +1467,18 @@ def main(argv=None):
     if summary["wall_seconds"] > 0 and total_stars:
         summary["end_to_end_stars_per_hour"] = round(
             total_stars / summary["wall_seconds"] * 3600)
-    with open(out_dir / "summary.json", "w") as fh:
-        json.dump(summary, fh, indent=2)
+    _atomic_write_json(out_dir / "summary.json", summary)
+    manifest["execution"]["status"] = "completed"
+    manifest["execution"]["wall_seconds"] = round(
+        summary["wall_seconds"])
+    manifest["counts"] = {
+        "stars_searched": summary["stars_searched"],
+        "stars_measured": summary["stars_measured"],
+        "hits_recorded": summary["hits_recorded"],
+        "survivors": summary["survivors"],
+        "screen_counts": summary["screen_counts"],
+    }
+    _prov.write_manifest(out_dir, manifest)
     log(f"DONE: {len(novel)} novel survivors, {len(hits)} recorded hits, "
         f"wall {summary['wall_seconds']:.0f}s, end-to-end "
         f"{summary.get('end_to_end_stars_per_hour', 0)} stars/h", logf)

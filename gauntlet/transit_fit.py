@@ -38,6 +38,7 @@ median cadence of each sector's data; supersampling defaults to 2
 with per-sector overrides (--supersample "32:3").
 """
 import os
+import sys
 
 os.environ.setdefault('SETUPTOOLS_USE_DISTUTILS', 'local')
 import setuptools  # noqa: F401  (shims distutils for batman)
@@ -48,8 +49,19 @@ import numpy as np
 from scipy.optimize import least_squares
 from scipy.signal import savgol_filter
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from mad_clip import mad_clip_mask as _mad_clip_mask  # noqa: E402
+
 RSUN_RE = 109.2                    # R_sun in R_earth
 RSUN_AU = 0.00465047               # R_sun in AU
+
+# F-11: the clip floor lives in ONE place now — mad_clip.py's
+# DEFAULT_FLOOR_FRAC (0.10), drift-tested against
+# gauntlet_v1.yaml in tests/test_calibration.py. The old
+# per-module MAD_CLIP_FLOOR_FRAC constant (duplicated here and
+# in rawflux_check.py) is deleted; load_data calls the shared
+# function with its default.
 
 
 def flatten_qlp(t, f, period, t0, duration_d, window=1.5):
@@ -114,11 +126,11 @@ def load_data(data_dir, qlp_sectors, tesscut_sectors, period, t0,
     # below the median (2026-11-14, TIC 139526205 — same fix as
     # rawflux_check.py): a symmetric 5-sigma cut deletes real transits
     # on quiet stars before the fit, biasing depth / Rp low.
+    # The clip is the shared function (mad_clip.py, B-2); the floor
+    # stays this module's drift-tested constant.
     for d in out:
         d['f'] = d['f'] / np.median(d['f'])
-        med = np.median(d['f'])
-        mad = 1.4826 * np.median(np.abs(d['f'] - med))
-        keep = (d['f'] < med + 5 * mad) & (d['f'] > med - max(5 * mad, 0.10))
+        keep = _mad_clip_mask(d['f'], "floor_10pct")
         d['t'], d['f'] = d['t'][keep], d['f'][keep]
         ph = (((d['t'] - t0) / period + 0.5) % 1.0) - 0.5
         oot = np.abs(ph) > 0.08

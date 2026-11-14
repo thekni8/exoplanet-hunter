@@ -1,0 +1,64 @@
+{
+  "tool": "bulk_screen v1.2",
+  "sector": 97,
+  "product": "QLP",
+  "window": {
+    "min_mag": 10.0,
+    "max_mag": 13.5,
+    "min_rad": 0.2,
+    "max_rad": 0.8
+  },
+  "thresholds": {
+    "record_floor_sde": 6.0,
+    "survivor_sde": 7.0,
+    "depth_min_pct": 0.02,
+    "depth_eb_pct": 3.0,
+    "period_range_d": [
+      0.5,
+      20.0
+    ],
+    "tier_a_mes": 9.0,
+    "tier_a_min_events": 3,
+    "tier_a_min_strong": 2,
+    "tier_b_event_snr": 8.0,
+    "tier_b_max_depth_pct": 1.0
+  },
+  "control_tic": null,
+  "stars_in": 1,
+  "filter_seconds": 2.574920654296875e-05,
+  "skipped_known": {
+    "toi": 0,
+    "vsx": 0
+  },
+  "skipped_known_tics": {
+    "toi": [],
+    "vsx": []
+  },
+  "stars_after_filter": 1,
+  "download": {
+    "downloaded": 1,
+    "cached": 0,
+    "no_product": 0,
+    "errors": 0,
+    "bytes": 1388160,
+    "seconds": 1.9664242267608643
+  },
+  "screen_seconds": 5.080392599105835,
+  "screen_counts": {
+    "survivor": 1
+  },
+  "stars_searched": 1,
+  "screen_stars_per_hour": 709,
+  "survivor_tiers": {
+    "A": 1,
+    "B": 0
+  },
+  "zooniverse_known_survivors": [],
+  "hits_recorded": 1,
+  "survivors": 1,
+  "survivor_tics": [
+    "382069441"
+  ],
+  "wall_seconds": 12.976947784423828,
+  "end_to_end_stars_per_hour": 277
+}

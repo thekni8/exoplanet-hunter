@@ -1,0 +1,40 @@
+{
+  "registry_version": 1,
+  "entries": [
+    {
+      "calibration_id": "bulk_v1",
+      "sha256": "54e9c35c1df5bd8de9684af23f6e99d2e6f4d99066222eedee9adf20ef3c7856",
+      "status": "active",
+      "rationale": "v1.1 survivor calibration (2026-11-11): the flat SDE>=7 bar passed 31.6% of the proof run, so survivorship also requires a pink-noise MES rescore in tier A or B. The 5-sigma MAD clip has NO depth floor in this version \u2014 a known sensitivity defect (a 1.5% transit on a 0.3%-noise star scores lower than a 1.0% one); bulk_v2 fixes it. See bulk/CALIBRATION_V1_1.md.",
+      "supersedes": null
+    },
+    {
+      "calibration_id": "deep_v1",
+      "sha256": "d30457270abf3b91f5896d405bf50328bd33cad03aa1d03d36adc6e566a602c5",
+      "status": "active",
+      "rationale": "Deep-pipeline thresholds as run since the 2026-11-13 BLS fix (SDE 8.5 discovery bar, 6.5 acceptance floor). Snapshot of hunter.py's named constants.",
+      "supersedes": null
+    },
+    {
+      "calibration_id": "gauntlet_v1",
+      "sha256": "fb90bed3676f48ed0916b439ae763036bf809e3ff8e5197b196d9416d264fa81",
+      "status": "active",
+      "rationale": "Gauntlet thresholds as vetted through S96-S98 (shape-gate V/U bounds, 15% chi2 floor, 10% MAD-clip floor). Snapshot of the gauntlet's named constants plus the stage-result decision policy.",
+      "supersedes": null
+    },
+    {
+      "calibration_id": "gauntlet_v2",
+      "sha256": "66c2ab6cec2b2666c177807fd58cd2d17c2e26b5e99e21e2dd3513df948c262a",
+      "status": "active",
+      "rationale": "Gauntlet calibration v2 (2026-11-14, Phase 1.2 A-4): carries the stage-result decision policy (raw-flux/parity bars, minimum-data bars, blend bars) and the waiver allowlist. v1's thresholds carried over unchanged; the policy values were hardcoded constants in gauntlet/stage_result.py before this version. Pre-merge correction (Phase 1.2 follow-up F-1, 2026-11-14): neighbour_search_radius_arcsec added at 180.0 — the vetting manual's 180 arcsecond rule; the code census defaulted to 60 arcseconds and missed a blend host at 66.5 arcseconds (S97, TIC 139524628). gauntlet_v2 never reached main, so this pre-merge edit updates the registry entry in the same commit rather than minting a v3.",
+      "supersedes": "gauntlet_v1"
+    },
+    {
+      "calibration_id": "bulk_v2",
+      "sha256": "6032dec0ff6555ef453c51100183220a65fe7af97942790349d5a66233630223",
+      "status": "active",
+      "rationale": "Bulk calibration v2 (2026-11-14, Phase 1.2 B-2): fixes the v1 MAD-clip sensitivity defect (floor_10pct clip, same rule as the gauntlet) and hard-codes the per-sector systematic windows from the S96-S98 screens. All v1 thresholds carried over unchanged. See bulk/SENSITIVITY_MAP.md and bulk/CLIP_GRID_CRITERIA.md.",
+      "supersedes": "bulk_v1"
+    }
+  ]
+}

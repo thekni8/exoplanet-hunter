@@ -1,0 +1,84 @@
+records: 35374
+status counts: Counter({'survivor': 14797, 'demoted': 10552, 'recorded': 10025})
+tier counts (survivors): Counter({'A': 14291, 'B': 506})
+near_systematic counts: Counter({True: 24341, False: 11033})
+
+== survivor (n=14797) ==
+  sde: n=14797 p1=12.9 p5=15.7 p25=20.7 med=25.3 p75=30.8 p95=41.4 p99=60.4 max=792
+  mes_pink: n=14797 p1=9.04 p5=9.37 p25=10.7 med=12.3 p75=14.3 p95=18.4 p99=24 max=64.7
+  depth_percent: n=14797 p1=0.329 p5=0.522 p25=0.914 med=1.29 p75=1.79 p95=2.58 p99=2.9 max=3
+  period_days: n=14797 p1=1.33 p5=13.4 p25=13.7 med=13.8 p75=14 p95=14.4 p99=15 max=20
+  n_events: n=14797 p1=2 p5=3 p25=3 med=3 p75=4 p95=4 p99=40 max=99
+  n_strong_events: n=14797 p1=2 p5=2 p25=3 med=3 p75=3 p95=4 p99=5 max=91
+  odd_even_ratio: n=14797 p1=0 p5=0 p25=0.637 med=0.768 p75=0.882 p95=0.979 p99=0.998 max=1
+  secondary_depth_percent: n=14797 p1=-0.372 p5=-0.0616 p25=-0.0105 med=0.00564 p75=0.0197 p95=0.0496 p99=0.0995 max=0.455
+  v_ratio: n=14797 p1=0.594 p5=0.685 p25=0.804 med=0.879 p75=0.955 p95=1.12 p99=1.4 max=75.1
+  duration_hours: n=14797 p1=2.21 p5=4.32 p25=6.05 med=6.05 p75=6.05 p95=6.05 p99=6.05 max=6.05
+
+== recorded (n=10025) ==
+  sde: n=10025 p1=8.63 p5=10.4 p25=14.1 med=17.9 p75=22.9 p95=32 p99=40.5 max=348
+  mes_pink: n=10025 p1=4.48 p5=5.17 p25=6.94 med=8.32 p75=10 p95=13.8 p99=19.1 max=44.9
+  depth_percent: n=10025 p1=0.251 p5=0.413 p25=0.816 med=1.26 p75=1.78 p95=2.6 p99=2.9 max=3
+  period_days: n=10025 p1=1.59 p5=13.2 p25=13.7 med=14 p75=14.5 p95=15.4 p99=17 max=20
+  n_events: n=10025 p1=1 p5=2 p25=2 med=2 p75=3 p95=5 p99=33 max=75
+  n_strong_events: n=10025 p1=1 p5=1 p25=2 med=2 p75=2 p95=3 p99=4 max=10
+  odd_even_ratio: n=10025 p1=0 p5=0 p25=0 med=0.704 p75=0.864 p95=0.975 p99=0.997 max=1
+  secondary_depth_percent: n=10025 p1=-0.289 p5=-0.0792 p25=-0.0167 med=0.00289 p75=0.0204 p95=0.0698 p99=0.169 max=0.854
+  v_ratio: n=10025 p1=0.629 p5=0.713 p25=0.826 med=0.9 p75=0.971 p95=1.12 p99=1.36 max=3.76
+  duration_hours: n=10025 p1=2.21 p5=4.32 p25=6.05 med=6.05 p75=6.05 p95=6.05 p99=6.05 max=6.05
+
+== demoted (n=10552) ==
+  sde: n=10552 p1=8.77 p5=11 p25=15.7 med=20.6 p75=27.7 p95=44.5 p99=143 max=1.12e+03
+  mes_pink: n=10549 p1=4.58 p5=5.75 p25=8.38 med=11 p75=14.5 p95=23.3 p99=37.2 max=803
+  depth_percent: n=10552 p1=0.294 p5=0.447 p25=0.878 med=1.97 p75=4.45 p95=28.7 p99=288 max=6.24e+04
+  period_days: n=10552 p1=0.595 p5=9.15 p25=13.5 med=13.8 p75=14.1 p95=16.2 p99=19.9 max=20
+  n_events: n=10549 p1=1 p5=2 p25=3 med=3 p75=4 p95=6 p99=85 max=110
+  n_strong_events: n=10549 p1=1 p5=1 p25=2 med=2 p75=3 p95=4 p99=15 max=102
+  odd_even_ratio: n=10552 p1=0 p5=0 p25=0.3 med=0.428 p75=0.682 p95=0.963 p99=1 max=1
+  secondary_depth_percent: n=10552 p1=-5.45 p5=-0.443 p25=-0.0283 med=0.00815 p75=0.0485 p95=0.469 p99=4.12 max=95.2
+  v_ratio: n=10549 p1=0.0749 p5=0.642 p25=0.786 med=0.879 p75=0.967 p95=1.22 p99=2.66 max=1.01e+03
+  duration_hours: n=10552 p1=0.96 p5=2.21 p25=4.32 med=6.05 p75=6.05 p95=6.05 p99=6.05 max=6.05
+
+== survivor structure ==
+depth <0.5%: 645
+depth 0.5-1%: 3944
+depth 1-2%: 7625
+depth >=2%: 2583
+period <1d: 83
+period 1-2d: 105
+period 2-5d: 13
+period 5-10d: 77
+period 10-15d: 14368
+period >=15d: 151
+near 13.7d family (12.7-14.3d): 13504
+odd_even <0.7 or >1.43: 5478
+secondary depth >0.3% (EB-like): 10
+near_systematic true: 12115
+mes_pink >= 20: 444
+mes_pink >= 30: 40
+mes_pink >= 50: 1
+sde >= 20: 11604
+sde >= 50: 253
+sde >= 100: 79
+
+== top period bins (0.1d, survivors) ==
+  P~13.7d: 2963
+  P~13.8d: 2065
+  P~13.9d: 1950
+  P~14.0d: 1819
+  P~13.6d: 1501
+  P~14.1d: 960
+  P~13.5d: 735
+  P~14.2d: 699
+  P~14.3d: 440
+  P~14.4d: 243
+  P~13.4d: 217
+  P~13.3d: 198
+  P~14.5d: 139
+  P~14.6d: 109
+  P~14.9d: 91
+
+planet-like cut (depth<=1%, odd/even 0.7-1.43, secondary<=0.3%, not near-systematic): 543
+  of those, mes_pink>=15: 66
+  of those, mes_pink>=20: 16
+  of those, period>=2d: 469

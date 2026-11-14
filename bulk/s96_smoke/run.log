@@ -1,0 +1,8 @@
+[21:29:06] star list: 1 stars, sector 96
+[21:29:17] TOI bulk pull: 7835 TIC ids
+[21:29:21] VSX batched: 3 tiles, 4180 variable-star rows pooled
+[21:29:21] known filter: kept 1, skipped TOI 0, VSX 0
+[21:29:22] download: 1 new + 0 cached, 0 no-product, 0 errors, 0.7 MB in 1s
+[21:29:23] screen: {'survivor': 1} in 1s (2894 stars/h compute)
+[21:29:23] CONTROL 382069441: {'tic': '382069441', 'result': 'SCREENED', 'sde': 19.829028106020758, 'period_days': 5.490779298036883, 'depth_percent': 1.2936717301725893, 'status': 'survivor', 'rank_by_sde': 1, 'mes_pink': 10.550753578664969, 'tier': 'A', 'caught_as_survivor': True}
+[21:29:23] DONE: 1 novel survivors, 1 recorded hits, wall 17s, end-to-end 206 stars/h

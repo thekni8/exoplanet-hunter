@@ -24,7 +24,7 @@ Usage:
   desk_finish.py TIC --period P --t0 T0 --duration DUR --data-dir data/ \\
       --out finish_results.json [--bls] [--half] [--bulk-period P --bulk-t0 T0]
 
-Generalised from desk_finish_s98.py (sector-98 bulk gauntlet, 2026-11-13):
+Generalised from archive/scripts/desk_finish_s98.py (sector-98 bulk gauntlet, 2026-11-13):
 the hardcoded REFINED dict became CLI arguments; fold_depth and
 event_parity_depths moved to common.py unchanged.
 """

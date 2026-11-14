@@ -1,0 +1,10 @@
+[01:56:09] star list: 2210 stars, sector 1
+[01:56:36] TOI pull attempt 2: http 503
+[01:56:56] TOI pull attempt 3: http 503
+[01:56:56] TOI bulk pull FAILED — TOI check off for this run (fail-open)
+[01:59:30] VSX batched: 31 tiles, 167092 variable-star rows pooled
+[01:59:53] known filter: kept 1652, skipped TOI 0, VSX 558
+[02:03:44] download: 1428 new + 1 cached, 223 no-product, 0 errors, 115.2 MB in 231s
+[02:11:13] screen: {'demoted': 362, 'recorded': 268, 'below_floor': 348, 'survivor': 451} in 449s (11450 stars/h compute)
+[02:16:45] CONTROL 150428135: {'tic': '150428135', 'result': 'SCREENED', 'sde': 10.257971090628807, 'period_days': 20.0, 'depth_percent': 0.13986479039018684, 'status': 'survivor', 'rank_by_sde': 169, 'caught_as_survivor': True}
+[02:16:45] DONE: 451 novel survivors, 1081 recorded hits, wall 1236s, end-to-end 4811 stars/h

@@ -1,0 +1,30 @@
+# Bulk-screen calibration profile v1 (frozen 2026-11-11).
+# IMMUTABLE once used in a run: to change a threshold, copy this file
+# to bulk_v2.yaml, bump `version`, and update the code + golden suite
+# in the same change. See bulk/CALIBRATION_V1_1.md for how v1.1 was
+# tuned (sector-1 proof run only) and calibration/README.md for the
+# versioning rules.
+version: bulk_v1
+
+# --- survivor bar -------------------------------------------------------
+record_floor_sde: 6.0   # hits below this are not even recorded
+survivor_sde: 7.0       # screen bar (deep-pipeline discovery bar is 8.5)
+depth_min_pct: 0.02     # shallower dips are noise country
+depth_eb_pct: 3.0       # deeper dips are EB country
+
+# --- v1.1 tiers (pink-noise MES rescore) --------------------------------
+tier_a_mes: 9.0             # periodic tier: MES_pink >= 9
+tier_a_min_events: 3        # ... with >= 3 observed transit events
+tier_a_min_strong: 2        # ... and >= 2 events individually >= 3 sigma
+strong_event_snr: 3.0       # what counts as a "strong" single event
+tier_b_event_snr: 8.0       # few-transit tier (1-2 events): the best
+                            # single event must stand at >= 8 sigma pink
+tier_b_max_depth_pct: 1.0   # ... and depth <= 1% (deeper lone dips are
+                            # EB/artifact country; they stay recorded)
+
+# --- search grid ---------------------------------------------------------
+min_period_d: 0.5
+max_period_d: 20.0
+bls_grid_points: 12000
+bls_durations_d: [0.04, 0.06, 0.09, 0.13, 0.18, 0.25]
+systematic_periods: [13.7, 6.85, 27.4]  # mirrors hunter._SYSTEMATIC_PERIODS

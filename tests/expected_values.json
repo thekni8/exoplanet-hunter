@@ -1,0 +1,32 @@
+{
+  "notes": "Golden-star acceptance numbers for the pipeline end-to-end tests (tests/golden_checks.py, used by both test_golden_stars.py and test_golden_fixtures.py). These are the pipeline's OWN known answers — a change here means the pipeline's view of a known star changed, so scripts/check_expected_values.py flags any diff against the base branch in CI (flag, don't block). The rationale for each number lives in the golden_checks.py docstrings; this file holds the numbers.",
+  "schema_version": "1.0",
+  "stars": {
+    "150428135": {
+      "headline_period_d": 16.05094,
+      "headline_period_tol_d": 0.05,
+      "headline_sde_min": 8.5,
+      "name": "TOI-700",
+      "notes": "Planet c (16.05094 d) must be the headline signal; planet b (9.97706 d) must be a significant peak in the BLS spectrum itself (it ranks 12th-15th in peak extraction, so top-3 membership is the wrong assertion). 8.5 is the sweep HIT_SDE; 6.5 is the pipeline's own acceptance floor.",
+      "second_period_d": 9.97706,
+      "second_sde_frac_tol": 0.01,
+      "second_sde_min": 6.5
+    },
+    "25155310": {
+      "depth_frac": 0.00631,
+      "depth_tol_frac": 0.0015,
+      "name": "WASP-126",
+      "notes": "Depth TRIPWIRE, not a validation: 0.631% is the pipeline's own long-standing measurement, NOT the catalog value (0.7006%). This detects that the search or flattening CHANGED, not that it is correct. Period must match the published 3.286 d.",
+      "period_d": 3.286,
+      "period_tol_d": 0.05
+    },
+    "308851365": {
+      "density_flag": true,
+      "name": "EB (VSX ECLIPSING BINARY)",
+      "notes": "The shape gate must NOT call the folded transit flat-bottomed (T23/T14 < 0.50) and the density flag must fire. The bound is deliberately NOT 'V-shaped' (<= 0.30): T23/T14 is numerically unstable on this smeared EB signal (see golden_checks.py check_eb docstring) — the never-U-shaped bound and the density flag are the stable measurements.",
+      "period_d": 0.75677,
+      "period_tol_d": 0.01,
+      "t23_t14_max": 0.5
+    }
+  }
+}

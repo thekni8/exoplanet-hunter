@@ -1,0 +1,863 @@
+"""Unmeasured-status contract tests (Phase 1.1, item 7).
+
+No downloads, no pipeline runs: the contract is about TYPES and
+RULES, so the tests drive the adapters and the aggregator with
+synthetic stage outputs and check the verdicts + schema
+enforcement directly.
+
+The rule under test: "unmeasured" means NOT YET VETTED and is
+never a pass. No CANDIDATE verdict may stand on an unmeasured
+stage, a missing stage, or missing imaging — enforced twice:
+in code (aggregate_verdict) and in the schema (the CANDIDATE
+if/then rule in schema/verdict-schema.json).
+"""
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from gauntlet.stage_result import (EXEC_COMPLETED, EXEC_ERROR,  # noqa: E402
+                                   EXEC_NOT_STARTED, EXEC_SKIPPED,
+                                   REQUIRED_STAGES, STATUSES,
+                                   StageResult, aggregate_verdict,
+                                   apply_waivers,
+                                   clean_refold_result,
+                                   holdout_result,
+                                   load_decision_policy,
+                                   odd_even_result,
+                                   persistence_result,
+                                   raw_flux_result, shape_result,
+                                   validate_waivers)
+from gauntlet.verdict import build_verdict  # noqa: E402
+from validation import RecordValidationError, validate_verdict  # noqa: E402
+
+PROV = {"calibration_version": "gauntlet_v1",
+        "pipeline_git_sha": "test",
+        "run_id": "test-run-1",
+        "timestamp_utc": "2026-11-14T00:00:00+00:00"}
+
+FILED = {"period_days": 2.17, "depth_pct": 0.40, "sde": 31.0}
+IMAGING_ON = {"on_target": True, "offset_px": 0.06,
+              "offset_arcsec": 1.3}
+
+
+def _pass(stage):
+    return StageResult(stage, "pass", f"{stage} passed", PROV)
+
+
+def _all_pass():
+    return [_pass(s) for s in REQUIRED_STAGES]
+
+
+def _replace(results, stage, result):
+    """Swap one stage's result by NAME (indices shift as the
+    DAG grows — never index by position)."""
+    for i, r in enumerate(results):
+        if r.stage == stage:
+            results[i] = result
+            return results
+    raise AssertionError(f"no stage {stage!r} in results")
+
+
+def _base_verdict(final_verdict, **overrides):
+    rec = {"calibration_version": "gauntlet_v1",
+           "filed": dict(FILED),
+           "final_verdict": final_verdict,
+           "pipeline_git_sha": "test",
+           "run_id": "test-run-1",
+           "schema_version": "1.1",
+           "tic": "238620464",
+           "timestamp_utc": "2026-11-14T00:00:00+00:00"}
+    rec.update(overrides)
+    return rec
+
+
+class TestStageResult(unittest.TestCase):
+    def test_invalid_status_rejected(self):
+        with self.assertRaises(ValueError):
+            StageResult("shape", "maybe", "nope", PROV)
+
+    def test_only_pass_is_pass(self):
+        for status, expected in (("pass", True), ("fail", False),
+                                 ("unmeasured", False),
+                                 ("inconclusive", False),
+                                 ("not_applicable", False)):
+            r = StageResult("shape", status, "x", PROV)
+            self.assertEqual(r.is_pass, expected, msg=status)
+
+    def test_unmeasured_is_not_measured(self):
+        r = StageResult("holdout", "unmeasured", "no data", PROV)
+        self.assertFalse(r.is_measured)
+        self.assertTrue(_pass("holdout").is_measured)
+
+    def test_not_applicable_is_not_measured(self):
+        r = StageResult("holdout", "not_applicable",
+                        "single-sector target", PROV)
+        self.assertFalse(r.is_measured)
+        self.assertFalse(r.is_pass)
+
+    def test_round_trip(self):
+        r = StageResult("odd_even", "pass", "agree", PROV,
+                        {"odd_depth_pct": 1.0})
+        self.assertEqual(StageResult.from_dict(r.to_dict()), r)
+
+    def test_round_trip_with_evidence(self):
+        r = StageResult("raw_flux", "pass", "dip in raw flux", PROV,
+                        value=0.9, uncertainty=0.075, threshold=0.225,
+                        n_transits=13,
+                        metrics={"signif_white": 12.0},
+                        artifacts=["fold_238620464.png"],
+                        tool_version="rawflux_check 1.0",
+                        config_hash="abc123",
+                        input_hashes={"lc": "def456"},
+                        warnings=["low n_in"])
+        self.assertEqual(StageResult.from_dict(r.to_dict()), r)
+
+    def test_old_dict_without_evidence_fields_loads(self):
+        # A Phase 1.1 record (no evidence fields) is a valid v1
+        # record with empty evidence — the contract is backward
+        # compatible.
+        old = {"stage": "odd_even", "status": "pass",
+               "reason": "agree", "provenance": dict(PROV),
+               "details": {"odd_depth_pct": 1.0}}
+        r = StageResult.from_dict(old)
+        self.assertEqual(r.status, "pass")
+        self.assertIsNone(r.value)
+        self.assertEqual(r.execution_status, "completed")
+
+    def test_invalid_execution_status_rejected(self):
+        with self.assertRaises(ValueError):
+            StageResult("odd_even", "pass", "x", PROV,
+                        execution_status="running")
+
+    def test_error_execution_must_be_unmeasured(self):
+        # A crashed tool is NOT a scientific failure — and not a
+        # pass either. The type enforces it.
+        with self.assertRaises(ValueError):
+            StageResult("triceratops", "fail", "crashed", PROV,
+                        execution_status="error")
+        with self.assertRaises(ValueError):
+            StageResult("triceratops", "pass", "crashed?", PROV,
+                        execution_status="error")
+        ok = StageResult("triceratops", "unmeasured",
+                         "tool crashed: OOM", PROV,
+                         execution_status="error")
+        self.assertEqual(ok.status, "unmeasured")
+
+    def test_not_started_must_be_unmeasured(self):
+        with self.assertRaises(ValueError):
+            StageResult("holdout", "pass", "x", PROV,
+                        execution_status="not_started")
+
+    def test_skipped_must_be_unmeasured_or_na(self):
+        with self.assertRaises(ValueError):
+            StageResult("holdout", "pass", "x", PROV,
+                        execution_status="skipped")
+        ok = StageResult("holdout", "not_applicable",
+                         "single-sector target", PROV,
+                         execution_status="skipped")
+        self.assertEqual(ok.status, "not_applicable")
+
+
+class TestAdapters(unittest.TestCase):
+    def test_shape_gate(self):
+        v = shape_result(
+            {"shape_verdict": "V-shaped", "T23_T14": 0.25}, PROV)
+        self.assertEqual(v.status, "fail")
+        d = shape_result(
+            {"shape_verdict": "U-shaped", "T23_T14": 0.62,
+             "density_flag": True,
+             "density_reason": "rho_circ/rho_star < 0.80"}, PROV)
+        self.assertEqual(d.status, "fail")  # density kills a U
+        u = shape_result(
+            {"shape_verdict": "U-shaped", "T23_T14": 0.62,
+             "density_flag": False}, PROV)
+        self.assertEqual(u.status, "pass")
+        a = shape_result(
+            {"shape_verdict": "ambiguous", "T23_T14": 0.47,
+             "density_flag": False}, PROV)
+        self.assertEqual(a.status, "inconclusive")
+        self.assertFalse(a.is_pass)
+        m = shape_result(
+            {"verdict": "unmeasured", "reason": "no core bins"},
+            PROV)
+        self.assertEqual(m.status, "unmeasured")
+        self.assertFalse(m.is_pass)
+
+    def test_clean_gate(self):
+        fold = {"n_in": 42, "n_events": 13, "depth_percent": -0.03,
+                "snr": -0.5}
+        self.assertEqual(
+            clean_refold_result(fold, "FAIL", PROV).status, "fail")
+        self.assertEqual(
+            clean_refold_result(
+                {"n_in": 42, "n_events": 13, "depth_percent": 0.9,
+                 "snr": 12.0}, "PASS", PROV).status, "pass")
+        self.assertEqual(
+            clean_refold_result(
+                {"n_in": 3, "n_events": 1}, "INSUFFICIENT",
+                PROV).status, "unmeasured")
+
+    def test_raw_flux(self):
+        strong = {"depth_pct": 0.9, "signif_white": 12.0,
+                  "n_in": 42, "n_events": 13}
+        self.assertEqual(
+            raw_flux_result(strong, PROV).status, "pass")
+        none = {"depth_pct": -0.02, "signif_white": -0.5,
+                "n_in": 42, "n_events": 13}
+        self.assertEqual(raw_flux_result(none, PROV).status, "fail")
+        thin = {"depth_pct": 0.9, "signif_white": 12.0,
+                "n_in": 3, "n_events": 1}
+        self.assertEqual(
+            raw_flux_result(thin, PROV).status, "unmeasured")
+
+    def test_raw_flux_carries_evidence(self):
+        # Contract v1: the result carries the measurement, not
+        # just the verdict — value, 1-sigma error, and the 3-sigma
+        # bar in the same units, plus the transit count.
+        r = raw_flux_result(
+            {"depth_pct": 0.9, "signif_white": 12.0,
+             "n_in": 42, "n_events": 13}, PROV)
+        self.assertAlmostEqual(r.value, 0.9)
+        self.assertAlmostEqual(r.uncertainty, 0.9 / 12.0)
+        self.assertAlmostEqual(r.threshold, 3.0 * 0.9 / 12.0)
+        self.assertEqual(r.n_transits, 13)
+
+    def test_parity_carries_evidence(self):
+        odd = {"depth_pct": 2.0, "sig_white_pct": 0.14}
+        even = {"depth_pct": 1.9, "sig_white_pct": 0.13}
+        r = odd_even_result(odd, even, PROV)
+        self.assertEqual(r.status, "pass")
+        self.assertAlmostEqual(r.threshold, 3.0)
+        self.assertAlmostEqual(r.uncertainty, 1.0)
+        self.assertLess(r.value, 3.0)
+
+    def test_parity(self):
+        odd = {"depth_pct": 2.0, "sig_white_pct": 0.14}
+        even = {"depth_pct": 0.8, "sig_white_pct": 0.13}
+        self.assertEqual(
+            odd_even_result(odd, even, PROV).status, "fail")
+        even2 = {"depth_pct": 1.9, "sig_white_pct": 0.13}
+        self.assertEqual(
+            odd_even_result(odd, even2, PROV).status, "pass")
+        self.assertEqual(
+            odd_even_result(None, even, PROV).status, "unmeasured")
+
+    def test_persistence(self):
+        self.assertEqual(
+            persistence_result({"verdict": "CONSISTENT",
+                                "n_usable": 6}, PROV).status,
+            "pass")
+        for bad in ("MIXED", "CONCENTRATED", "RAW-REFUTED"):
+            self.assertEqual(
+                persistence_result({"verdict": bad}, PROV).status,
+                "fail", msg=bad)
+        self.assertEqual(
+            persistence_result({"n_usable": 0}, PROV).status,
+            "unmeasured")
+
+    def test_holdout(self):
+        self.assertEqual(
+            holdout_result("HOLDOUT-PASS", PROV).status, "pass")
+        self.assertEqual(
+            holdout_result("HOLDOUT-FAIL", PROV).status, "fail")
+        self.assertEqual(
+            holdout_result("HOLDOUT-INSUFFICIENT-DATA",
+                           PROV).status, "unmeasured")
+        self.assertEqual(
+            holdout_result(None, PROV).status, "unmeasured")
+
+
+class TestAggregate(unittest.TestCase):
+    def test_all_pass_plus_imaging_is_candidate(self):
+        verdict, _note = aggregate_verdict(_all_pass(), IMAGING_ON)
+        self.assertEqual(verdict, "CANDIDATE")
+
+    def test_fail_kills(self):
+        results = _all_pass()
+        _replace(results, "shape", StageResult("shape", "fail", "V-shaped",
+                                 PROV))
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "EB")
+        results = _all_pass()
+        _replace(results, "clean_refold", StageResult("clean_refold", "fail",
+                                 "flagged only", PROV))
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "REFUTED")
+
+    def test_unmeasured_is_never_candidate(self):
+        results = _all_pass()
+        _replace(results, "holdout", StageResult("holdout", "unmeasured",
+                                 "no data", PROV))
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "INCONCLUSIVE")
+
+    def test_missing_stage_is_never_candidate(self):
+        results = _all_pass()[:-1]  # transit_fit never ran
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "INCONCLUSIVE")
+
+    def test_inconclusive_is_never_candidate(self):
+        results = _all_pass()
+        _replace(results, "shape", StageResult("shape", "inconclusive",
+                                 "ambiguous", PROV))
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "INCONCLUSIVE")
+
+    def test_off_target_imaging_is_blend(self):
+        verdict, _note = aggregate_verdict(
+            _all_pass(),
+            {"on_target": False, "blend_host_tic": 123})
+        self.assertEqual(verdict, "BLEND")
+
+    def test_all_pass_without_imaging_is_inconclusive(self):
+        verdict, _note = aggregate_verdict(_all_pass(), None)
+        self.assertEqual(verdict, "INCONCLUSIVE")
+        verdict, _note = aggregate_verdict(
+            _all_pass(), {"on_target": None})
+        self.assertEqual(verdict, "INCONCLUSIVE")
+
+
+class TestPromotionMatrix(unittest.TestCase):
+    """Gemini's missing test (Phase 1.1 vote): the full
+    promotion/rejection matrix for the UNMEASURED contract. Any
+    single stage at FAIL, UNMEASURED, or INCONCLUSIVE blocks
+    candidate promotion — including a newly registered stage the
+    aggregator has never seen. Only PASS and NOT_APPLICABLE let
+    a candidate through."""
+
+    def test_any_required_stage_blocks_in_every_bad_status(self):
+        for stage in REQUIRED_STAGES:
+            for status, want in (("fail", None),
+                                 ("unmeasured", "INCONCLUSIVE"),
+                                 ("inconclusive", "INCONCLUSIVE")):
+                results = _all_pass()
+                idx = REQUIRED_STAGES.index(stage)
+                results[idx] = StageResult(stage, status, "x", PROV)
+                verdict, _note = aggregate_verdict(
+                    results, IMAGING_ON)
+                if want is None:
+                    # A fail kills with the stage's kill verdict —
+                    # never CANDIDATE, never INCONCLUSIVE.
+                    self.assertNotIn(verdict, ("CANDIDATE",
+                                               "INCONCLUSIVE"),
+                                     msg=f"{stage}/{status}")
+                else:
+                    self.assertEqual(verdict, want,
+                                     msg=f"{stage}/{status}")
+
+    def test_newly_registered_stage_blocks_too(self):
+        # A Phase 2 stage the aggregator has never seen: its
+        # unmeasured/inconclusive/fail must block exactly like a
+        # required stage's.
+        for status, want in (("unmeasured", "INCONCLUSIVE"),
+                             ("inconclusive", "INCONCLUSIVE")):
+            results = _all_pass() + [
+                StageResult("triceratops", status, "x", PROV)]
+            verdict, _note = aggregate_verdict(results, IMAGING_ON)
+            self.assertEqual(verdict, want, msg=status)
+        results = _all_pass() + [
+            StageResult("triceratops", "fail", "FPP 0.99", PROV)]
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "REFUTED")
+
+    def test_not_applicable_blocks_without_waiver(self):
+        # v2 reverses the v1 escape hatch: a stage that does not
+        # apply is a gap in the case until the decision policy
+        # waives it explicitly. Without a waiver it blocks.
+        results = _all_pass()
+        _replace(results, "holdout", StageResult("holdout", "not_applicable",
+                                 "single-sector target", PROV))
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "INCONCLUSIVE")
+        results = _all_pass() + [
+            StageResult("triceratops", "not_applicable",
+                        "no TPF available", PROV)]
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "INCONCLUSIVE")
+
+    def test_not_applicable_passes_with_policy_waiver(self):
+        # ...but with a policy waiver (holdout IS in gauntlet_v2's
+        # allowlist) and a reason, the candidate promotes — and
+        # the note names the waiver.
+        results = _all_pass()
+        _replace(results, "holdout", StageResult("holdout", "not_applicable",
+                                 "single-sector target", PROV,
+                                 waiver_code="single_sector"))
+        verdict, note = aggregate_verdict(
+            results, IMAGING_ON,
+            waivers={"holdout": "single-sector target: no "
+                                "held-out sector exists"})
+        self.assertEqual(verdict, "CANDIDATE")
+        self.assertIn("holdout", note)
+
+    def test_crashed_external_tool_is_unmeasured_not_fail(self):
+        # The execution axis in the matrix: a tool crash is an
+        # unmeasured stage (INCONCLUSIVE), never a kill.
+        results = _all_pass() + [
+            StageResult("triceratops", "unmeasured",
+                        "tool crashed: OOM", PROV,
+                        execution_status="error")]
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "INCONCLUSIVE")
+
+
+class TestEvidencePreservation(unittest.TestCase):
+    """ChatGPT/Claude (Phase 1.1 vote): the external-tool
+    interface must preserve scientific evidence, not just
+    verdicts. A TRICERATOPS-shaped result — FPP/NFPP, priors,
+    seed, version — must survive the contract without reduction
+    to a bare PASS/FAIL."""
+
+    def _triceratops_result(self):
+        return StageResult(
+            "triceratops", "pass",
+            "FPP 0.08, NFPP 0.003 — below the review bar", PROV,
+            metrics={"fpp": 0.08, "nfpp": 0.003,
+                     "planet_scenario_prob": 0.92,
+                     "priors": "default",
+                     "seed": 12345},
+            artifacts=["triceratops_238620464.json"],
+            tool_version="triceratops 1.0",
+            config_hash="cfg9f2",
+            input_hashes={"lc": "lc1a2b"},
+            warnings=["convergence: 2 chains slow"])
+
+    def test_triceratops_evidence_survives_round_trip(self):
+        r = self._triceratops_result()
+        back = StageResult.from_dict(r.to_dict())
+        self.assertEqual(back, r)
+        self.assertEqual(back.metrics["fpp"], 0.08)
+        self.assertEqual(back.metrics["seed"], 12345)
+
+    def test_triceratops_evidence_validates_standalone(self):
+        from validation import validate_stage_result
+        rec = validate_stage_result(
+            self._triceratops_result().to_dict())
+        self.assertEqual(rec["metrics"]["nfpp"], 0.003)
+
+    def test_triceratops_evidence_survives_build_verdict(self):
+        results = _all_pass() + [self._triceratops_result()]
+        rec = build_verdict("238620464", FILED, results,
+                            imaging=dict(IMAGING_ON),
+                            run_id="test-run-1")
+        self.assertEqual(rec["final_verdict"], "CANDIDATE")
+        kept = rec["stages"]["triceratops"]
+        self.assertEqual(kept["metrics"]["fpp"], 0.08)
+        self.assertEqual(kept["tool_version"], "triceratops 1.0")
+        self.assertEqual(kept["config_hash"], "cfg9f2")
+
+
+class TestCandidateSchemaRule(unittest.TestCase):
+    def test_candidate_without_imaging_rejected(self):
+        with self.assertRaises(RecordValidationError):
+            validate_verdict(_base_verdict("CANDIDATE"))
+
+    def test_candidate_with_off_target_imaging_rejected(self):
+        with self.assertRaises(RecordValidationError):
+            validate_verdict(_base_verdict(
+                "CANDIDATE",
+                imaging={"on_target": False}))
+
+    def test_candidate_with_unmeasured_stage_rejected(self):
+        stages = {s: _pass(s).to_dict() for s in REQUIRED_STAGES}
+        stages["holdout"] = StageResult(
+            "holdout", "unmeasured", "no data", PROV).to_dict()
+        with self.assertRaises(RecordValidationError):
+            validate_verdict(_base_verdict(
+                "CANDIDATE", imaging=dict(IMAGING_ON),
+                stages=stages))
+
+    def test_candidate_with_imaging_and_all_pass_accepted(self):
+        stages = {s: _pass(s).to_dict() for s in REQUIRED_STAGES}
+        rec = validate_verdict(_base_verdict(
+            "CANDIDATE", imaging=dict(IMAGING_ON), stages=stages))
+        self.assertEqual(rec["final_verdict"], "CANDIDATE")
+
+    def test_candidate_with_not_applicable_stage_accepted(self):
+        # The schema's CANDIDATE rule allows pass, not_applicable
+        # or inconclusive stages — the schema cannot
+        # cross-reference the waivers list, so the waiver rule
+        # (an inconclusive/not_applicable stage needs a policy
+        # waiver with a reason) is enforced in CODE by
+        # aggregate_verdict, not here. This test pins the schema
+        # side: a waived stage must not make the record
+        # unvalidatable.
+        stages = {s: _pass(s).to_dict() for s in REQUIRED_STAGES}
+        stages["holdout"] = StageResult(
+            "holdout", "not_applicable",
+            "single-sector target", PROV).to_dict()
+        rec = validate_verdict(_base_verdict(
+            "CANDIDATE", imaging=dict(IMAGING_ON), stages=stages,
+            waivers=[{"stage": "holdout",
+                      "reason": "single-sector target"}]))
+        self.assertEqual(rec["final_verdict"], "CANDIDATE")
+
+    def test_candidate_with_inconclusive_stage_accepted(self):
+        # Same split for inconclusive: the schema allows it (the
+        # waiver is code-enforced); unmeasured is still rejected
+        # (see test_candidate_with_unmeasured_stage_rejected).
+        stages = {s: _pass(s).to_dict() for s in REQUIRED_STAGES}
+        stages["holdout"] = StageResult(
+            "holdout", "inconclusive",
+            "ambiguous holdout fold", PROV).to_dict()
+        rec = validate_verdict(_base_verdict(
+            "CANDIDATE", imaging=dict(IMAGING_ON), stages=stages,
+            waivers=[{"stage": "holdout",
+                      "reason": "single-sector target"}]))
+        self.assertEqual(rec["final_verdict"], "CANDIDATE")
+
+    def test_kill_verdict_needs_no_imaging(self):
+        rec = validate_verdict(_base_verdict("EB"))
+        self.assertEqual(rec["final_verdict"], "EB")
+
+
+class TestBuildVerdict(unittest.TestCase):
+    def test_candidate_end_to_end(self):
+        rec = build_verdict("238620464", FILED, _all_pass(),
+                            imaging=dict(IMAGING_ON),
+                            run_id="test-run-1")
+        self.assertEqual(rec["final_verdict"], "CANDIDATE")
+        self.assertEqual(rec["calibration_version"],
+                         {"gauntlet": "v2"})
+        self.assertEqual(rec["run_id"], "test-run-1")
+        self.assertEqual(set(rec["stages"]), set(REQUIRED_STAGES))
+
+    def test_build_verdict_derives_kill(self):
+        results = _all_pass()
+        _replace(results, "shape", StageResult("shape", "fail", "V-shaped",
+                                 PROV))
+        rec = build_verdict("238620464", FILED, results,
+                            imaging=dict(IMAGING_ON),
+                            run_id="test-run-1")
+        self.assertEqual(rec["final_verdict"], "EB")
+
+    def test_build_verdict_never_forges_candidate(self):
+        # Even with imaging on-target, an unmeasured stage means
+        # INCONCLUSIVE — build_verdict cannot be talked into a
+        # CANDIDATE by its caller.
+        results = _all_pass()
+        _replace(results, "holdout", StageResult("holdout", "unmeasured",
+                                 "no data", PROV))
+        rec = build_verdict("238620464", FILED, results,
+                            imaging=dict(IMAGING_ON),
+                            run_id="test-run-1")
+        self.assertEqual(rec["final_verdict"], "INCONCLUSIVE")
+
+    def test_build_verdict_records_waivers(self):
+        # A waived holdout promotes AND is recorded on the
+        # verdict, with its reason — the record is the audit
+        # trail for the waiver. F-5: the record also carries
+        # the waiver CODE and the waivers hash, and the waived
+        # stage itself carries code + reason.
+        results = _all_pass()
+        _replace(results, "holdout", StageResult("holdout", "not_applicable",
+                                 "single-sector target", PROV,
+                                 waiver_code="single_sector"))
+        rec = build_verdict(
+            "238620464", FILED, results,
+            imaging=dict(IMAGING_ON), run_id="test-run-1",
+            waivers={"holdout": "single-sector target: no "
+                                "held-out sector exists"})
+        self.assertEqual(rec["final_verdict"], "CANDIDATE")
+        self.assertEqual(rec["waivers"], [
+            {"stage": "holdout",
+             "reason": "single-sector target: no held-out "
+                       "sector exists",
+             "code": "single_sector"}])
+        self.assertEqual(rec["stages"]["holdout"]["waiver_code"],
+                         "single_sector")
+        self.assertEqual(rec["stages"]["holdout"]["waiver_reason"],
+                         "single-sector target: no held-out "
+                         "sector exists")
+        import provenance as _prov
+        self.assertEqual(rec["waivers_hash"], _prov.waivers_hash(
+            {"holdout": "single-sector target: no held-out "
+                        "sector exists"}))
+
+    def test_build_verdict_rejects_invalid_waiver(self):
+        # A waiver for a stage the policy does not allowlist is
+        # a caller bug — build_verdict raises, it never writes
+        # a CANDIDATE on an unauthorized waiver.
+        results = _all_pass()
+        _replace(results, "shape", StageResult("shape", "inconclusive",
+                                 "ambiguous shape", PROV))
+        with self.assertRaises(ValueError):
+            build_verdict(
+                "238620464", FILED, results,
+                imaging=dict(IMAGING_ON), run_id="test-run-1",
+                waivers={"shape": "looks fine to me"})
+
+
+class TestStatusExecutionMatrix(unittest.TestCase):
+    """Every status x execution-outcome combination (5 x 4).
+
+    9 combos are legal (they construct); 11 are illegal (the
+    type refuses them — a crashed tool cannot claim a scientific
+    outcome). Each legal combo is also aggregated: one stage
+    with the combo, all other required stages PASS, imaging
+    on-target — only COMPLETED + PASS promotes.
+    """
+    LEGAL = {
+        # (status, execution) -> expected aggregate verdict
+        ("pass", EXEC_COMPLETED): "CANDIDATE",
+        ("fail", EXEC_COMPLETED): "REFUTED",
+        ("unmeasured", EXEC_COMPLETED): "INCONCLUSIVE",
+        ("inconclusive", EXEC_COMPLETED): "INCONCLUSIVE",
+        ("not_applicable", EXEC_COMPLETED): "INCONCLUSIVE",
+        ("unmeasured", EXEC_NOT_STARTED): "INCONCLUSIVE",
+        ("unmeasured", EXEC_SKIPPED): "INCONCLUSIVE",
+        ("not_applicable", EXEC_SKIPPED): "INCONCLUSIVE",
+        ("unmeasured", EXEC_ERROR): "INCONCLUSIVE",
+    }
+
+    def test_all_twenty_combinations(self):
+        seen_legal = set()
+        for status in STATUSES:
+            for exec_status in (EXEC_COMPLETED, EXEC_NOT_STARTED,
+                                EXEC_SKIPPED, EXEC_ERROR):
+                key = (status, exec_status)
+                if key in self.LEGAL:
+                    seen_legal.add(key)
+                    r = StageResult(
+                        "persistence", status, "matrix probe",
+                        PROV, execution_status=exec_status)
+                    results = [x for x in _all_pass()
+                               if x.stage != "persistence"] + [r]
+                    verdict, _ = aggregate_verdict(results,
+                                                   IMAGING_ON)
+                    self.assertEqual(
+                        verdict, self.LEGAL[key], msg=key)
+                else:
+                    with self.assertRaises(ValueError, msg=key):
+                        StageResult(
+                            "persistence", status, "matrix probe",
+                            PROV, execution_status=exec_status)
+        self.assertEqual(len(seen_legal), 9)
+
+
+class TestWaivers(unittest.TestCase):
+    """The waiver allowlist: only policy-listed stages, only
+    inconclusive/not_applicable, reason required."""
+
+    def _one_inconclusive(self, stage="holdout"):
+        results = _all_pass()
+        idx = REQUIRED_STAGES.index(stage)
+        # F-5: a waivable inconclusive carries its code — a bare
+        # inconclusive is no longer waivable (that was the hole).
+        results[idx] = StageResult(stage, "inconclusive",
+                                   "ambiguous", PROV,
+                                   waiver_code="single_sector")
+        return results
+
+    def test_inconclusive_waiver_promotes(self):
+        verdict, _ = aggregate_verdict(
+            self._one_inconclusive(), IMAGING_ON,
+            waivers={"holdout": "single-sector target"})
+        self.assertEqual(verdict, "CANDIDATE")
+
+    def test_waiver_as_list_of_dicts(self):
+        # The verdict record's shape is accepted too.
+        verdict, _ = aggregate_verdict(
+            self._one_inconclusive(), IMAGING_ON,
+            waivers=[{"stage": "holdout",
+                      "reason": "single-sector target"}])
+        self.assertEqual(verdict, "CANDIDATE")
+
+    def test_waiver_for_non_allowlisted_stage_rejected(self):
+        # shape_gate inconclusive is a genuine undecided
+        # measurement, not a structural gap — the policy does
+        # not list it, so it cannot be waived.
+        results = _all_pass()
+        _replace(results, "shape", StageResult("shape", "inconclusive",
+                                 "ambiguous shape", PROV))
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                results, IMAGING_ON,
+                waivers={"shape": "looks fine to me"})
+
+    def test_waiver_for_unmeasured_rejected(self):
+        results = _all_pass()
+        _replace(results, "holdout", StageResult("holdout", "unmeasured",
+                                 "no data", PROV))
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                results, IMAGING_ON,
+                waivers={"holdout": "no data but trust me"})
+
+    def test_waiver_for_fail_rejected(self):
+        results = _all_pass()
+        _replace(results, "holdout", StageResult("holdout", "fail",
+                                 "held-out sector empty", PROV))
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                results, IMAGING_ON,
+                waivers={"holdout": "ignore the failure"})
+
+    def test_waiver_for_pass_rejected(self):
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                _all_pass(), IMAGING_ON,
+                waivers={"holdout": "waiving a pass"})
+
+    def test_waiver_for_unknown_stage_rejected(self):
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                _all_pass(), IMAGING_ON,
+                waivers={"nope": "not a stage"})
+
+    def test_waiver_without_reason_rejected(self):
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                self._one_inconclusive(), IMAGING_ON,
+                waivers={"holdout": "  "})
+
+    def test_validate_waivers_returns_normalized(self):
+        out = validate_waivers(
+            self._one_inconclusive(), [
+                {"stage": "holdout", "reason": "single-sector"}])
+        self.assertEqual(out, {"holdout": "single-sector"})
+
+
+class TestWaiverHardening(unittest.TestCase):
+    """F-5: a waiver needs the producer's structural CODE on the
+    result, not just a plausible reason string — and the waiver
+    is stamped onto the result it waives."""
+
+    def _bare_inconclusive(self, stage="holdout"):
+        results = _all_pass()
+        _replace(results, stage, StageResult(
+            stage, "inconclusive", "ambiguous", PROV))
+        return results
+
+    def test_code_less_inconclusive_refused(self):
+        # The hole F-5 closes: an inconclusive stage with NO
+        # code cannot be waived, however plausible the reason.
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                self._bare_inconclusive(), IMAGING_ON,
+                waivers={"holdout": "single-sector target"})
+
+    def test_code_less_not_applicable_refused(self):
+        results = _all_pass()
+        _replace(results, "holdout", StageResult(
+            "holdout", "not_applicable",
+            "single-sector target", PROV))
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                results, IMAGING_ON,
+                waivers={"holdout": "single-sector target"})
+
+    def test_wrong_code_refused(self):
+        # A code from another stage's set does not waive this
+        # one: period_lt_8d is a pixel_check code, not holdout's.
+        results = _all_pass()
+        _replace(results, "holdout", StageResult(
+            "holdout", "inconclusive", "ambiguous", PROV,
+            waiver_code="period_lt_8d"))
+        with self.assertRaises(ValueError):
+            aggregate_verdict(
+                results, IMAGING_ON,
+                waivers={"holdout": "single-sector target"})
+
+    def test_apply_waivers_stamps_reason(self):
+        results = self._bare_inconclusive()
+        _replace(results, "holdout", StageResult(
+            "holdout", "inconclusive", "ambiguous", PROV,
+            waiver_code="single_sector"))
+        stamped = apply_waivers(
+            results, {"holdout": "single-sector target"})
+        by_stage = {r.stage: r for r in stamped}
+        self.assertEqual(by_stage["holdout"].waiver_reason,
+                         "single-sector target")
+        self.assertEqual(by_stage["holdout"].waiver_code,
+                         "single_sector")
+        # The input list is untouched (results are frozen).
+        self.assertIsNone(
+            {r.stage: r for r in results}["holdout"].waiver_reason)
+        # Other stages carry no waiver.
+        self.assertIsNone(by_stage["shape"].waiver_reason)
+
+    def test_waiver_fields_rejected_on_pass(self):
+        with self.assertRaises(ValueError):
+            StageResult("holdout", "pass", "ok", PROV,
+                        waiver_code="single_sector")
+        with self.assertRaises(ValueError):
+            StageResult("holdout", "pass", "ok", PROV,
+                        waiver_reason="no need")
+
+    def test_waiver_reason_without_code_rejected(self):
+        with self.assertRaises(ValueError):
+            StageResult("holdout", "inconclusive", "ambiguous",
+                        PROV, waiver_reason="trust me")
+
+    def test_holdout_not_applicable_adapter(self):
+        # The structural single-sector case maps to
+        # NOT_APPLICABLE + code; too-few-folds stays UNMEASURED
+        # and is never waivable.
+        r = holdout_result("HOLDOUT-NOT-APPLICABLE", PROV)
+        self.assertEqual(r.status, "not_applicable")
+        self.assertEqual(r.waiver_code, "single_sector")
+        r = holdout_result("HOLDOUT-INSUFFICIENT-DATA", PROV)
+        self.assertEqual(r.status, "unmeasured")
+        self.assertIsNone(r.waiver_code)
+
+    def test_waiver_fields_round_trip(self):
+        r = StageResult("holdout", "not_applicable",
+                        "single-sector target", PROV,
+                        waiver_code="single_sector",
+                        waiver_reason="one sector only")
+        r2 = StageResult.from_dict(r.to_dict())
+        self.assertEqual(r2.waiver_code, "single_sector")
+        self.assertEqual(r2.waiver_reason, "one sector only")
+        # Unwaived results omit the fields entirely.
+        d = StageResult("shape", "pass", "ok", PROV).to_dict()
+        self.assertNotIn("waiver_code", d)
+        self.assertNotIn("waiver_reason", d)
+
+
+class TestDecisionPolicy(unittest.TestCase):
+    """The policy lives in gauntlet_v2, not in code."""
+
+    def test_default_policy_values(self):
+        p = load_decision_policy()
+        self.assertEqual(p["version"], "gauntlet_v2")
+        self.assertEqual(p["raw_flux_min_signif"], 3.0)
+        self.assertEqual(p["parity_fail_sigma"], 3.0)
+        self.assertEqual(p["min_in_cadences"], 20)
+        self.assertEqual(p["min_events"], 2)
+        self.assertEqual(p["blend_min_signif"], 3.0)
+        self.assertEqual(p["blend_min_depth_ratio"], 3.0)
+        self.assertIn("holdout", p["waivers"])
+        # v1's thresholds carried over unchanged.
+        self.assertEqual(p["shape_v_max_t23_t14"], 0.30)
+        self.assertEqual(p["chi2_sys_frac"], 0.15)
+        self.assertEqual(p["mad_clip_floor_frac"], 0.10)
+
+    def test_adapters_use_the_policy(self):
+        # The same fold passes under the default policy and
+        # fails under a stricter one — the threshold comes from
+        # the policy dict, not a code constant.
+        fold = {"depth_pct": 1.0, "signif_white": 5.0,
+                "signif_red": 4.0, "n_in": 50, "n_events": 5}
+        self.assertEqual(
+            raw_flux_result(fold, PROV).status, "pass")
+        strict = dict(load_decision_policy())
+        strict["raw_flux_min_signif"] = 10.0
+        self.assertEqual(
+            raw_flux_result(fold, PROV, policy=strict).status,
+            "fail")
+        odd = {"depth_pct": 1.0, "sig_white_pct": 0.2}
+        even = {"depth_pct": 1.5, "sig_white_pct": 0.2}
+        self.assertEqual(
+            odd_even_result(odd, even, PROV).status, "pass")
+        strict2 = dict(load_decision_policy())
+        strict2["parity_fail_sigma"] = 1.0
+        self.assertEqual(
+            odd_even_result(odd, even, PROV,
+                          policy=strict2).status, "fail")
+
+
+if __name__ == "__main__":
+    unittest.main()

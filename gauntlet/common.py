@@ -84,7 +84,7 @@ def flatten_transit_masked(t, f, period, t0, duration_d, window_d=2.0,
 def fold_depth(t, f, period, t0, duration_d, centre_phase=0.0):
     """Depth (%) of a box of width dur centred at centre_phase (phase
     units). Returns depth, white sigma, red-noise sigma from 24 control
-    windows at other phases, n_in. (Exact port of desk_finish_s98.py:
+    windows at other phases, n_in. (Exact port of archive/scripts/desk_finish_s98.py:
     the phase is wrapped around the centre, so centre_phase=0.5 — the
     secondary — works; control windows draw c ~ U(-0.45, 0.45) with
     seed 0 and measure against their own complement.)
@@ -131,7 +131,7 @@ def event_parity_depths(t, f, period, t0, duration_d):
     not floor — a floor-parity split mixes the two halves of every
     eclipse across parities and erases a real odd/even difference).
     Baseline = points far from any event centre (> 3 durations).
-    Returns (odd, even) depth dicts. (Exact port of desk_finish_s98.py.)
+    Returns (odd, even) depth dicts. (Exact port of archive/scripts/desk_finish_s98.py.)
     """
     t = np.asarray(t, dtype=float)
     f = np.asarray(f, dtype=float)
@@ -163,7 +163,11 @@ def tic_lookup(tic_id):
     Raises on failure — callers that can proceed without a row should
     catch and fall back to CLI values."""
     from astroquery.mast import Catalogs
-    rows = Catalogs.query_object(f"TIC {tic_id}", catalog="TIC")
+    import netbound as _net
+    # C-1: astroquery takes no timeout — watch the call.
+    rows = _net.mast_call(
+        lambda: Catalogs.query_object(f"TIC {tic_id}", catalog="TIC"),
+        name=f"TIC lookup {tic_id}")
     if len(rows) == 0:
         raise ValueError(f"TIC {tic_id} not found in the TIC catalog")
     r = rows[0]

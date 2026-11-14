@@ -1,0 +1,177 @@
+# AGENTS.md — runbook for AI agents
+
+You are operating the Exoplanet Hunter: an amateur TESS exoplanet
+detection pipeline. It downloads real TESS light curves, searches
+them for transits with Box Least Squares, and vets survivors through
+a desk-check gauntlet. This file tells you how to run it
+end-to-end. If you are a new agent on this repo, start at step 1
+and do not skip the validation step.
+
+## What this repo is
+
+- **Detection** — `hunter.py` (single-target deep pipeline),
+  `bulk_screen.py` + `bulk/` (sister bulk screen: one sector of QLP
+  FFI light curves per star, cheap and wide), `persistence.py`
+  (cross-sector stamp), `holdout_test.py` (leave-one-sector-out
+  prediction).
+- **Vetting** — `gauntlet/` (desk checks: raw-flux fold, trapezoid
+  shape gate, refined-ephemeris folds, difference imaging, formal
+  transit fit). The desk procedure is `docs/vetting-manual.md`.
+- **Outputs** — `survivors.jsonl` (bulk screen → gauntlet handoff,
+  `schema/survivor-schema.json`) and one verdict record per vetted
+  candidate (`schema/verdict-schema.json`).
+
+Key numbers: a sweep hit needs SDE ≥ 8.5. The bulk screen's
+survivor bar and tier thresholds are versioned calibration
+constants in `calibration/bulk_v1.yaml` (loaded by
+`bulk_screen.py` at import; see `bulk/CALIBRATION_V1_1.md` and
+`calibration/README.md`) — they are code, not configuration, and
+changing them means a new profile version + the code + the golden
+suite, together.
+
+## 1. Set up
+
+Python 3.12. Dependencies are pinned in `requirements.txt` — the
+versions are the ones the pipeline was verified against. Do not
+unpin without re-running the golden suite.
+
+```bash
+git clone https://github.com/thekni8/exoplanet-hunter.git
+cd exoplanet-hunter
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements.lock
+```
+
+`requirements.txt` lists the direct dependencies (pinned);
+`requirements.lock` is the pip-compile output with hashes for
+every package including transitive ones — install from the lock
+so a compromised or re-uploaded wheel cannot slip in (pip
+verifies each hash). Regenerate the lock after any dependency
+change with `pip-compile --generate-hashes
+--output-file=requirements.lock requirements.txt`, then re-run
+the golden suite. If pip-compile cannot reach PyPI reliably,
+`scripts/make_lockfile.py` is the fallback: it builds the same
+lockfile from the verified venv + PyPI JSON hashes without
+downloading any distribution file. Do not unpin without
+re-running the suite.
+
+## 2. Validate first — never run a sector on a red suite
+
+```bash
+.venv/bin/python tests/run_golden.py --smoke  # smoke tier (<=3 min): the PR check
+.venv/bin/python tests/run_golden.py --fast   # full offline suite (~15 min): the standard gate
+.venv/bin/python tests/run_golden.py          # full suite incl. live MAST downloads
+                                              # (tens of MB, cached)
+```
+
+Tiers (Phase 1.2 follow-up F-10 — reclassified, never reduced;
+no scientific test was removed to achieve speed):
+
+- **smoke** (<=3 min): runner, status matrix, blend,
+  conservation, registry, fingerprint, idempotency stubs,
+  ingest. No downloads, no pipeline runs. This is the PR
+  check — run it before every push.
+- **golden shard** (`--shard golden`): the pipeline-run
+  modules (golden fixtures, census, TOI population,
+  perturbation) — each runs `_run_pipeline` on fixtures.
+- **injection shard** (`--shard injection`): the
+  injection-recovery harness + the clip grid.
+- **rest shard** (`--shard rest`): everything else offline.
+- **full** (`--fast`): smoke + golden + injection + rest,
+  offline, ~15 min. The live tests (`test_golden_stars`) run
+  weekly in `.github/workflows/live.yml`, never in the PR gate.
+
+CI (`golden.yml`) runs smoke plus the three shards in parallel;
+together the shards cover the full `--fast` suite. The job
+named `golden` runs the golden shard (it is a required check
+in branch protection, with lockfile-clean-install).
+
+Exit code 0 means the pipeline on your machine reproduces the
+known answers. If a test fails, **do not "fix" it by loosening a
+threshold** — find what changed in the search, the stamp, or the
+data. A red suite is a real signal. CI runs the same suite on
+every push and pull request (`.github/workflows/golden.yml`).
+
+## 3. Run a sector screen
+
+A screen is driven by one YAML recipe in `bulk/recipes/` — the
+recipe is the single source of truth for the sector, the target
+window (Tmag + radius cuts), and the run shape. Precedence:
+CLI flags > recipe file > built-in defaults.
+
+```bash
+# 1. Build the target list from the recipe
+.venv/bin/python bulk/build_target_list.py --recipe bulk/recipes/sector-96.yaml
+# 2. Screen it in slices (checkpoint unit: one slice)
+.venv/bin/python bulk/run_chunked.py --recipe bulk/recipes/sector-96.yaml
+# 3. Merge slices, recalibrate, and run the clean-data re-fold gate
+#    (see bulk/RECALIBRATION_S0097.md for the worked sequence)
+```
+
+`run_chunked` verifies the recipe against the window file and
+refuses to run on a mismatch — the window that was built is the
+window that gets screened. Downloads go to `bulk/cache/`
+(gigabytes; gitignored). Survivors land in
+`<out-dir>/survivors.jsonl` in gauntlet input shape.
+
+Worked references: `bulk/RECALIBRATION_S0097.md`,
+`bulk/RECALIBRATION_S0098.md`, `bulk/CALIBRATION_V1_1.md`,
+`bulk/TEARDOWN.md` (why the sister pipeline exists).
+
+## 4. Vet a survivor
+
+Follow `docs/vetting-manual.md` in order: catalogue check →
+clean-data re-fold gate → persistence in raw flux (refine the
+period FIRST for bulk survivors) → trapezoid shape gate →
+odd/even + double period → holdout test → centroid/difference
+imaging → formal transit fit. Record every verdict in the
+standard verdict record (`schema/verdict-schema.json`).
+
+A kill at any stage ends the run. A survivor that passes every
+gate is a **candidate**, not a discovery: confirmation needs
+high-resolution imaging or radial velocity, and nothing in this
+repo authorises a public claim on its own.
+
+## 5. Single-target deep pipeline
+
+```bash
+.venv/bin/python hunter.py --tic 150428135 --radius 0.42 --sectors 2
+```
+
+`hunter.analyze_target()` is the programmatic entry point
+(`_run_pipeline()` returns the full result dict, including the
+top-3 refined signals). Product selection is deterministic:
+SPOC > TESS-SPOC > QLP. The persistence stamp
+(`persistence.py`) and holdout test (`holdout_test.py`) run on
+hits the pipeline already found.
+
+## Hard rules
+
+- **Never claim a planet without centroid/difference imaging.**
+  No photometric evidence, however strong, localises the source
+  on its own.
+- **Never loosen a threshold to make a test pass.** Thresholds
+  change deliberately, with the calibration doc and the golden
+  suite updated in the same change.
+- **Never weaken a test assertion to get green CI.** An assertion
+  is a record of a decision; changing it needs the same review as
+  changing the code it guards. If a test fails, the code or the
+  calibration changed — fix the code, bump the calibration
+  version, or document a pinned limitation. Never edit the test
+  to match the new behaviour without saying so in the commit.
+- **Never change a threshold without bumping calibration_version
+  and re-running the injection harness.** A threshold change
+  without a completeness re-measurement is flying blind — the
+  version bump is what keeps old and new records distinguishable.
+- **Never use a bulk-screen period as a fold anchor.** Refine it
+  first (manual stage 2) or every cross-sector fold reads zero.
+- **Never call a transit flat-bottomed from a box-vs-wave test.**
+  Fit the trapezoid and read T23/T14 (manual stage 3).
+- **Never file a variable-star report before the blend check.**
+  Persistence + difference imaging both pass first, and only one
+  submission can await review at a time.
+- **Keep run data out of git.** `bulk/cache/`, `reports/`,
+  `results/`, `discoveries.csv`, `data/` are gitignored. Commit
+  code, docs, recipes, and tests — not downloads.
+- **Work on a branch; main stays green.** Merge only after the
+  golden suite passes and a human has reviewed the change.

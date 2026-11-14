@@ -61,6 +61,8 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from mad_clip import mad_clip_mask as _mad_clip_mask  # noqa: E402
+
 # Module globals set by main() and read by the download helpers.
 TIC = None
 DATA = None
@@ -72,6 +74,40 @@ AUTHORS = [('GSFC-ELEANOR-LITE', 'elc'), ('QLP', 'qlp'),
 PRIO = {'spoc': 0, 'tspc': 1, 'qlp': 2}  # production priority order
 
 
+def select_pipeline_set(sets, sector_cap=20):
+    """Pick the pipeline set for the raw-flux check (F-14).
+
+    `sets` maps a pipeline prefix ('spoc', 'tspc', 'qlp') to the
+    sorted list of sectors with downloaded npz files (from
+    download_author). The rule mirrors hunter._select_products:
+    most sectors wins, pipeline priority (SPOC > TESS-SPOC >
+    QLP) breaks ties; the returned sector list is capped at
+    `sector_cap` (the --sector-cap default, 20).
+
+    Returns (prefix, sectors); (None, []) when no pipeline has
+    sectors. Extracted from main() unchanged so the rule is
+    testable against hunter's — the two implementations must
+    agree, or the gauntlet checks a different product set than
+    the pipeline searched (tests/test_product_selection.py).
+
+    Known edge (documented, not fixed): the COUNT is capped
+    too — len(sets[pfx][:sector_cap]) — so two authors with
+    more than sector_cap sectors tie at the cap and priority
+    decides, while hunter counts all sectors and would pick
+    the author with more. Agreement holds when every author's
+    sector count is at or below the cap.
+    """
+    cand = []
+    for pfx in ('spoc', 'tspc', 'qlp'):
+        if pfx in sets and sets[pfx]:
+            cand.append((len(sets[pfx][:sector_cap]), -PRIO[pfx],
+                         pfx))
+    if not cand:
+        return None, []
+    pfx = max(cand)[2]
+    return pfx, list(sets[pfx][:sector_cap])
+
+
 def download_author(author, pfx, no_download=False):
     """One npz per sector (earliest products; SPOC prefers 120 s rows)."""
     if no_download:
@@ -81,8 +117,12 @@ def download_author(author, pfx, no_download=False):
                      for p in _glob.glob(os.path.join(DATA, f'{pfx}_s*.npz')))
         print(f'{author}: cached sectors {got}', flush=True)
         return got
+    import netbound as _net  # C-1: watch the search + downloads
     try:
-        sr = lk.search_lightcurve(f'TIC {TIC}', author=author)
+        # C-1: lightkurve takes no timeout — watch the call.
+        sr = _net.mast_call(
+            lambda: lk.search_lightcurve(f'TIC {TIC}', author=author),
+            name=f"rawflux search TIC {TIC} ({author})")
     except Exception as e:
         print(f'{author}: search failed {e}', flush=True)
         return []
@@ -109,7 +149,12 @@ def download_author(author, pfx, no_download=False):
         lc = None
         for attempt in range(3):
             try:
-                lc = sr[by_sector[sec]].download()
+                # C-1: watch the download too — a hung row
+                # download retries like any other failure.
+                lc = _net.mast_call(
+                    lambda: sr[by_sector[sec]].download(),
+                    name=f"rawflux download TIC {TIC} s{sec} "
+                         f"({author})")
                 if lc is not None:
                     break
             except Exception as e:
@@ -151,14 +196,15 @@ def load_stitched(pfx, secs):
         spans.append((s, float(t.min()), float(t.max())))
     t = np.concatenate(ts); f = np.concatenate(fs)
     o = np.argsort(t); t, f = t[o], f[o]
-    med = np.median(f); sig = 1.4826 * np.median(np.abs(f - med))
     # Asymmetric clip (2026-11-14, TIC 139526205): the lower cut is
     # floored at 10% below the median. A symmetric 5-sigma cut deletes
     # real transits on quiet stars — a 6% eclipse on a 0.08%-MAD star
     # is 75 sigma, so every in-transit point was clipped and the star
     # read as refuted; even a 0.5% transit loses most of its points.
     # Genuine outliers (excursions >> 10%) are still clipped both sides.
-    keep = (f < med + 5 * sig) & (f > med - max(5 * sig, 0.10))
+    # The clip is the shared function (mad_clip.py, B-2); the floor
+    # stays this module's drift-tested constant.
+    keep = _mad_clip_mask(f, "floor_10pct")
     return t[keep], f[keep], spans
 
 
@@ -329,6 +375,18 @@ def raw_measure(pfx, secs, P, T0, DUR):
 _G_SI = 6.67430e-11       # m^3 kg^-1 s^-2
 _RHO_SUN = 1408.0         # kg/m^3
 
+# Gauntlet calibration (calibration/gauntlet_v1.yaml — drift-tested
+# in tests/test_calibration.py; change the profile + the code together).
+V_SHAPE_MAX_T23_T14 = 0.30  # T23/T14 <= 0.30 is V-shaped / grazing
+U_SHAPE_MIN_T23_T14 = 0.50  # T23/T14 >= 0.50 is U-shaped / flat-bottomed
+DENSITY_RATIO_MIN = 0.80    # rho_circ/rho_star below this flags the
+                            # fitted duration as impossible for a
+                            # circular-orbit planet on this star
+# F-11: the clip floor (MAD_CLIP_FLOOR_FRAC) lived here and in
+# transit_fit.py as a duplicated constant; it now lives in ONE
+# place — mad_clip.py's DEFAULT_FLOOR_FRAC (0.10), drift-tested
+# against gauntlet_v1.yaml in tests/test_calibration.py.
+
 
 def _trap_model(x, depth, t14, frac, dt0):
     """Symmetric trapezoid in flux units; depth is a fraction (0-1)."""
@@ -411,7 +469,12 @@ def tic_density(tic_id):
             pass
     try:
         from astroquery.mast import Catalogs
-        cat = Catalogs.query_criteria(catalog='Tic', ID=int(tic_id))
+        import netbound as _net
+        # C-1: astroquery takes no timeout — watch the call.
+        cat = _net.mast_call(
+            lambda: Catalogs.query_criteria(catalog='Tic',
+                                            ID=int(tic_id)),
+            name=f"TIC query {tic_id}")
         if len(cat) == 0:
             return None, 'TIC row not found'
         row = cat[0]
@@ -460,6 +523,28 @@ def _recentre(xs, ys, DUR):
     return xs - x0, x0
 
 
+def _core_base_masks(xs, DUR, hw):
+    """Core (|x| <= DUR/4) and baseline masks for the shape fit.
+
+    The strict baseline is |x| > 2*DUR — outside a V-shaped transit,
+    whose T14 can reach ~2x the BLS box width. But for short periods
+    the fit window is capped at 0.3*P, so when DUR >= 0.15*P the
+    strict baseline lies outside the window entirely and the gate
+    reports 'unmeasured' on a strong signal (TIC 308851365: P 0.757 d,
+    BLS DUR 0.249 d on 30-min data — zero strict baseline bins).
+    Fallback: the outer 20% of the window (|x| > 0.8*hw) — still
+    outside the transit for any T14 < 0.24*P, and a transit wider
+    than a quarter of its own period is not a transit. The fallback
+    only activates when the strict baseline has fewer than 2 bins,
+    so no previously measured verdict changes.
+    """
+    core = np.abs(xs) <= DUR / 4.0
+    base = np.abs(xs) > 2.0 * DUR
+    if base.sum() < 2:
+        base = np.abs(xs) > 0.8 * hw
+    return core, base
+
+
 def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
     """Fit a symmetric trapezoid to the folded raw flux and judge
     shape + density. Two passes: a coarse pass at DUR/10 bins
@@ -488,8 +573,7 @@ def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
         out.update({'verdict': 'unmeasured',
                     'reason': 'no bins near T0'})
         return out
-    core = np.abs(xs1) <= DUR / 4.0
-    base = np.abs(xs1) > 2.0 * DUR
+    core, base = _core_base_masks(xs1, DUR, hw)
     if core.sum() < 2 or base.sum() < 2:
         out.update({'verdict': 'unmeasured',
                     'reason': 'no core/baseline bins'})
@@ -522,8 +606,7 @@ def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
     # which would dilute a +-DUR/2 core with baseline), with a
     # profile-based significance so we never judge the shape of a
     # dip the binned fold itself cannot see (< 3 sigma).
-    core = np.abs(xs) <= DUR / 4.0
-    base = np.abs(xs) > 2.0 * DUR
+    core, base = _core_base_masks(xs, DUR, hw)
     if core.sum() < 2 or base.sum() < 2:
         out.update({'verdict': 'unmeasured',
                     'reason': 'no core/baseline bins'})
@@ -557,9 +640,9 @@ def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
         't14_at_bound': bool(t14 >= 1.8 * hw * 0.999),
     })
     # shape verdict from the flat-bottom fraction
-    if frac <= 0.30:
+    if frac <= V_SHAPE_MAX_T23_T14:
         shape = 'V-shaped'
-    elif frac >= 0.50:
+    elif frac >= U_SHAPE_MIN_T23_T14:
         shape = 'U-shaped'
     else:
         shape = 'ambiguous'
@@ -584,7 +667,7 @@ def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
         t14max_h = (P / math.pi
                     * math.asin(min((1.0 + rp_est) / a_R_star, 1.0))
                     * 24.0)
-        if ratio0 < 0.80:
+        if ratio0 < DENSITY_RATIO_MIN:
             dflag = True
             dreason = 'rho_circ/rho_star < 0.80'
         elif shape == 'V-shaped' and ratio0 < 1.0:
@@ -689,12 +772,7 @@ def main(argv=None):
             sets[pfx] = secs
 
     # pipeline-selected set: most sectors (cap 20), priority breaks ties
-    cand = []
-    for pfx in ('spoc', 'tspc', 'qlp'):
-        if pfx in sets:
-            cand.append((len(sets[pfx][:SECTOR_CAP]), -PRIO[pfx], pfx))
-    PIPE_PFX = max(cand)[2] if cand else None
-    PIPE_SECS = sets[PIPE_PFX][:SECTOR_CAP] if PIPE_PFX else []
+    PIPE_PFX, PIPE_SECS = select_pipeline_set(sets, SECTOR_CAP)
     print(f'pipeline set: {PIPE_PFX} sectors {PIPE_SECS}', flush=True)
 
 
