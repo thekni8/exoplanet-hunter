@@ -18,6 +18,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from gauntlet.runner import (Ephemeris, StageSpec, TargetContext,  # noqa: E402
@@ -63,6 +65,28 @@ PASSING_NATIVES = {
                            "density_flag": False,
                            "converged": True},
 }
+
+
+def _blend_native(target_depth=1.0, neighbour_depth=0.0, seed=7):
+    """A blend native: a 10 d light curve with one transit at
+    T0=1500.0, P=12.5 d, DUR=0.1 d. Default: a 1% target dip
+    and a flat neighbour (on_target)."""
+    rng = np.random.default_rng(seed)
+    t = 1500.0 + np.arange(5000) * 0.002
+    ph = (((t - 1500.0) / 12.5 + 0.5) % 1.0) - 0.5
+    in_tr = np.abs(ph) < 0.5 * 0.1 / 12.5
+    f_t = (np.ones_like(t) - target_depth / 100.0 * in_tr
+           + rng.normal(0, 0.002, len(t)))
+    f_n = (np.ones_like(t) - neighbour_depth / 100.0 * in_tr
+           + rng.normal(0, 0.002, len(t)))
+    return {"target_t": t, "target_f": f_t,
+            "neighbour_t": t, "neighbour_f": f_n,
+            "period_d": 12.5, "t0": 1500.0, "duration_d": 0.1,
+            "neighbour_tic": "238620465",
+            "separation_arcsec": 66.5}
+
+
+PASSING_NATIVES["blend.native"] = _blend_native()
 
 
 def _ctx(natives=None, kind="bulk", imaging=None, period=12.5,
@@ -120,7 +144,7 @@ class TestRunnerGating(unittest.TestCase):
         self.assertEqual(by_stage["clean_refold"].status, "pass")
         for name in ("refine", "raw_flux", "persistence",
                      "shape", "odd_even", "holdout", "diffimg",
-                     "pixel_check", "transit_fit"):
+                     "blend", "pixel_check", "transit_fit"):
             self.assertEqual(by_stage[name].status, "unmeasured")
             self.assertEqual(by_stage[name].execution_status,
                              "skipped")
@@ -191,7 +215,7 @@ class TestRunnerGating(unittest.TestCase):
         by_stage = {r.stage: r for r in run.results}
         self.assertEqual(by_stage["raw_flux"].status, "fail")
         for name in ("shape", "odd_even", "persistence",
-                     "pixel_check"):
+                     "blend", "pixel_check"):
             self.assertEqual(by_stage[name].status, "pass")
             self.assertEqual(by_stage[name].execution_status,
                              "completed")
@@ -241,6 +265,18 @@ class TestRunnerGating(unittest.TestCase):
                          "skipped")
         self.assertEqual(by_stage["refine"].status, "pass")
         self.assertEqual(run.final_verdict, "INCONCLUSIVE")
+
+    def test_blend_fail_kills_the_candidate(self):
+        # A deep neighbour dip at the target ephemeris is a
+        # photocopy: the run ends BLEND.
+        natives = dict(PASSING_NATIVES)
+        natives["blend.native"] = _blend_native(
+            target_depth=1.0, neighbour_depth=22.0)
+        run = run_gauntlet(_ctx(natives=natives,
+                                imaging=IMAGING_ON))
+        self.assertEqual(run.final_verdict, "BLEND")
+        by_stage = {r.stage: r for r in run.results}
+        self.assertEqual(by_stage["blend"].status, "fail")
 
     def test_unknown_stage_raises(self):
         with self.assertRaises(ValueError):
@@ -360,7 +396,8 @@ class TestDependencyGating(unittest.TestCase):
         self.assertEqual({s for s, _r in problems},
                          {"catalogue", "refine", "raw_flux",
                           "persistence", "shape", "odd_even",
-                          "holdout", "diffimg", "transit_fit"})
+                          "holdout", "diffimg", "blend",
+                          "transit_fit"})
         self.assertTrue(all("native" in ";".join(reasons)
                             for _s, reasons in problems))
         # A full context validates clean.

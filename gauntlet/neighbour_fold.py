@@ -17,6 +17,11 @@ Usage:
   neighbour_fold.py TARGET_TIC NEIGHBOUR_TIC --period P --t0 T0 \\
       --duration DUR --workdir work/TIC [--max-sectors 6]
 
+With --target-npz <npz> (a target light curve with time/flux
+arrays), the script also runs the blend verdict
+(gauntlet/blend.py:check_blend) on the target + combined
+neighbour folds and records it in the output JSON.
+
 Generalised from archive/scripts/neighbour_fold_s98.py (2026-11-13): the hardcoded
 REFINED dict became CLI arguments; fold_depth moved to common.py.
 The search order, sector dedupe, retry ladder, flux-column selection
@@ -36,8 +41,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from gauntlet.common import fold_depth
+    from gauntlet.blend import check_blend
 except ImportError:  # run as a plain script from the gauntlet dir
     from common import fold_depth
+    from blend import check_blend
 
 
 def fetch_neighbour(tic, outdir, max_sectors=6):
@@ -129,6 +136,10 @@ def main(argv=None):
                     help='output directory (neighbour_<tic>/ + '
                          'neighbour_<tic>_fold.json)')
     ap.add_argument('--max-sectors', type=int, default=6)
+    ap.add_argument('--target-npz', default=None,
+                    help='target light curve npz (time/flux) — '
+                         'when given, run the blend verdict on '
+                         'the target + combined neighbour folds')
     args = ap.parse_args(argv)
 
     R = {'P': args.period, 'T0': args.t0, 'DUR': args.duration}
@@ -141,10 +152,15 @@ def main(argv=None):
                             f"neighbour_{args.neighbour}_fold.json")
     if not lcs:
         print('  NO LIGHT CURVE AVAILABLE for neighbour', flush=True)
+        out = {'target': str(args.target),
+               'neighbour': str(args.neighbour),
+               'available': False}
+        if args.target_npz:
+            out['blend'] = {
+                'verdict': 'unmeasured',
+                'reason': 'no neighbour light curve available'}
         with open(out_path, 'w') as fh:
-            json.dump({'target': str(args.target),
-                       'neighbour': str(args.neighbour),
-                       'available': False}, fh, indent=1)
+            json.dump(out, fh, indent=1)
         return
     res = {'target': str(args.target), 'neighbour': str(args.neighbour),
            'available': True, 'ephemeris': R, 'per_sector': {}}
@@ -168,6 +184,17 @@ def main(argv=None):
           f"(white {c['signif_white']:.1f}σ, red "
           f"{c['signif_red'] if c['signif_red'] is None else round(c['signif_red'], 1)}σ, "
           f"n_in={c['n_in']})", flush=True)
+    if args.target_npz:
+        z = np.load(args.target_npz)
+        tt = np.asarray(z['time'], float)
+        tf = np.asarray(z['flux'], float)
+        tf = tf / np.median(tf)
+        verdict = check_blend(tt, tf, t, f, R['P'], R['T0'],
+                              R['DUR'],
+                              neighbour_tic=args.neighbour)
+        res['blend'] = verdict
+        print(f"  BLEND VERDICT: {verdict['verdict']} — "
+              f"{verdict['reason']}", flush=True)
     with open(out_path, 'w') as fh:
         json.dump(res, fh, indent=1)
 

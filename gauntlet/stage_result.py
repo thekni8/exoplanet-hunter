@@ -58,8 +58,9 @@ without changing the stage itself: the catalogue check, the
 clean-data re-fold gate, the period refinement, the raw-flux
 fold, the odd/even check, the persistence stamp, the holdout
 test, the difference imaging, the pixel check, and the formal
-transit fit. (The blend adapter lives in gauntlet/blend.py,
-item A-6.)
+transit fit. (The blend verdict itself is a pure function in
+gauntlet/blend.py — check_blend — and blend_result here is only
+its adapter.)
 `aggregate_verdict` turns a set of stage results (+ imaging)
 into a final verdict; `gauntlet/verdict.py:build_verdict`
 assembles and validates the verdict record.
@@ -126,7 +127,7 @@ def _policy_value(policy, key, version=DEFAULT_POLICY_VERSION):
 # may order it dropped; until then it runs.
 REQUIRED_STAGES = ("catalogue", "clean_refold", "refine",
                    "raw_flux", "persistence", "shape", "odd_even",
-                   "holdout", "diffimg", "pixel_check",
+                   "holdout", "diffimg", "blend", "pixel_check",
                    "transit_fit")
 
 # What a FAIL at each stage means for the final verdict.
@@ -139,6 +140,7 @@ _FAIL_VERDICT = {
     "persistence": "REFUTED",
     "holdout": "REFUTED",
     "diffimg": "BLEND",
+    "blend": "BLEND",
     "pixel_check": "REFUTED",
     "transit_fit": "EB",
 }
@@ -663,6 +665,56 @@ def transit_fit_result(native, prov=None):
         "transit_fit", STATUS_PASS,
         f"physical transit fit (b={native['b']:.2f})",
         _prov(prov), details, **ev)
+
+
+def blend_result(native, prov=None, policy=None):
+    """Blend test (gauntlet/blend.py:check_blend) -> StageResult.
+
+    Native shape: {"target_t", "target_f", "neighbour_t",
+    "neighbour_f", "period_d", "t0", "duration_d",
+    "neighbour_tic", "separation_arcsec"}. The pure function
+    folds both light curves and decides; this adapter only maps
+    its verdict onto a status. Evidence: value is the depth
+    ratio (neighbour/target), threshold is the policy's
+    blend_min_depth_ratio.
+    """
+    if not native:
+        return StageResult(
+            "blend", STATUS_UNMEASURED,
+            "no blend-test input supplied", _prov(prov))
+    try:
+        from gauntlet.blend import check_blend  # type: ignore
+    except ImportError:  # run as a plain script from gauntlet/
+        from blend import check_blend  # type: ignore
+    res = check_blend(
+        native["target_t"], native["target_f"],
+        native["neighbour_t"], native["neighbour_f"],
+        native["period_d"], native["t0"],
+        native["duration_d"],
+        neighbour_tic=native.get("neighbour_tic"),
+        separation_arcsec=native.get("separation_arcsec"),
+        policy=policy)
+    verdict = res["verdict"]
+    status = {"blend": STATUS_FAIL, "on_target": STATUS_PASS,
+              "inconclusive": STATUS_INCONCLUSIVE,
+              "unmeasured": STATUS_UNMEASURED}[verdict]
+    details = {k: res.get(k) for k in
+               ("neighbour_tic", "separation_arcsec", "period_d")
+               if res.get(k) is not None}
+    metrics = {}
+    for key, fold in (("target", res.get("target_fold")),
+                      ("neighbour", res.get("neighbour_fold"))):
+        if fold:
+            metrics[f"{key}_depth_pct"] = fold["depth_pct"]
+            metrics[f"{key}_n_in"] = fold["n_in"]
+    if res.get("target_signif") is not None:
+        metrics["target_signif"] = res["target_signif"]
+    if res.get("neighbour_signif") is not None:
+        metrics["neighbour_signif"] = res["neighbour_signif"]
+    return StageResult(
+        "blend", status, res["reason"], _prov(prov), details,
+        value=res.get("depth_ratio"),
+        threshold=res.get("min_depth_ratio"), metrics=metrics)
 
 
 # ---------------------------------------------------------------------------

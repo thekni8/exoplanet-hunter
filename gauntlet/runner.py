@@ -19,12 +19,12 @@ The DAG (stage -> requires -> produces -> cost):
     odd_even       refined ephemeris      odd_even         cheap
     holdout        refined ephemeris      holdout          EXPENSIVE
     diffimg        refined ephemeris      diffimg          EXPENSIVE
+    blend          refined ephemeris      blend            cheap
     pixel_check    refined ephemeris      pixel_check      cheap
     transit_fit    shape+holdout+diffimg  transit_fit      EXPENSIVE
 
 (raw_flux is not in the brief's DAG table but stays a required
-stage — see REQUIRED_STAGES in stage_result.py. The blend stage
-joins the DAG in item A-6.)
+stage — see REQUIRED_STAGES in stage_result.py.)
 
 Rules:
 
@@ -65,16 +65,20 @@ Rules:
 
 import json
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
+
+import numpy as np
 
 try:
     from gauntlet.stage_result import (  # type: ignore
         EXEC_COMPLETED, EXEC_ERROR, EXEC_NOT_STARTED, EXEC_SKIPPED,
         STATUS_FAIL, STATUS_INCONCLUSIVE, STATUS_NOT_APPLICABLE,
         STATUS_PASS, STATUS_UNMEASURED, StageResult,
-        aggregate_verdict, catalogue_result, clean_refold_result,
+        aggregate_verdict, blend_result, catalogue_result,
+        clean_refold_result,
         diffimg_result, holdout_result, normalize_waivers,
         odd_even_result, persistence_result, pixel_check_result,
         raw_flux_result, refine_result, shape_result,
@@ -84,7 +88,8 @@ except ImportError:  # pragma: no cover - direct-file fallback
         EXEC_COMPLETED, EXEC_ERROR, EXEC_NOT_STARTED, EXEC_SKIPPED,
         STATUS_FAIL, STATUS_INCONCLUSIVE, STATUS_NOT_APPLICABLE,
         STATUS_PASS, STATUS_UNMEASURED, StageResult,
-        aggregate_verdict, catalogue_result, clean_refold_result,
+        aggregate_verdict, blend_result, catalogue_result,
+        clean_refold_result,
         diffimg_result, holdout_result, normalize_waivers,
         odd_even_result, persistence_result, pixel_check_result,
         raw_flux_result, refine_result, shape_result,
@@ -125,14 +130,26 @@ class Ephemeris:
 
 def _canonical(value):
     """A JSON-canonical form of a context value for hashing.
-    StageResults hash via to_dict; anything else falls back to
-    repr (so numpy scalars and tuples still hash)."""
+    StageResults hash via to_dict; numpy arrays hash by their
+    bytes (a repr of a 20k-point light curve would be
+    megabytes); anything else falls back to repr (so numpy
+    scalars and tuples still hash)."""
     if isinstance(value, StageResult):
-        value = value.to_dict()
-    try:
-        return json.dumps(value, sort_keys=True, default=repr)
-    except (TypeError, ValueError):
-        return repr(value)
+        return _canonical(value.to_dict())
+    if isinstance(value, np.ndarray):
+        return {"__ndarray__": hashlib.sha256(
+                    np.ascontiguousarray(value).tobytes()
+                    ).hexdigest(),
+                "shape": list(value.shape),
+                "dtype": str(value.dtype)}
+    if isinstance(value, Mapping):
+        return {str(k): _canonical(v) for k, v in
+                sorted(value.items(), key=lambda kv: str(kv[0]))}
+    if isinstance(value, (list, tuple)):
+        return [_canonical(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
 
 
 @dataclass(frozen=True)
@@ -316,6 +333,11 @@ def _diffimg_fn(ctx):
                           ctx.provenance)
 
 
+def _blend_fn(ctx):
+    return blend_result(ctx.artifacts["blend.native"],
+                        ctx.provenance)
+
+
 def _pixel_check_fn(ctx):
     eph = ctx.ephemeris
     if eph is not None and eph.period_d < 8.0:
@@ -371,6 +393,8 @@ for _spec in (
     StageSpec("diffimg", requires=(EPH_REFINED, "diffimg.native"),
               produces=("diffimg",), func=_diffimg_fn,
               expensive=True),
+    StageSpec("blend", requires=(EPH_REFINED, "blend.native"),
+              produces=("blend",), func=_blend_fn),
     StageSpec("pixel_check", requires=(EPH_REFINED,),
               produces=("pixel_check",), func=_pixel_check_fn),
     StageSpec("transit_fit",
