@@ -40,15 +40,21 @@ on the runner skips this module (no downloads); the live tests run
 on a schedule instead (.github/workflows/live.yml), so a MAST
 outage never turns the PR gate red.
 """
+import json
+import os
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import numpy as np  # noqa: E402
+
 import hunter  # noqa: E402
 from gauntlet.rawflux_check import tic_density  # noqa: E402
 from tests.golden_checks import check_eb, check_toi700, check_wasp126  # noqa: E402
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "golden"
 
 
 class TestGoldenStars(unittest.TestCase):
@@ -76,6 +82,56 @@ class TestGoldenStars(unittest.TestCase):
                                     max_sectors=1)
         rho_star, _src = tic_density("308851365")
         check_eb(self, full, rho_star)
+
+    def test_eb_fixture_live_bls_inputs_identical(self):
+        """C-4: the fixture path and the live path must feed BLS
+        identical arrays for the EB. ASSUME DIVERGENCE was the
+        brief's instruction — and the first run of this test DID
+        diverge (hashes 9673b704... live vs 93d32886... fixture).
+        The diagnosis (scripts/diff_fixture_live.py + /tmp
+        c4_diagnose*.py, 2026-11-14): the RAW arrays are
+        bit-identical — the data is not stale — but the live flux
+        is float32 (FITS) while the fixture stores float64, and
+        scipy's savgol accumulates in the input dtype, so the
+        pass-1 trends differed by ~4e-7. That flips the BLS argmax
+        between adjacent fine-grid points on a near-tie (P
+        0.758011 live vs 0.757982 fixture), which diverges the
+        pass-2 transit mask and hence the BLS input hash. The fix
+        is the float64 normalisation in _run_pipeline (exact
+        upcast, dtype-independent numerics). This test pins the
+        fix: the hashes must be EQUAL, the periods must agree
+        within the argmax-noise band, and both runs must satisfy
+        the stable shape bounds. If the hashes ever differ again,
+        the fixture is stale, MAST reprocessed the data, or a new
+        dtype-sensitive step crept in — regenerate with
+        tests/make_fixtures.py only after diagnosing which."""
+        live = hunter._run_pipeline("308851365", star_radius=1.0,
+                                    max_sectors=1)
+        prev = os.environ.get("EXHUNT_FIXTURE_DIR")
+        os.environ["EXHUNT_FIXTURE_DIR"] = str(FIXTURE_DIR)
+        try:
+            fixture = hunter._run_pipeline(
+                "308851365", star_radius=1.0, max_sectors=1)
+        finally:
+            if prev is None:
+                os.environ.pop("EXHUNT_FIXTURE_DIR", None)
+            else:
+                os.environ["EXHUNT_FIXTURE_DIR"] = prev
+        live_hash = live["input_identity"]["bls_input_hash"]
+        fix_hash = fixture["input_identity"]["bls_input_hash"]
+        self.assertEqual(
+            live_hash, fix_hash,
+            msg="fixture and live paths fed BLS different arrays "
+                "— the fixture is stale or MAST reprocessed the "
+                "data (regenerate with tests/make_fixtures.py)")
+        # The refined periods may differ by one fine-grid step
+        # of argmax noise on a near-tie — but no more.
+        self.assertAlmostEqual(live["Period"], fixture["Period"],
+                               delta=1e-3)
+        z = np.load(FIXTURE_DIR / "TIC_308851365.npz")
+        rho_star = json.loads(str(z["meta_json"]))["rho_star_solar"]
+        check_eb(self, live, rho_star)
+        check_eb(self, fixture, rho_star)
 
 
 if __name__ == "__main__":

@@ -83,8 +83,8 @@ def download_author(author, pfx, no_download=False):
                      for p in _glob.glob(os.path.join(DATA, f'{pfx}_s*.npz')))
         print(f'{author}: cached sectors {got}', flush=True)
         return got
+    import netbound as _net  # C-1: watch the search + downloads
     try:
-        import netbound as _net
         # C-1: lightkurve takes no timeout — watch the call.
         sr = _net.mast_call(
             lambda: lk.search_lightcurve(f'TIC {TIC}', author=author),
@@ -115,7 +115,12 @@ def download_author(author, pfx, no_download=False):
         lc = None
         for attempt in range(3):
             try:
-                lc = sr[by_sector[sec]].download()
+                # C-1: watch the download too — a hung row
+                # download retries like any other failure.
+                lc = _net.mast_call(
+                    lambda: sr[by_sector[sec]].download(),
+                    name=f"rawflux download TIC {TIC} s{sec} "
+                         f"({author})")
                 if lc is not None:
                     break
             except Exception as e:
@@ -429,7 +434,12 @@ def tic_density(tic_id):
             pass
     try:
         from astroquery.mast import Catalogs
-        cat = Catalogs.query_criteria(catalog='Tic', ID=int(tic_id))
+        import netbound as _net
+        # C-1: astroquery takes no timeout — watch the call.
+        cat = _net.mast_call(
+            lambda: Catalogs.query_criteria(catalog='Tic',
+                                            ID=int(tic_id)),
+            name=f"TIC query {tic_id}")
         if len(cat) == 0:
             return None, 'TIC row not found'
         row = cat[0]

@@ -851,6 +851,23 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
                   .remove_nans().remove_outliers(sigma=5.0))
 
+    # --- Float64 normalisation (Phase 1.2, item C-4) -------------------
+    # The pipeline's numerics must not depend on the storage dtype of
+    # whichever FITS file MAST served. FITS flux is typically float32
+    # while the offline fixtures store float64, and scipy's savgol
+    # accumulates in the input dtype: the pass-1 trends then differ
+    # by ~4e-7, which flips the BLS argmax between adjacent
+    # fine-grid points on a near-tie (EB: P 0.758011 live vs
+    # 0.757982 fixture), which diverges the pass-2 transit mask and
+    # hence the BLS input hash. Upcasting to float64 is exact
+    # (every float32 value is representable in float64) and makes
+    # the live and fixture paths bit-identical. Nothing downstream
+    # uses lc_raw beyond time/flux/len/flatten, so rebuilding a
+    # plain LightCurve here drops no information the pipeline needs.
+    lc_raw = lk.LightCurve(
+        time=np.asarray(lc_raw.time.value, dtype=float),
+        flux=np.asarray(lc_raw.flux.value, dtype=float))
+
     # --- Detrend window in TIME units (2026-11-08 upgrade) -------------
     # detrend_window=101 was born on 30-minute data, where 101 points is
     # ~2.1 days. On SPOC 2-minute data the same 101 points span 3.4
