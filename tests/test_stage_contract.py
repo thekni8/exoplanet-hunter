@@ -65,7 +65,8 @@ class TestStageResult(unittest.TestCase):
     def test_only_pass_is_pass(self):
         for status, expected in (("pass", True), ("fail", False),
                                  ("unmeasured", False),
-                                 ("inconclusive", False)):
+                                 ("inconclusive", False),
+                                 ("not_applicable", False)):
             r = StageResult("shape_gate", status, "x", PROV)
             self.assertEqual(r.is_pass, expected, msg=status)
 
@@ -74,10 +75,73 @@ class TestStageResult(unittest.TestCase):
         self.assertFalse(r.is_measured)
         self.assertTrue(_pass("holdout").is_measured)
 
+    def test_not_applicable_is_not_measured(self):
+        r = StageResult("holdout", "not_applicable",
+                        "single-sector target", PROV)
+        self.assertFalse(r.is_measured)
+        self.assertFalse(r.is_pass)
+
     def test_round_trip(self):
         r = StageResult("parity", "pass", "agree", PROV,
                         {"odd_depth_pct": 1.0})
         self.assertEqual(StageResult.from_dict(r.to_dict()), r)
+
+    def test_round_trip_with_evidence(self):
+        r = StageResult("raw_flux", "pass", "dip in raw flux", PROV,
+                        value=0.9, uncertainty=0.075, threshold=0.225,
+                        n_transits=13,
+                        metrics={"signif_white": 12.0},
+                        artifacts=["fold_238620464.png"],
+                        tool_version="rawflux_check 1.0",
+                        config_hash="abc123",
+                        input_hashes={"lc": "def456"},
+                        warnings=["low n_in"])
+        self.assertEqual(StageResult.from_dict(r.to_dict()), r)
+
+    def test_old_dict_without_evidence_fields_loads(self):
+        # A Phase 1.1 record (no evidence fields) is a valid v1
+        # record with empty evidence — the contract is backward
+        # compatible.
+        old = {"stage": "parity", "status": "pass",
+               "reason": "agree", "provenance": dict(PROV),
+               "details": {"odd_depth_pct": 1.0}}
+        r = StageResult.from_dict(old)
+        self.assertEqual(r.status, "pass")
+        self.assertIsNone(r.value)
+        self.assertEqual(r.execution_status, "completed")
+
+    def test_invalid_execution_status_rejected(self):
+        with self.assertRaises(ValueError):
+            StageResult("parity", "pass", "x", PROV,
+                        execution_status="running")
+
+    def test_error_execution_must_be_unmeasured(self):
+        # A crashed tool is NOT a scientific failure — and not a
+        # pass either. The type enforces it.
+        with self.assertRaises(ValueError):
+            StageResult("triceratops", "fail", "crashed", PROV,
+                        execution_status="error")
+        with self.assertRaises(ValueError):
+            StageResult("triceratops", "pass", "crashed?", PROV,
+                        execution_status="error")
+        ok = StageResult("triceratops", "unmeasured",
+                         "tool crashed: OOM", PROV,
+                         execution_status="error")
+        self.assertEqual(ok.status, "unmeasured")
+
+    def test_not_started_must_be_unmeasured(self):
+        with self.assertRaises(ValueError):
+            StageResult("holdout", "pass", "x", PROV,
+                        execution_status="not_started")
+
+    def test_skipped_must_be_unmeasured_or_na(self):
+        with self.assertRaises(ValueError):
+            StageResult("holdout", "pass", "x", PROV,
+                        execution_status="skipped")
+        ok = StageResult("holdout", "not_applicable",
+                         "single-sector target", PROV,
+                         execution_status="skipped")
+        self.assertEqual(ok.status, "not_applicable")
 
 
 class TestAdapters(unittest.TestCase):
@@ -131,6 +195,27 @@ class TestAdapters(unittest.TestCase):
                 "n_in": 3, "n_events": 1}
         self.assertEqual(
             raw_flux_result(thin, PROV).status, "unmeasured")
+
+    def test_raw_flux_carries_evidence(self):
+        # Contract v1: the result carries the measurement, not
+        # just the verdict — value, 1-sigma error, and the 3-sigma
+        # bar in the same units, plus the transit count.
+        r = raw_flux_result(
+            {"depth_pct": 0.9, "signif_white": 12.0,
+             "n_in": 42, "n_events": 13}, PROV)
+        self.assertAlmostEqual(r.value, 0.9)
+        self.assertAlmostEqual(r.uncertainty, 0.9 / 12.0)
+        self.assertAlmostEqual(r.threshold, 3.0 * 0.9 / 12.0)
+        self.assertEqual(r.n_transits, 13)
+
+    def test_parity_carries_evidence(self):
+        odd = {"depth_pct": 2.0, "sig_white_pct": 0.14}
+        even = {"depth_pct": 1.9, "sig_white_pct": 0.13}
+        r = parity_result(odd, even, PROV)
+        self.assertEqual(r.status, "pass")
+        self.assertAlmostEqual(r.threshold, 3.0)
+        self.assertAlmostEqual(r.uncertainty, 1.0)
+        self.assertLess(r.value, 3.0)
 
     def test_parity(self):
         odd = {"depth_pct": 2.0, "sig_white_pct": 0.14}
@@ -218,6 +303,120 @@ class TestAggregate(unittest.TestCase):
         self.assertEqual(verdict, "INCONCLUSIVE")
 
 
+class TestPromotionMatrix(unittest.TestCase):
+    """Gemini's missing test (Phase 1.1 vote): the full
+    promotion/rejection matrix for the UNMEASURED contract. Any
+    single stage at FAIL, UNMEASURED, or INCONCLUSIVE blocks
+    candidate promotion — including a newly registered stage the
+    aggregator has never seen. Only PASS and NOT_APPLICABLE let
+    a candidate through."""
+
+    def test_any_required_stage_blocks_in_every_bad_status(self):
+        for stage in REQUIRED_STAGES:
+            for status, want in (("fail", None),
+                                 ("unmeasured", "INCONCLUSIVE"),
+                                 ("inconclusive", "INCONCLUSIVE")):
+                results = _all_pass()
+                idx = REQUIRED_STAGES.index(stage)
+                results[idx] = StageResult(stage, status, "x", PROV)
+                verdict, _note = aggregate_verdict(
+                    results, IMAGING_ON)
+                if want is None:
+                    # A fail kills with the stage's kill verdict —
+                    # never CANDIDATE, never INCONCLUSIVE.
+                    self.assertNotIn(verdict, ("CANDIDATE",
+                                               "INCONCLUSIVE"),
+                                     msg=f"{stage}/{status}")
+                else:
+                    self.assertEqual(verdict, want,
+                                     msg=f"{stage}/{status}")
+
+    def test_newly_registered_stage_blocks_too(self):
+        # A Phase 2 stage the aggregator has never seen: its
+        # unmeasured/inconclusive/fail must block exactly like a
+        # required stage's.
+        for status, want in (("unmeasured", "INCONCLUSIVE"),
+                             ("inconclusive", "INCONCLUSIVE")):
+            results = _all_pass() + [
+                StageResult("triceratops", status, "x", PROV)]
+            verdict, _note = aggregate_verdict(results, IMAGING_ON)
+            self.assertEqual(verdict, want, msg=status)
+        results = _all_pass() + [
+            StageResult("triceratops", "fail", "FPP 0.99", PROV)]
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "REFUTED")
+
+    def test_not_applicable_does_not_block(self):
+        # The escape hatch: a stage that does not apply to this
+        # target (runner-assigned) neither passes nor blocks.
+        results = _all_pass()
+        results[5] = StageResult("holdout", "not_applicable",
+                                 "single-sector target", PROV)
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "CANDIDATE")
+        results = _all_pass() + [
+            StageResult("triceratops", "not_applicable",
+                        "no TPF available", PROV)]
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "CANDIDATE")
+
+    def test_crashed_external_tool_is_unmeasured_not_fail(self):
+        # The execution axis in the matrix: a tool crash is an
+        # unmeasured stage (INCONCLUSIVE), never a kill.
+        results = _all_pass() + [
+            StageResult("triceratops", "unmeasured",
+                        "tool crashed: OOM", PROV,
+                        execution_status="error")]
+        verdict, _note = aggregate_verdict(results, IMAGING_ON)
+        self.assertEqual(verdict, "INCONCLUSIVE")
+
+
+class TestEvidencePreservation(unittest.TestCase):
+    """ChatGPT/Claude (Phase 1.1 vote): the external-tool
+    interface must preserve scientific evidence, not just
+    verdicts. A TRICERATOPS-shaped result — FPP/NFPP, priors,
+    seed, version — must survive the contract without reduction
+    to a bare PASS/FAIL."""
+
+    def _triceratops_result(self):
+        return StageResult(
+            "triceratops", "pass",
+            "FPP 0.08, NFPP 0.003 — below the review bar", PROV,
+            metrics={"fpp": 0.08, "nfpp": 0.003,
+                     "planet_scenario_prob": 0.92,
+                     "priors": "default",
+                     "seed": 12345},
+            artifacts=["triceratops_238620464.json"],
+            tool_version="triceratops 1.0",
+            config_hash="cfg9f2",
+            input_hashes={"lc": "lc1a2b"},
+            warnings=["convergence: 2 chains slow"])
+
+    def test_triceratops_evidence_survives_round_trip(self):
+        r = self._triceratops_result()
+        back = StageResult.from_dict(r.to_dict())
+        self.assertEqual(back, r)
+        self.assertEqual(back.metrics["fpp"], 0.08)
+        self.assertEqual(back.metrics["seed"], 12345)
+
+    def test_triceratops_evidence_validates_standalone(self):
+        from validation import validate_stage_result
+        rec = validate_stage_result(
+            self._triceratops_result().to_dict())
+        self.assertEqual(rec["metrics"]["nfpp"], 0.003)
+
+    def test_triceratops_evidence_survives_build_verdict(self):
+        results = _all_pass() + [self._triceratops_result()]
+        rec = build_verdict("238620464", FILED, results,
+                            imaging=dict(IMAGING_ON),
+                            run_id="test-run-1")
+        self.assertEqual(rec["final_verdict"], "CANDIDATE")
+        kept = rec["stages"]["triceratops"]
+        self.assertEqual(kept["metrics"]["fpp"], 0.08)
+        self.assertEqual(kept["tool_version"], "triceratops 1.0")
+        self.assertEqual(kept["config_hash"], "cfg9f2")
+
+
 class TestCandidateSchemaRule(unittest.TestCase):
     def test_candidate_without_imaging_rejected(self):
         with self.assertRaises(RecordValidationError):
@@ -240,6 +439,18 @@ class TestCandidateSchemaRule(unittest.TestCase):
 
     def test_candidate_with_imaging_and_all_pass_accepted(self):
         stages = {s: _pass(s).to_dict() for s in REQUIRED_STAGES}
+        rec = validate_verdict(_base_verdict(
+            "CANDIDATE", imaging=dict(IMAGING_ON), stages=stages))
+        self.assertEqual(rec["final_verdict"], "CANDIDATE")
+
+    def test_candidate_with_not_applicable_stage_accepted(self):
+        # The schema's CANDIDATE rule allows pass OR
+        # not_applicable — a stage that does not apply must not
+        # make the record unvalidatable.
+        stages = {s: _pass(s).to_dict() for s in REQUIRED_STAGES}
+        stages["holdout"] = StageResult(
+            "holdout", "not_applicable",
+            "single-sector target", PROV).to_dict()
         rec = validate_verdict(_base_verdict(
             "CANDIDATE", imaging=dict(IMAGING_ON), stages=stages))
         self.assertEqual(rec["final_verdict"], "CANDIDATE")

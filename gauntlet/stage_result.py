@@ -1,16 +1,39 @@
-"""Typed gauntlet stage results (Phase 1.1, item 7).
+"""Typed gauntlet stage results (Phase 1.1, item 7; contract v1 in
+Phase 1.2).
 
 Every gauntlet stage returns a StageResult — a typed record with
 (status, reason, provenance) — instead of a bare string, a dict
 with a different shape per stage, or (worst) nothing at all when
 a stage could not measure. The contract:
 
-  * status is one of pass / fail / unmeasured / inconclusive.
+  * status is one of pass / fail / unmeasured / inconclusive /
+    not_applicable.
   * "unmeasured" means NOT YET VETTED — the stage had too little
     data to judge. It is NEVER a pass: no aggregation may treat
     it as one, and no CANDIDATE verdict may stand on it.
   * "inconclusive" means the stage measured but could not decide
     (e.g. an ambiguous trapezoid shape). Also never a pass.
+  * "not_applicable" means the stage does not apply to this
+    target (e.g. a holdout test on a single-sector candidate).
+    It is the ONLY non-pass status that does not block a
+    candidate — and only the runner may assign it, when the
+    stage's prerequisites say it does not apply.
+  * A result carries EVIDENCE, not just a verdict: value,
+    uncertainty, threshold, detection limit, transits used,
+    metrics, artifacts, tool version, config hash, input
+    hashes. A bare "pass" hides whether the test could have
+    rejected anything at all (an odd/even test on three
+    transits at SNR 8 cannot); the evidence is what makes the
+    verdict auditable. The raw result and its interpretation
+    stay separate: the interpretation thresholds live in the
+    versioned gauntlet calibration profile (the decision
+    policy), not in the result.
+  * Scientific outcome and execution outcome are separate axes:
+    execution_status is completed / not_started / skipped /
+    error. A crashed external tool is NOT a scientific failure
+    of the candidate — it is an unmeasured stage with an error
+    execution status, and the type enforces that (see
+    __post_init__).
   * Every result carries provenance (calibration_version,
     pipeline_git_sha, run_id, timestamp_utc) so a verdict can
     always be traced to the code and calibration that produced it.
@@ -29,8 +52,19 @@ STATUS_PASS = "pass"
 STATUS_FAIL = "fail"
 STATUS_UNMEASURED = "unmeasured"
 STATUS_INCONCLUSIVE = "inconclusive"
+STATUS_NOT_APPLICABLE = "not_applicable"
 STATUSES = (STATUS_PASS, STATUS_FAIL, STATUS_UNMEASURED,
-            STATUS_INCONCLUSIVE)
+            STATUS_INCONCLUSIVE, STATUS_NOT_APPLICABLE)
+
+# Execution outcome — separate from the scientific outcome. A stage
+# that crashed did not fail scientifically; a stage that never ran
+# did not measure anything. (ChatGPT/Claude, Phase 1.1 vote.)
+EXEC_COMPLETED = "completed"
+EXEC_NOT_STARTED = "not_started"
+EXEC_SKIPPED = "skipped"
+EXEC_ERROR = "error"
+EXEC_STATUSES = (EXEC_COMPLETED, EXEC_NOT_STARTED, EXEC_SKIPPED,
+                 EXEC_ERROR)
 
 # Minimum data for a testable fold verdict — the same bars as the
 # clean-data gate (bulk/clean_refold_gate.py MIN_IN / MIN_EVENTS).
@@ -62,22 +96,70 @@ _FAIL_VERDICT = {
 
 @dataclass(frozen=True)
 class StageResult:
-    """One gauntlet stage's typed result.
+    """One gauntlet stage's typed result (contract v1).
 
     `details` carries the measurements behind the verdict
     (depths, significances, ratios) — JSON-able, for the record.
+    The evidence fields carry the same story in a fixed shape
+    so a consumer never has to guess where the number lives:
+    `value` is the measured quantity, `uncertainty` its 1-sigma
+    error in the same units, `threshold` the pass bar in the
+    same units (None when the stage is a classification, not a
+    thresholded measurement), `detection_limit` the faintest
+    signal this stage could have seen, `n_transits` the
+    transits the verdict rests on. `metrics` holds the
+    stage-specific numbers that do not fit the fixed fields
+    (e.g. TRICERATOPS FPP/NFPP — preserved, never reduced to a
+    bare PASS/FAIL), `artifacts` the paths/ids of evidence
+    files, `tool_version` / `config_hash` / `input_hashes` the
+    reproducibility of the measurement itself.
     """
     stage: str
     status: str
     reason: str
     provenance: dict = field(default_factory=dict)
     details: dict = field(default_factory=dict)
+    # --- evidence (contract v1) ---
+    value: float | None = None
+    uncertainty: float | None = None
+    threshold: float | None = None
+    detection_limit: float | None = None
+    n_transits: int | None = None
+    metrics: dict = field(default_factory=dict)
+    artifacts: list = field(default_factory=list)
+    tool_version: str | None = None
+    config_hash: str | None = None
+    input_hashes: dict = field(default_factory=dict)
+    warnings: list = field(default_factory=list)
+    execution_status: str = EXEC_COMPLETED
 
     def __post_init__(self):
         if self.status not in STATUSES:
             raise ValueError(
                 f"invalid stage status {self.status!r} for stage "
                 f"{self.stage!r}: must be one of {STATUSES}")
+        if self.execution_status not in EXEC_STATUSES:
+            raise ValueError(
+                f"invalid execution status "
+                f"{self.execution_status!r} for stage "
+                f"{self.stage!r}: must be one of {EXEC_STATUSES}")
+        # Execution and science must agree: a stage that errored
+        # or never started cannot claim a scientific outcome — it
+        # is unmeasured, not failed and not passed. A skipped
+        # stage is unmeasured, unless the runner skipped it
+        # because it does not apply (not_applicable).
+        if self.execution_status in (EXEC_ERROR, EXEC_NOT_STARTED) \
+                and self.status != STATUS_UNMEASURED:
+            raise ValueError(
+                f"stage {self.stage!r} with execution "
+                f"{self.execution_status!r} must have status "
+                f"'unmeasured', not {self.status!r}")
+        if self.execution_status == EXEC_SKIPPED and self.status \
+                not in (STATUS_UNMEASURED, STATUS_NOT_APPLICABLE):
+            raise ValueError(
+                f"stage {self.stage!r} with execution 'skipped' "
+                f"must have status 'unmeasured' or "
+                f"'not_applicable', not {self.status!r}")
 
     @property
     def is_pass(self):
@@ -88,20 +170,49 @@ class StageResult:
 
     @property
     def is_measured(self):
-        return self.status != STATUS_UNMEASURED
+        return self.status not in (STATUS_UNMEASURED,
+                                   STATUS_NOT_APPLICABLE)
 
     def to_dict(self):
-        return {"stage": self.stage, "status": self.status,
-                "reason": self.reason,
-                "provenance": dict(self.provenance),
-                "details": dict(self.details)}
+        d = {"stage": self.stage, "status": self.status,
+             "reason": self.reason,
+             "execution_status": self.execution_status,
+             "provenance": dict(self.provenance),
+             "details": dict(self.details),
+             "metrics": dict(self.metrics),
+             "artifacts": list(self.artifacts),
+             "input_hashes": dict(self.input_hashes),
+             "warnings": list(self.warnings)}
+        for k in ("value", "uncertainty", "threshold",
+                  "detection_limit", "n_transits", "tool_version",
+                  "config_hash"):
+            v = getattr(self, k)
+            if v is not None:
+                d[k] = v
+        return d
 
     @classmethod
     def from_dict(cls, d):
+        # Old dicts (pre-v1, no evidence fields) still load: every
+        # new field has a default, so a Phase 1.1 record is a valid
+        # v1 record with empty evidence.
         return cls(stage=d["stage"], status=d["status"],
                    reason=d["reason"],
                    provenance=dict(d.get("provenance") or {}),
-                   details=dict(d.get("details") or {}))
+                   details=dict(d.get("details") or {}),
+                   value=d.get("value"),
+                   uncertainty=d.get("uncertainty"),
+                   threshold=d.get("threshold"),
+                   detection_limit=d.get("detection_limit"),
+                   n_transits=d.get("n_transits"),
+                   metrics=dict(d.get("metrics") or {}),
+                   artifacts=list(d.get("artifacts") or []),
+                   tool_version=d.get("tool_version"),
+                   config_hash=d.get("config_hash"),
+                   input_hashes=dict(d.get("input_hashes") or {}),
+                   warnings=list(d.get("warnings") or []),
+                   execution_status=d.get("execution_status",
+                                          EXEC_COMPLETED))
 
 
 def _prov(prov):
@@ -163,24 +274,37 @@ def clean_gate_result(fold, verdict, prov=None):
     FAIL -> FAIL (signal lives only in flagged cadences).
     PASS -> PASS. INSUFFICIENT -> UNMEASURED (too few clean
     in-transit cadences to test — not yet vetted).
+
+    Evidence: value is the clean-fold depth (%), uncertainty
+    its 1-sigma error from the fold SNR, threshold the 3-sigma
+    bar in the same units.
     """
     details = {k: fold.get(k) for k in
                ("n_in", "n_events", "depth_percent", "snr")
                if fold.get(k) is not None}
+    depth = fold.get("depth_percent")
+    snr = fold.get("snr")
+    unc = (abs(depth) / snr) if (depth is not None
+                                and snr is not None and snr > 0) \
+        else None
+    ev = {"value": depth, "uncertainty": unc,
+          "threshold": (3.0 * unc) if unc is not None else None,
+          "n_transits": fold.get("n_events")}
     if verdict == "FAIL":
         return StageResult(
             "clean_gate", STATUS_FAIL,
             "no dip in clean (quality==0) flux at the filed "
             "ephemeris — signal lives only in flagged cadences",
-            _prov(prov), details)
+            _prov(prov), details, **ev)
     if verdict == "PASS":
         return StageResult(
             "clean_gate", STATUS_PASS,
-            "dip persists in clean flux", _prov(prov), details)
+            "dip persists in clean flux", _prov(prov), details,
+            **ev)
     return StageResult(
         "clean_gate", STATUS_UNMEASURED,
         "insufficient clean in-transit cadences to test",
-        _prov(prov), details)
+        _prov(prov), details, **ev)
 
 
 def raw_flux_result(fold, prov=None):
@@ -189,30 +313,42 @@ def raw_flux_result(fold, prov=None):
     Depth > 0 at >= 3 sigma in unflattened flux -> PASS. No dip
     or insignificant -> FAIL (RAW-REFUTED). Too few in-transit
     cadences/events -> UNMEASURED.
+
+    Evidence: value is the fold depth (%), uncertainty its
+    1-sigma error from the white significance, threshold the
+    3-sigma bar in the same units.
     """
     details = {k: fold.get(k) for k in
                ("depth_pct", "signif_white", "signif_red",
                 "n_in", "n_events")
                if fold.get(k) is not None}
+    depth = fold.get("depth_pct")
+    signif = fold.get("signif_white")
+    unc = (depth / signif) if (depth is not None
+                               and signif is not None
+                               and signif > 0 and depth > 0) \
+        else None
+    ev = {"value": depth, "uncertainty": unc,
+          "threshold": (RAW_FLUX_MIN_SIGNIF * unc)
+          if unc is not None else None,
+          "n_transits": fold.get("n_events")}
     if (fold.get("n_in") or 0) < MIN_IN_CADENCES or \
             (fold.get("n_events") or 0) < MIN_EVENTS:
         return StageResult(
             "raw_flux", STATUS_UNMEASURED,
             "too few in-transit cadences/events for a raw-flux "
-            "verdict", _prov(prov), details)
-    depth = fold.get("depth_pct")
-    signif = fold.get("signif_white")
+            "verdict", _prov(prov), details, **ev)
     if depth is not None and signif is not None \
             and depth > 0 and signif >= RAW_FLUX_MIN_SIGNIF:
         return StageResult(
             "raw_flux", STATUS_PASS,
             f"dip in raw flux: {depth:.3f}% "
             f"({signif:.1f} sigma white)",
-            _prov(prov), details)
+            _prov(prov), details, **ev)
     return StageResult(
         "raw_flux", STATUS_FAIL,
         "no significant dip in raw flux at the ephemeris",
-        _prov(prov), details)
+        _prov(prov), details, **ev)
 
 
 def parity_result(odd, even, prov=None):
@@ -234,15 +370,21 @@ def parity_result(odd, even, prov=None):
     details = {"odd_depth_pct": odd["depth_pct"],
                "even_depth_pct": even["depth_pct"],
                "diff_sigma": diff / sig if sig > 0 else None}
+    # Evidence: value is the odd/even disagreement in combined
+    # white-noise sigma, threshold the 3-sigma EB bar in the
+    # same units.
+    ev = {"value": (diff / sig) if sig > 0 else None,
+          "uncertainty": 1.0 if sig > 0 else None,
+          "threshold": PARITY_FAIL_SIGMA}
     if sig > 0 and diff > PARITY_FAIL_SIGMA * sig:
         return StageResult(
             "parity", STATUS_FAIL,
             f"odd/even depths differ: {odd['depth_pct']:.2f}% vs "
             f"{even['depth_pct']:.2f}% ({diff / sig:.1f} sigma)",
-            _prov(prov), details)
+            _prov(prov), details, **ev)
     return StageResult(
         "parity", STATUS_PASS,
-        "odd/even depths agree", _prov(prov), details)
+        "odd/even depths agree", _prov(prov), details, **ev)
 
 
 def persistence_result(stamp, prov=None):
@@ -304,12 +446,18 @@ def aggregate_verdict(results, imaging=None):
       1. Any FAIL -> the kill verdict of the FIRST failing stage
          in vetting-manual order.
       2. Imaging localises the source OFF-target -> BLEND.
-      3. Any required stage UNMEASURED, INCONCLUSIVE, or never run
-         -> INCONCLUSIVE (not yet vetted — never a candidate).
-      4. All required stages PASS and imaging is on-target ->
-         CANDIDATE.
-      5. All required stages PASS but imaging is missing or
-         unmeasured -> INCONCLUSIVE (a candidate needs imaging).
+      3. Any stage UNMEASURED or INCONCLUSIVE — required or
+         newly registered — -> INCONCLUSIVE (not yet vetted —
+         never a candidate). A stage that ran and could not
+         measure is a gap in the case, whoever registered it;
+         the escape hatch is not_applicable, which only the
+         runner assigns when the stage does not apply.
+      4. Any required stage never run -> INCONCLUSIVE.
+      5. All required stages PASS or not_applicable and imaging
+         is on-target -> CANDIDATE.
+      6. All required stages PASS/not_applicable but imaging is
+         missing or unmeasured -> INCONCLUSIVE (a candidate
+         needs imaging).
 
     Returns (final_verdict, note). `imaging` is None or a dict
     with an `on_target` key (True / False / None).
@@ -328,17 +476,17 @@ def aggregate_verdict(results, imaging=None):
         return ("BLEND",
                 "imaging localises the source off-target"
                 + (f" (blend host TIC {host})" if host else ""))
-    for stage in REQUIRED_STAGES:
-        r = by_stage.get(stage)
-        if r is None:
-            return ("INCONCLUSIVE",
-                    f"stage {stage} never ran — not yet vetted")
+    for r in results:
         if r.status == STATUS_UNMEASURED:
             return ("INCONCLUSIVE",
-                    f"stage {stage} unmeasured: {r.reason}")
+                    f"stage {r.stage} unmeasured: {r.reason}")
         if r.status == STATUS_INCONCLUSIVE:
             return ("INCONCLUSIVE",
-                    f"stage {stage} inconclusive: {r.reason}")
+                    f"stage {r.stage} inconclusive: {r.reason}")
+    for stage in REQUIRED_STAGES:
+        if stage not in by_stage:
+            return ("INCONCLUSIVE",
+                    f"stage {stage} never ran — not yet vetted")
     if imaging is not None and imaging.get("on_target") is True:
         return ("CANDIDATE",
                 "all required stages pass; imaging on-target")
