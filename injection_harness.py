@@ -1,40 +1,50 @@
 #!/usr/bin/env python
 """Injection-recovery (completeness) harness for Exoplanet Hunter.
 
-MEASUREMENT ONLY — imports hunter.py read-only; never edits production
-code, never calls the production entry points that render PNGs or log to
-discoveries.csv (those side effects live in hunter._run_pipeline, which
-this harness deliberately does NOT call).
+MEASUREMENT ONLY — imports hunter.py read-only; never edits
+production code. Every trial runs the REAL deep pipeline
+(hunter._run_pipeline) through the EXHUNT_FIXTURE_DIR seam (Phase
+1.1, item 4): the injected light curve is clipped (production
+ordering: clip AFTER injection), written as a temporary fixture,
+and the pipeline runs unmodified — stitch, outlier clip,
+flatten pass 1 + pass 2, fixed BLS, pass-2 gate, TLS rescue.
+The diagnostic-PNG render and discoveries.csv logging are
+patched to no-ops for these runs (the 2026-11-13 driver's
+precedent), so harness runs leave no artifacts behind.
+
+Phase 1.2, item B-1: the harness's internal detrend/BLS mirror
+(run_pipeline_mirror) is DELETED. It used a LINEAR 10,000-point
+BLS grid, which cannot hold phase coherence over a multi-year
+baseline — probed 2026-11-14, it scored a 0.40% @ 2.17 d
+injection at SDE 4.8 where the real pipeline scores it at SDE
+106. Any completeness number the mirror produced was measuring
+the mirror, not the pipeline. There is now exactly one
+pipeline: run_real_pipeline() below, shared by this harness and
+the golden suite's injection smoke test (tests/test_injection.py).
 
 Method
 ------
-Substrate: for each sample star, the healed production fetch path
-(hunter._with_download_self_heal + hunter._download_products, first 2
-sectors — the Scanner configuration) stitched with the production
-corrector (per-sector normalize) and NaN-cleaned. This is exactly
-hunter._fetch_stitched's construction minus its final remove_outliers
-step, which the harness instead applies AFTER injection — mirroring
-production's ordering, where the (real) signal is already in the data
-when the outlier clip runs.
+Substrate: for each sample star, the healed production fetch
+path (hunter._with_download_self_heal + hunter._download_products,
+first 2 sectors — the Scanner configuration) stitched with the
+production corrector (per-sector normalize) and NaN-cleaned.
+This is exactly hunter._fetch_stitched's construction minus its
+final remove_outliers step, which the harness instead applies
+AFTER injection — mirroring production's ordering, where the
+(real) signal is already in the data when the outlier clip runs.
 
-Pipeline (mirrored step-for-step from hunter._run_pipeline, Scanner
-settings): remove_outliers(sigma=5) -> flatten(window_length=101) ->
-BLS (periods linspace(0.5, 25, 10000), durations linspace(0.03, 0.25,
-14), production SDE formula copied verbatim from the _bls_best closure)
--> transit-masked re-flatten + identical second BLS when the pass-1
-mask covers <= 50% of the curve. All reported metrics come from pass 2
-when it runs, exactly as in production.
-
-Injection: trapezoid transits (flat bottom 70% of duration, linear
-ingress/egress 15% of duration each side), duration_hours =
-2.0 * P_days^(1/3), epochs drawn from numpy default_rng(SEED) in plan
-order. Plan is fixed up front; nothing is re-drawn after seeing results.
+Injection: trapezoid transits (flat bottom 70% of duration,
+linear ingress/egress 15% of duration each side),
+duration_hours = 2.0 * P_days^(1/3), epochs drawn from numpy
+default_rng(SEED) in plan order. Plan is fixed up front;
+nothing is re-drawn after seeing results.
 """
 
 import argparse
 import json
 import os
 import sys
+import tempfile
 import time
 
 import numpy as np
@@ -68,9 +78,7 @@ DEPTHS_PCT = [1.2, 0.8, 0.5, 0.35, 0.25, 0.15]
 PERIODS_D = [1.5, 4.0, 8.0, 13.0]
 REPS = 2
 SDE_THRESHOLD = 8.5  # the app's discovery threshold (discoveries logged >= 8.5)
-BLS_POINTS = 10000   # Scanner sweep setting
-MIN_P, MAX_P = 0.5, 25.0
-DETREND_WINDOW = 101
+MIN_P, MAX_P = 0.5, 25.0  # hunter._run_pipeline's search range
 MAX_SECTORS = 2      # Scanner sector cap
 
 
@@ -213,57 +221,67 @@ def inject_transit(t, f, depth_frac, period_d, epoch_abs):
 
 
 # ---------------------------------------------------------------------------
-# Production pipeline, mirrored on in-memory arrays
-# (hunter._run_pipeline minus its PNG-render and discoveries.csv side
-# effects; BLS grid + SDE formula copied verbatim from its _bls_best
-# closure; Scanner settings: bls_points=10000, sectors<=2, window=101)
+# Real pipeline, on in-memory arrays (B-1: the mirror is gone)
 # ---------------------------------------------------------------------------
 
-def run_pipeline_mirror(t, f, ferr):
-    import astropy.units as u
+def clip_outliers(t, f):
+    """Production outlier clip (lightkurve remove_outliers,
+    sigma=5), applied AFTER injection — the harness's ordering,
+    mirroring production where the (real) signal is already in
+    the data when the clip runs."""
     import lightkurve as lk
-    from astropy.timeseries import BoxLeastSquares
+    lc = lk.LightCurve(time=t, flux=f).remove_outliers(sigma=5.0)
+    return (np.asarray(lc.time.value, dtype=float),
+            np.asarray(lc.flux.value, dtype=float))
 
-    lc_raw = lk.LightCurve(time=t, flux=f, flux_err=ferr).remove_outliers(sigma=5.0)
 
-    periods = np.linspace(MIN_P, MAX_P, BLS_POINTS) * u.day
-    durations = np.linspace(0.03, 0.25, 14) * u.day
+def run_real_pipeline(t, f, tic, star_radius=1.0, n_sectors=1):
+    """Run the REAL deep pipeline (hunter._run_pipeline) on
+    in-memory arrays through the EXHUNT_FIXTURE_DIR seam (Phase
+    1.1, item 4) — the same code path as production, with only
+    the data source replaced.
 
-    def _bls_best(tt, ff):
-        _bls = BoxLeastSquares(tt * u.day, ff)
-        _res = _bls.power(periods, durations)
-        _i = int(np.argmax(_res.power))
-        return (_res, float(_res.period[_i].value), float(_res.depth[_i]),
-                float(_res.duration[_i].value),
-                float(_res.transit_time[_i].value),
-                float((_res.power[_i] - np.median(_res.power))
-                      / (np.std(_res.power) + 1e-12)))
+    The arrays are clipped (production ordering: clip after
+    injection), written as a temporary TIC_<tic>.npz fixture, and
+    the pipeline runs unmodified. The diagnostic-PNG render and
+    discoveries.csv logging are patched to no-ops (the 2026-11-13
+    driver's precedent), so harness runs leave no artifacts
+    behind. The seam env var and the patches are restored before
+    returning, so this is safe to call from the golden suite and
+    from multiprocessing workers alike.
 
-    lc_flat, _trend = lc_raw.flatten(window_length=DETREND_WINDOW, return_trend=True)
-    tt = np.asarray(lc_flat.time.value, dtype=float)
-    ff = np.asarray(lc_flat.flux.value, dtype=float)
-    _res, best_period, best_depth, best_duration, t0, sde = _bls_best(tt, ff)
+    Returns (full, t_clipped, f_clipped): the _run_pipeline
+    result dict plus the clipped arrays the pipeline saw — so
+    callers can prove the seam fired (full["raw_time"] must equal
+    t_clipped) instead of trusting that no download happened.
+    """
+    import hunter as H
 
-    pass2_ran = False
-    _phase1 = ((tt - t0 + 0.5 * best_period) % best_period) - 0.5 * best_period
-    _transit_mask = np.abs(_phase1) <= (best_duration / 2.0 + 0.02)
-    if _transit_mask.mean() <= 0.50:
-        lc_flat, _trend = lc_raw.flatten(window_length=DETREND_WINDOW,
-                                         return_trend=True, mask=_transit_mask)
-        tt = np.asarray(lc_flat.time.value, dtype=float)
-        ff = np.asarray(lc_flat.flux.value, dtype=float)
-        _res, best_period, best_depth, best_duration, t0, sde = _bls_best(tt, ff)
-        pass2_ran = True
-
-    return {
-        "period_d": best_period,
-        "depth_frac": best_depth,
-        "duration_d": best_duration,
-        "t0": t0,
-        "sde": sde,
-        "pass2_ran": pass2_ran,
-        "n_points_cleaned": int(len(lc_raw)),
-    }
+    t_c, f_c = clip_outliers(t, f)
+    meta = {"tic": str(tic), "max_sectors": None,
+            "n_sectors": int(n_sectors),
+            "n_points": int(len(t_c))}
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, f"TIC_{tic}.npz")
+        np.savez_compressed(path, t=t_c, f=f_c,
+                            meta_json=json.dumps(meta))
+        prev = os.environ.get("EXHUNT_FIXTURE_DIR")
+        os.environ["EXHUNT_FIXTURE_DIR"] = td
+        orig_png = H._render_diagnostic_png
+        orig_log = H.log_candidate
+        H._render_diagnostic_png = lambda *a, **k: None
+        H.log_candidate = lambda *a, **k: None
+        try:
+            full = H._run_pipeline(str(tic), star_radius=star_radius,
+                                   min_p=MIN_P, max_p=MAX_P)
+        finally:
+            H._render_diagnostic_png = orig_png
+            H.log_candidate = orig_log
+            if prev is None:
+                os.environ.pop("EXHUNT_FIXTURE_DIR", None)
+            else:
+                os.environ["EXHUNT_FIXTURE_DIR"] = prev
+    return full, t_c, f_c
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +324,14 @@ def run_trial(trial):
         rec["injected_epoch_btjd"] = epoch_abs
     else:
         f_inj = f
-    out = run_pipeline_mirror(t, f_inj, ferr)
+    full, t_c, _f_c = run_real_pipeline(
+        t, f_inj, tic, star_radius=star["radius"],
+        n_sectors=meta["n_products"])
+    out = {"period_d": float(full["Period"]),
+           "depth_frac": float(full["Depth"]),
+           "sde": float(full["SDE"]),
+           "pass2_ran": full["pass2_sde"] is not None,
+           "n_points_cleaned": int(len(t_c))}
     rec.update({
         "recovered_period_d": out["period_d"],
         "recovered_depth_pct": out["depth_frac"] * 100.0,
@@ -357,8 +382,10 @@ def cmd_run():
         "generated_for": "Exoplanet Hunter injection-recovery test",
         "stars": STARS,
         "settings": {
-            "bls_points": BLS_POINTS, "min_p": MIN_P, "max_p": MAX_P,
-            "detrend_window": DETREND_WINDOW, "max_sectors": MAX_SECTORS,
+            "pipeline": "hunter._run_pipeline via EXHUNT_FIXTURE_DIR "
+                        "seam (B-1: no mirror)",
+            "min_p": MIN_P, "max_p": MAX_P,
+            "max_sectors": MAX_SECTORS,
             "sde_threshold": SDE_THRESHOLD,
         },
         "trials": records,
