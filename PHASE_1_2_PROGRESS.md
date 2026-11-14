@@ -28,7 +28,7 @@ Started 2026-11-14 ~14:47 IST on branch `standardize/phase-1` (HEAD `d8b4be8` at
 
 - [x] C-1 Network timeouts + watchdog — `netbound.py` (daemon-thread watchdog + http_get + download_file); hunter self-heal per-attempt timeout (cone query 60 s); bulk screen urlretrieve→timeout'd streaming download, astroquery calls watched, per-star watchdog in the screen loop (`unmeasured` status, conserved); gauntlet fetchers watched
 - [x] C-2 Crash-boundary + idempotency — `provenance.work_item_id` (TIC + sector + code fingerprint + calibration hash + recipe hash, no input hash); stamped on every screen record (schema: `work_item_id` + `unmeasured` status); checkpoint records + verifies output hashes (summary-match + output-mismatch forces re-screen; stale summary lets chunk_ok decide); stub `--die-at` crash points; merge idempotency tested
-- [ ] C-3 Ledger durability
+- [x] C-3 Ledger durability — `bulk/build_ledger.py --sector N --run-dir DIR --out FILE [--rescore DIR]` (counts + survivor TICs/tiers + calibration + known defects + fingerprint components + conservation; deterministic except generated_at; rescore merge marks superseded_by bulk_v2 + adds new v2 survivors; legacy 1.1 string calibration normalised; sector mismatch / missing summary refused)
 - [ ] C-4 Fixture-vs-live hash diff
 - [ ] C-5 Live CI opens issue on failure
 - [ ] C-6 Mutation canaries
@@ -73,3 +73,4 @@ Started 2026-11-14 ~14:47 IST on branch `standardize/phase-1` (HEAD `d8b4be8` at
 - **B-2 rescore writes survivors only:** the JSONL mirrors `survivors.jsonl` semantics (gauntlet input shape); counts for everything else live in `summary.json`. The ledger merge is C-3's job — the tool never writes into a run directory.
 - **B-2 gate lives only in `bulk_screen.main`:** `run_chunked` does not enforce it (its resume tests use fake sector 999 with the stub); a real v1 run on a new sector fails at slice 0 before any screening.
 - **B-2 test changes, said in their commits:** `test_bulk_screen_loads_the_profile` is env-aware now (the `EXHUNT_BULK_CALIBRATION` override is a deliberate behaviour change; a new test pins the default to v1); the odd/even EB fixture moved 3 d → 12 d (mechanism in commit `49d6958` + `SENSITIVITY_MAP.md`). No assertion was weakened to get green.
+- **C-3 rescore merge lives in build_ledger, not rescore_v2.py:** brief §6 D-2 says "the re-score tool writes superseded_by" — but the B-2 rescore tool's own boundary forbids it writing outside its --out dir, and its docstring explicitly defers the ledger merge to C-3. Implemented as `build_ledger.py --rescore <dir>` (re-scored entries gain superseded_by bulk_v2; new v2-only survivors are added as entries). Same outcome, owned by the tool that owns the ledger.
