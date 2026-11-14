@@ -13,6 +13,15 @@
 # re-blocking PRs. The issue is the signal; closing it is the
 # acknowledgement that someone looked.
 #
+# Proving the issue step (Phase 1.2 follow-up F-3): the
+# workflow_dispatch input `force_failure` forces the live step
+# to fail, so the issue-opening step can be exercised on demand.
+# Fire it ONCE after the first push of this workflow (Actions >
+# live-mast > Run workflow > force_failure), confirm the issue
+# opens, then close the issue. The step is UNVERIFIED-LIVE until
+# that first firing — this file has only been YAML-parsed
+# locally, never run on GitHub.
+#
 # If this job goes red while the PR gate (golden.yml) stays green,
 # either MAST changed its data or the offline fixtures are stale
 # (regenerate with tests/make_fixtures.py). If BOTH go red, the
@@ -30,6 +39,11 @@ on:
     # agrees with the committed fixtures.
     - cron: "0 6 * * 1"
   workflow_dispatch:
+    inputs:
+      force_failure:
+        description: "Force the live step to fail, so the issue-opening step can be proven (F-3). Fire once after the first push, confirm the issue opens, then close it."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -59,7 +73,15 @@ jobs:
         # Non-blocking by design: a MAST outage is not a code
         # regression. See the header comment.
         continue-on-error: true
-        run: python tests/run_golden.py
+        run: |
+          # F-3: forced failure, for proving the issue step.
+          # On push/schedule triggers `inputs` is empty, so
+          # this is false and the suite runs normally.
+          if [ "${{ inputs.force_failure }}" = "true" ]; then
+            echo "Forced failure (force_failure input) — proving the issue-opening step."
+            exit 1
+          fi
+          python tests/run_golden.py
 
       - name: Open an issue on live failure
         # C-5: the test step is continue-on-error, so the job
