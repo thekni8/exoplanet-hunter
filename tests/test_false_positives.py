@@ -16,9 +16,11 @@ through the real screen and gauntlet code:
     14.4 d pile-up is real, and 14.4 d falls outside the 13.7 d
     systematic family's +-3% window, so near_systematic is False).
     The recalibration step is the defense, not the screen.
-  * flagged-cadence spike (TIC 344334378 class) — the screen
-    promotes it (its 17087 bitmask keeps bit-30 cadences) and
-    the clean-data re-fold gate FAILs it.
+  * flagged-cadence spike (TIC 344334378 class) — under bulk_v2
+    the screen promotes it (its 17087 bitmask keeps bit-30
+    cadences) and the clean-data re-fold gate FAILs it; under
+    bulk_v3 the screen does NOT promote it (the v3 mask excludes
+    bits 29/30 at screen input, so the dip never reaches BLS).
   * pure noise — the screen must not promote noise.
 
 Where the pinned behaviour is a LIMITATION rather than a kill,
@@ -191,16 +193,31 @@ class TestFalsePositives(unittest.TestCase):
 
     def test_flagged_cadence_signal_gate_fails(self):
         # TIC 344334378 class: the dip exists only on quality-bit-30
-        # cadences. The screen's 17087 bitmask keeps those cadences,
+        # cadences. BEHAVIOUR CHANGE (bulk_v3, 2026-11-15): under
+        # bulk_v2 the screen's 17087 bitmask keeps those cadences,
         # so the screen PROMOTES the signal — and the clean-data
-        # re-fold gate (quality==0 only) must FAIL it.
+        # re-fold gate (quality==0 only) FAILs it. Under bulk_v3
+        # the screen mask excludes bits 29/30 at input, so the
+        # screen itself rejects the signal (below the record
+        # floor) and the gate is never needed. The gate's FAIL
+        # verdict is still pinned on the v2-promoted signal: the
+        # gate is the second line of defence, unchanged by v3.
         with tempfile.TemporaryDirectory() as td:
             p = make_qlp_fits(Path(td) / "flag.fits", period_d=2.0,
                               depth_frac=0.01, duration_d=0.15,
                               noise_pct=0.003, seed=42,
                               flagged_only_frac=0.7)
-            r = _screen(p)
-            self.assertEqual(r["status"], "survivor")
+            previous = bs.CALIBRATION_VERSION
+            try:
+                bs.set_calibration("bulk_v2")
+                r = _screen(p)
+                self.assertEqual(r["status"], "survivor")
+                bs.set_calibration("bulk_v3")
+                r3 = _screen(p)
+                self.assertEqual(r3["status"], "below_floor")
+                self.assertLess(r3["sde"], 6.0)
+            finally:
+                bs.set_calibration(previous)
             t, f, q, _col = load_fits(str(p))
             fold = clean_fold(t, f, q, r["period_days"],
                               r["t0_btjd"], r["duration_hours"])
