@@ -22,6 +22,9 @@ emcee==3.1.6
 requests==2.34.2
 PyYAML==6.0.3
 
+# --- schema validation (validation.py; Phase 1.1 item 3) ---
+jsonschema==4.26.0
+
 # --- API (api.py + frontend) ---
 fastapi==0.162.0
 uvicorn==0.54.0

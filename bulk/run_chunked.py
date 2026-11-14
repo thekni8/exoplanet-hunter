@@ -42,6 +42,7 @@ sys.path.insert(0, str(ROOT))
 from bulk.recipe import (RecipeError, apply_overrides, default_recipe_path,
                          load_recipe)
 import provenance as _prov
+from validation import validate_survivor as _validate_survivor
 BULK = ROOT / "bulk"
 SECTOR = None  # set in main() from recipe / --sector
 RUN = None  # set in main() from --sector
@@ -301,6 +302,10 @@ def main():
                                   -(r.get("mes_pink") or 0)))
     with open(RUN / "survivors.jsonl", "w") as fh:
         for r in survivors:
+            # Slice records were validated at write time; re-validating
+            # at merge catches a slice file corrupted or hand-edited
+            # since (Phase 1.1, item 3).
+            _validate_survivor(r)
             fh.write(json.dumps(r) + "\n")
     with open(RUN / "screen_hits.jsonl", "w") as fh:
         for r in hits:

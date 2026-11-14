@@ -149,14 +149,33 @@ from pathlib import Path
 import numpy as np
 
 import provenance as _prov
+from calibration import load_profile as _load_profile
+from validation import validate_survivor as _validate_survivor
 
-# Calibration version stamped on every record this screen writes
-# (Phase 1.1, item 1). The thresholds below ARE calibration v1.1
-# (bulk/CALIBRATION_V1_1.md); the version string is "bulk_v1" and
-# any threshold change bumps it (see calibration/bulk_v1.yaml,
-# item 2) — records from different calibrations must never be
-# silently mixed.
-CALIBRATION_VERSION = "bulk_v1"
+# Thresholds — loaded from the versioned calibration profile
+# (Phase 1.1, item 2; see calibration/README.md). The profile file
+# is the single source of truth: to change a threshold, copy
+# calibration/bulk_v1.yaml to bulk_v2.yaml, bump the version, and
+# point the loader at the new version — never edit a profile that
+# has already stamped records. Module-level names are kept so
+# importers (and the golden suite) see the same constants as before.
+_BULK_CAL = _load_profile("bulk_v1")
+CALIBRATION_VERSION = _BULK_CAL["version"]
+RECORD_FLOOR_SDE = _BULK_CAL["record_floor_sde"]
+SURVIVOR_SDE = _BULK_CAL["survivor_sde"]
+DEPTH_MIN_PCT = _BULK_CAL["depth_min_pct"]
+DEPTH_EB_PCT = _BULK_CAL["depth_eb_pct"]
+TIER_A_MES = _BULK_CAL["tier_a_mes"]
+TIER_A_MIN_EVENTS = _BULK_CAL["tier_a_min_events"]
+TIER_A_MIN_STRONG = _BULK_CAL["tier_a_min_strong"]
+STRONG_EVENT_SNR = _BULK_CAL["strong_event_snr"]
+TIER_B_EVENT_SNR = _BULK_CAL["tier_b_event_snr"]
+TIER_B_MAX_DEPTH_PCT = _BULK_CAL["tier_b_max_depth_pct"]
+MIN_PERIOD_D = _BULK_CAL["min_period_d"]
+MAX_PERIOD_D = _BULK_CAL["max_period_d"]
+BLS_GRID_POINTS = _BULK_CAL["bls_grid_points"]
+BLS_DURATIONS_D = tuple(_BULK_CAL["bls_durations_d"])
+SYSTEMATIC_PERIODS = tuple(_BULK_CAL["systematic_periods"])
 
 warnings.filterwarnings("ignore")
 
@@ -164,30 +183,8 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 # ---------------------------------------------------------------------------
-# Thresholds — set in advance (see module docstring). Do not tune per run.
+# Non-calibration constants (product + data source, not thresholds)
 # ---------------------------------------------------------------------------
-RECORD_FLOOR_SDE = 6.0
-SURVIVOR_SDE = 7.0
-DEPTH_MIN_PCT = 0.02
-DEPTH_EB_PCT = 3.0
-# v1.1 calibration (2026-11-11, tuned ONLY on the sector-1 proof run;
-# see bulk/CALIBRATION_V1_1.md). v1's flat SDE>=7 survivor rule passed
-# 31.6% of searched stars — unusable at 126k scale. Survivors must now
-# ALSO pass a pink-noise MES rescore (LEO-Vetter style, as in
-# Rabtsevich's screen) in one of two tiers:
-TIER_A_MES = 9.0            # periodic tier: MES_pink >= 9 (his floor)
-TIER_A_MIN_EVENTS = 3       # ... with >= 3 observed transit events
-TIER_A_MIN_STRONG = 2       # ... and >= 2 events individually >= 3 sigma
-STRONG_EVENT_SNR = 3.0
-TIER_B_EVENT_SNR = 8.0      # few-transit tier (1-2 events): the best
-                            # single event must stand at >= 8 sigma pink
-TIER_B_MAX_DEPTH_PCT = 1.0  # ... and depth <= 1% (deeper lone dips are
-                            # EB/artifact country; they stay recorded)
-MIN_PERIOD_D = 0.5
-MAX_PERIOD_D = 20.0
-BLS_GRID_POINTS = 12000
-BLS_DURATIONS_D = (0.04, 0.06, 0.09, 0.13, 0.18, 0.25)
-SYSTEMATIC_PERIODS = (13.7, 6.85, 27.4)  # mirrors hunter._SYSTEMATIC_PERIODS
 PRODUCT = "QLP"
 QLP_URL = ("https://mast.stsci.edu/api/v0.1/Download/file?uri="
            "mast:HLSP/qlp/s{sec:04d}/{a}/{b}/{c}/{d}/"
@@ -1127,10 +1124,17 @@ def main(argv=None):
 
     with open(out_dir / "survivors.jsonl", "w") as fh:
         for r in novel:
-            fh.write(json.dumps(emit_survivor_record(r, prov)) + "\n")
+            rec = emit_survivor_record(r, prov)
+            # Fail loud on a malformed record (Phase 1.1, item 3):
+            # a bad record is a code bug, and the run must stop,
+            # not write a corrupt handoff to the gauntlet.
+            _validate_survivor(rec)
+            fh.write(json.dumps(rec) + "\n")
     with open(out_dir / "screen_hits.jsonl", "w") as fh:
         for r in hits:
-            fh.write(json.dumps(emit_survivor_record(r, prov)) + "\n")
+            rec = emit_survivor_record(r, prov)
+            _validate_survivor(rec)
+            fh.write(json.dumps(rec) + "\n")
 
     # control verdict — the run's honesty check
     if args.control_tic:
