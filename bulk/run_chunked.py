@@ -198,6 +198,36 @@ SCREEN_STATUSES = frozenset({
     "survivor", "recorded", "demoted", "below_floor",
     "too_few_points", "error", "unmeasured"})
 
+# Maximum unmeasured fraction of searched stars (F-13): a run
+# that timed out on more than 5% of its stars FAILS, like a
+# conservation failure. Conservation passes when watchdog
+# timeouts land in "unmeasured" — so without this threshold an
+# outage looks like "0 survivors" and the run completes green
+# on a hollow denominator. 5% is far above the healthy rate
+# (a handful of pathological stars per sector) and far below
+# any outage.
+MAX_UNMEASURED_FRACTION = 0.05
+
+
+def check_unmeasured_fraction(searched, unmeasured):
+    """Pure: (ok, fraction) for the run-level unmeasured
+    threshold. A run with no searched stars has fraction 0.0
+    (nothing timed out because nothing ran — the conservation
+    check, not this one, catches an empty run)."""
+    frac = (unmeasured / searched) if searched else 0.0
+    return (frac <= MAX_UNMEASURED_FRACTION, frac)
+
+
+def _measured_of(summary):
+    """Stars MEASURED in one slice summary: the recorded
+    stars_measured when the screen wrote it (F-13), else
+    stars_searched minus unmeasured — so old summaries (and
+    the stub's) still yield the honest number."""
+    if summary.get("stars_measured") is not None:
+        return summary["stars_measured"]
+    return (summary.get("stars_searched", 0)
+            - summary.get("screen_counts", {}).get("unmeasured", 0))
+
 
 def check_conservation(window_stars, slice_summaries,
                        merged_survivors, toi_removed, vsx_removed):
@@ -698,6 +728,7 @@ def main():
         completed[i] = _checkpoint_entry(out, s)
         write_checkpoint(completed)
         log(f"slice {i}: done — searched {s.get('stars_searched')}, "
+            f"measured {_measured_of(s)}, "
             f"survivors {s.get('survivors')}, "
             f"tiers {s.get('survivor_tiers')}")
     # ---- merge ------------------------------------------------------------
@@ -705,13 +736,15 @@ def main():
     import bulk_screen as bs
     survivors, hits = [], []
     slice_summaries = []
-    agg = {"stars_searched": 0, "hits_recorded": 0,
+    agg = {"stars_searched": 0, "stars_measured": 0,
+           "hits_recorded": 0,
            "zooniverse_known": 0, "screen_counts": {}}
     for i in range(len(slices)):
         out = RUN / f"chunk_{i:02d}"
         s = json.loads((out / "summary.json").read_text())
         slice_summaries.append(s)
         agg["stars_searched"] += s.get("stars_searched", 0)
+        agg["stars_measured"] += _measured_of(s)
         agg["hits_recorded"] += s.get("hits_recorded", 0)
         agg["zooniverse_known"] += len(
             s.get("zooniverse_known_survivors", []))
@@ -782,6 +815,24 @@ def main():
     if not cons_ok:
         for p in cons_problems:
             log(f"CONSERVATION FAILED: {p}")
+    # F-13: the unmeasured-fraction threshold — conservation
+    # passes when timeouts land in "unmeasured", so a run that
+    # timed out on most of its stars would otherwise complete
+    # green on a hollow denominator. Like conservation, a
+    # failure here fails the run (exit 1) with the numbers
+    # recorded on the summary and manifest.
+    unmeasured_n = agg["screen_counts"].get("unmeasured", 0)
+    unmeasured_ok, unmeasured_frac = check_unmeasured_fraction(
+        agg["stars_searched"], unmeasured_n)
+    unmeasured = {"ok": unmeasured_ok, "count": unmeasured_n,
+                  "fraction": unmeasured_frac,
+                  "threshold": MAX_UNMEASURED_FRACTION}
+    if not unmeasured_ok:
+        log(f"UNMEASURED FRACTION FAILED: {unmeasured_n}/"
+            f"{agg['stars_searched']} stars unmeasured "
+            f"({unmeasured_frac:.1%} > "
+            f"{MAX_UNMEASURED_FRACTION:.0%} threshold) — the run "
+            f"timed out systematically, not on a few stars")
     summary = {
         "tool": "bulk_screen v1.2 chunked driver (run_chunked)",
         "sector": SECTOR, "stars_in": N_STARS,
@@ -797,9 +848,11 @@ def main():
                          "toi_removed": n_toi, "vsx_removed": n_vsx,
                          "zooniverse_removed": agg["zooniverse_known"]},
         "stars_searched": agg["stars_searched"],
+        "stars_measured": agg["stars_measured"],
         "hits_recorded": agg["hits_recorded"],
         "screen_counts": agg["screen_counts"],
         "conservation": conservation,
+        "unmeasured": unmeasured,
         "mixed_pipeline": MIXED_PIPELINE,
         "survivors": len(survivors), "survivor_tiers": tiers,
         "survivor_tics": [r["tic"] for r in survivors],
@@ -807,23 +860,31 @@ def main():
     }
     _atomic_write_json(RUN / "summary.json", summary)
     MANIFEST["execution"]["status"] = (
-        "completed" if cons_ok else "failed")
+        "completed" if (cons_ok and unmeasured_ok) else "failed")
     MANIFEST["execution"]["wall_seconds"] = round(
         time.time() - t_start)
     MANIFEST["counts"] = {
         "stars_searched": agg["stars_searched"],
+        "stars_measured": agg["stars_measured"],
         "hits_recorded": agg["hits_recorded"],
         "survivors": len(survivors),
         "screen_counts": agg["screen_counts"],
         "conservation": conservation,
+        "unmeasured": unmeasured,
     }
     _prov.write_manifest(RUN, MANIFEST)
     if not cons_ok:
         log(f"FAILED: conservation check failed "
             f"({len(cons_problems)} problems) — see summary.json")
         return 1
+    if not unmeasured_ok:
+        log(f"FAILED: unmeasured fraction {unmeasured_frac:.1%} "
+            f"exceeds the {MAX_UNMEASURED_FRACTION:.0%} threshold "
+            f"— see summary.json")
+        return 1
     log(f"DONE: {len(survivors)} survivors {tiers} from "
-        f"{agg['stars_searched']} searched")
+        f"{agg['stars_measured']} measured "
+        f"({agg['stars_searched']} searched)")
     return 0
 
 

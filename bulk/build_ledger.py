@@ -259,6 +259,16 @@ def build_ledger(sector, run_dir, rescore_dir=None):
             "known_vsx": known["known_vsx"],
             "known_zooniverse": known["known_zooniverse"],
             "searched": summary.get("stars_searched"),
+            # F-13: stars MEASURED (searched minus watchdog
+            # timeouts) is the number to quote as "N screened".
+            # The summary records it when the screen wrote it;
+            # old summaries yield it from searched - unmeasured.
+            "measured": (
+                summary.get("stars_measured")
+                if summary.get("stars_measured") is not None
+                else (summary.get("stars_searched") or 0)
+                - (summary.get("screen_counts") or {})
+                .get("unmeasured", 0)),
             "hits_recorded": summary.get("hits_recorded"),
             "survivors": summary.get("survivors"),
             "survivor_tiers": summary.get("survivor_tiers"),

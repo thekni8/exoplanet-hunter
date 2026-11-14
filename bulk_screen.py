@@ -1100,9 +1100,32 @@ def emit_survivor_record(rec, prov):
     return out
 
 
-def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None):
+class CircuitBreakerError(RuntimeError):
+    """Raised when MAX_CONSECUTIVE_TIMEOUTS watchdog timeouts
+    occur in a row (F-13): the screen is timing out
+    systematically — an outage, not a pathological star — and
+    continuing would record the outage as '0 survivors'.
+    main() catches it, logs a clear error, and returns non-zero
+    WITHOUT writing a summary, so the slice is not checkpointed
+    and the driver stops the run instead of merging a hollow
+    result."""
+
+
+# Consecutive watchdog timeouts that trip the circuit breaker
+# (F-13). One pathological star is data; 25 in a row with no
+# success in between is a systematic failure (a MAST outage, a
+# hung filesystem, a broken worker). The limit counts timeout
+# EVENTS in collection order — a successful completion resets
+# it to 0 — so a healthy screen with occasional slow stars
+# never trips.
+MAX_CONSECUTIVE_TIMEOUTS = 25
+
+
+def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
+                            max_consecutive_timeouts=None):
     """Submit every screen job and collect the records, with a
-    per-star watchdog (C-1).
+    per-star watchdog (C-1) and a consecutive-timeout circuit
+    breaker (F-13).
 
     Each future gets ``timeout_s`` from submission; a star that
     has not returned by then is recorded as ``status="unmeasured"``
@@ -1112,6 +1135,14 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None):
     star is already accounted for). ``worker`` is _screen_one in
     production; tests pass a fake.
 
+    Circuit breaker: consecutive watchdog timeouts are counted
+    in collection order (a successful completion resets the
+    count to 0); at ``max_consecutive_timeouts`` (default
+    MAX_CONSECUTIVE_TIMEOUTS) the function raises
+    CircuitBreakerError instead of recording another unmeasured
+    star — the screen stops with a clear error rather than
+    turning an outage into a hollow '0 survivors' slice.
+
     Caveat, stated plainly: with a ProcessPoolExecutor the hung
     worker process keeps running the star's BLS until it finishes
     (a worker cannot be killed mid-task), so executor shutdown
@@ -1120,10 +1151,13 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None):
     other stars keep screening, instead of the slice hanging
     with no output at all. Returns (records, counts).
     """
+    if max_consecutive_timeouts is None:
+        max_consecutive_timeouts = MAX_CONSECUTIVE_TIMEOUTS
     futures = {}
     for job in jobs:
         futures[ex.submit(worker, job)] = (job, time.monotonic())
     records, counts = [], {}
+    consecutive_timeouts = 0
     pending = set(futures)
     while pending:
         done, pending = _futures_wait(
@@ -1133,6 +1167,8 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None):
             rec = fut.result()
             records.append(rec)
             counts[rec["status"]] = counts.get(rec["status"], 0) + 1
+            # A success breaks the consecutive-timeout run.
+            consecutive_timeouts = 0
         now = time.monotonic()
         for fut in list(pending):
             job, t0 = futures[fut]
@@ -1149,6 +1185,15 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None):
                                   f"exceeded {timeout_s:g}s")}
                 records.append(rec)
                 counts["unmeasured"] = counts.get("unmeasured", 0) + 1
+                consecutive_timeouts += 1
+                if consecutive_timeouts >= max_consecutive_timeouts:
+                    raise CircuitBreakerError(
+                        f"{consecutive_timeouts} consecutive "
+                        f"watchdog timeouts (limit "
+                        f"{max_consecutive_timeouts}) — the "
+                        f"screen is timing out systematically, "
+                        f"not on one pathological star; "
+                        f"stopping the slice")
                 log(f"star {tic}: WATCHDOG — screen exceeded "
                     f"{timeout_s:g}s, recorded unmeasured", logf)
     # Completion order is nondeterministic; sort by TIC so the
@@ -1330,13 +1375,29 @@ def main(argv=None):
     jobs = [(tic, paths[tic], args.sector, by_tic[tic]) for tic in paths]
     with ProcessPoolExecutor(max_workers=args.workers) as ex:
         # C-1: per-star watchdog — a pathological star is recorded
-        # unmeasured instead of hanging the slice.
-        records, counts = _collect_screen_results(
-            ex, jobs, _screen_one, _net.STAR_TIMEOUT_S, logf)
+        # unmeasured instead of hanging the slice. F-13: the
+        # circuit breaker stops the slice on systematic timeouts
+        # — no summary is written, so the slice is not
+        # checkpointed and the driver stops the run.
+        try:
+            records, counts = _collect_screen_results(
+                ex, jobs, _screen_one, _net.STAR_TIMEOUT_S, logf)
+        except CircuitBreakerError as exc:
+            log(f"CIRCUIT BREAKER: {exc}", logf)
+            log("slice NOT checkpointed (no summary written) — "
+                "the driver will stop the run rather than merge "
+                "a hollow result", logf)
+            logf.close()
+            return 1
     screen_seconds = time.time() - t
     summary["screen_seconds"] = screen_seconds
     summary["screen_counts"] = counts
     summary["stars_searched"] = len(jobs)
+    # F-13: stars MEASURED (searched minus watchdog timeouts) is
+    # the number to quote as "N screened" — a run that timed out
+    # on half its stars did not screen them.
+    summary["stars_measured"] = (
+        len(jobs) - counts.get("unmeasured", 0))
     if screen_seconds > 0:
         summary["screen_stars_per_hour"] = round(
             len(jobs) / screen_seconds * 3600)
@@ -1412,6 +1473,7 @@ def main(argv=None):
         summary["wall_seconds"])
     manifest["counts"] = {
         "stars_searched": summary["stars_searched"],
+        "stars_measured": summary["stars_measured"],
         "hits_recorded": summary["hits_recorded"],
         "survivors": summary["survivors"],
         "screen_counts": summary["screen_counts"],
