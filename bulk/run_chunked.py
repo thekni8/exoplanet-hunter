@@ -180,6 +180,149 @@ def _checkpoint_path():
     return RUN / "checkpoint.json"
 
 
+# The final statuses _screen_one can return (bulk_screen.py): a
+# record starts as "searched" and every return path overwrites
+# it — "searched" itself must never appear in a summary's
+# screen_counts, and neither may any unknown status.
+SCREEN_STATUSES = frozenset({
+    "survivor", "recorded", "demoted", "below_floor",
+    "too_few_points", "error"})
+
+
+def check_conservation(window_stars, slice_summaries,
+                       merged_survivors, toi_removed, vsx_removed):
+    """The window must be conserved: every star in the window
+    ends up in exactly one bucket, and every screened survivor
+    ends up merged or removed with a named reason.
+
+    Pure: slice summaries + merge numbers in, (ok, buckets,
+    problems) out. The equations (per slice where the slice is
+    the unit, in aggregate for the run):
+
+      1. sum(slice stars_in) == window_stars
+         (the slices partition the window)
+      2. skipped_known (toi+vsx) + stars_after_filter == stars_in
+         (the known filter accounts for every star)
+      3. stars_searched + download no_product + download errors
+         == stars_after_filter (every kept star was downloaded
+         or is named as a download failure)
+      4. sum(screen_counts) == stars_searched, and every status
+         is a known final status (the screen partitions the
+         searched stars; "searched" itself never leaks)
+      5. sum(screen_counts["survivor"]) == merged_survivors
+         + toi_removed + vsx_removed + sum(zooniverse_known)
+         (every screened survivor is merged or removed with a
+         reason)
+
+    A missing bucket is a problem, not a skip (fail-closed): a
+    summary that cannot be audited is not a summary that
+    passed. Returns (ok, buckets, problems); buckets is the
+    full partition, recorded on the run summary and manifest.
+    """
+    problems = []
+    buckets = {
+        "window": window_stars,
+        "slices_in": 0,
+        "known_toi": 0, "known_vsx": 0,
+        "after_filter": 0,
+        "download_no_product": 0, "download_errors": 0,
+        "searched": 0,
+        "screen_counts": {},
+        "survivors_screened": 0,
+        "survivors_zooniverse": 0,
+        "survivors_toi": toi_removed,
+        "survivors_vsx": vsx_removed,
+        "survivors_merged": merged_survivors,
+    }
+
+    def _missing(slice_i, key):
+        problems.append(
+            f"slice {slice_i}: summary lacks {key!r} — cannot "
+            f"verify conservation")
+
+    for i, s in enumerate(slice_summaries):
+        stars_in = s.get("stars_in")
+        if stars_in is None:
+            _missing(i, "stars_in")
+            continue
+        buckets["slices_in"] += stars_in
+        skipped = s.get("skipped_known")
+        if skipped is None:
+            _missing(i, "skipped_known")
+            continue
+        n_toi = skipped.get("toi", 0)
+        n_vsx = skipped.get("vsx", 0)
+        buckets["known_toi"] += n_toi
+        buckets["known_vsx"] += n_vsx
+        after = s.get("stars_after_filter")
+        if after is None:
+            _missing(i, "stars_after_filter")
+            continue
+        buckets["after_filter"] += after
+        if n_toi + n_vsx + after != stars_in:
+            problems.append(
+                f"slice {i}: known filter does not conserve: "
+                f"{n_toi} TOI + {n_vsx} VSX + {after} kept != "
+                f"{stars_in} in")
+        dl = s.get("download")
+        if dl is None:
+            _missing(i, "download")
+            continue
+        no_prod = dl.get("no_product", 0)
+        errors = dl.get("errors", 0)
+        buckets["download_no_product"] += no_prod
+        buckets["download_errors"] += errors
+        searched = s.get("stars_searched")
+        if searched is None:
+            _missing(i, "stars_searched")
+            continue
+        buckets["searched"] += searched
+        if searched + no_prod + errors != after:
+            problems.append(
+                f"slice {i}: download does not conserve: "
+                f"{searched} searched + {no_prod} no-product + "
+                f"{errors} errors != {after} kept")
+        counts = s.get("screen_counts")
+        if counts is None:
+            _missing(i, "screen_counts")
+            continue
+        for status, n in counts.items():
+            if status not in SCREEN_STATUSES:
+                problems.append(
+                    f"slice {i}: unknown screen status "
+                    f"{status!r} ({n} stars) — not a final "
+                    f"status")
+            buckets["screen_counts"][status] = (
+                buckets["screen_counts"].get(status, 0) + n)
+        if sum(counts.values()) != searched:
+            problems.append(
+                f"slice {i}: screen counts do not conserve: "
+                f"sum {sum(counts.values())} != {searched} "
+                f"searched")
+        buckets["survivors_screened"] += counts.get("survivor", 0)
+        buckets["survivors_zooniverse"] += len(
+            s.get("zooniverse_known_survivors", []))
+
+    if buckets["slices_in"] != window_stars:
+        problems.append(
+            f"slices do not cover the window: "
+            f"{buckets['slices_in']} slice stars != "
+            f"{window_stars} window stars")
+    accounted = (buckets["survivors_merged"]
+                 + buckets["survivors_toi"]
+                 + buckets["survivors_vsx"]
+                 + buckets["survivors_zooniverse"])
+    if buckets["survivors_screened"] != accounted:
+        problems.append(
+            f"survivors do not conserve: "
+            f"{buckets['survivors_screened']} screened != "
+            f"{buckets['survivors_merged']} merged + "
+            f"{buckets['survivors_toi']} TOI + "
+            f"{buckets['survivors_vsx']} VSX + "
+            f"{buckets['survivors_zooniverse']} Zooniverse")
+    return (not problems, buckets, problems)
+
+
 def read_checkpoint():
     """The run-level progress record, or None when no slice has
     completed yet (or the file is corrupt — a corrupt checkpoint
@@ -431,11 +574,13 @@ def main():
     log("all slices done — merging")
     import bulk_screen as bs
     survivors, hits = [], []
+    slice_summaries = []
     agg = {"stars_searched": 0, "hits_recorded": 0,
            "zooniverse_known": 0, "screen_counts": {}}
     for i in range(len(slices)):
         out = RUN / f"chunk_{i:02d}"
         s = json.loads((out / "summary.json").read_text())
+        slice_summaries.append(s)
         agg["stars_searched"] += s.get("stars_searched", 0)
         agg["hits_recorded"] += s.get("hits_recorded", 0)
         agg["zooniverse_known"] += len(
@@ -492,6 +637,21 @@ def main():
             fh.write(json.dumps(r) + "\n")
     tiers = {"A": sum(1 for r in survivors if r.get("tier") == "A"),
              "B": sum(1 for r in survivors if r.get("tier") == "B")}
+    # A-7: the window must be conserved. A failure here is a
+    # data-integrity failure — stars lost between the window and
+    # the merge, or survivors unaccounted for — and the run
+    # FAILS (exit 1) with the buckets recorded, so the loss is
+    # diagnosable instead of silent. The merged outputs are
+    # still written (they exist for diagnosis), but the manifest
+    # status is "failed" and no downstream step should consume
+    # them as a completed run.
+    cons_ok, cons_buckets, cons_problems = check_conservation(
+        N_STARS, slice_summaries, len(survivors), n_toi, n_vsx)
+    conservation = {"ok": cons_ok, "buckets": cons_buckets,
+                    "problems": cons_problems}
+    if not cons_ok:
+        for p in cons_problems:
+            log(f"CONSERVATION FAILED: {p}")
     summary = {
         "tool": "bulk_screen v1.2 chunked driver (run_chunked)",
         "sector": SECTOR, "stars_in": N_STARS,
@@ -509,13 +669,15 @@ def main():
         "stars_searched": agg["stars_searched"],
         "hits_recorded": agg["hits_recorded"],
         "screen_counts": agg["screen_counts"],
+        "conservation": conservation,
         "mixed_pipeline": MIXED_PIPELINE,
         "survivors": len(survivors), "survivor_tiers": tiers,
         "survivor_tics": [r["tic"] for r in survivors],
         "wall_seconds_chunked_driver": round(time.time() - t_start),
     }
     _atomic_write_json(RUN / "summary.json", summary)
-    MANIFEST["execution"]["status"] = "completed"
+    MANIFEST["execution"]["status"] = (
+        "completed" if cons_ok else "failed")
     MANIFEST["execution"]["wall_seconds"] = round(
         time.time() - t_start)
     MANIFEST["counts"] = {
@@ -523,8 +685,13 @@ def main():
         "hits_recorded": agg["hits_recorded"],
         "survivors": len(survivors),
         "screen_counts": agg["screen_counts"],
+        "conservation": conservation,
     }
     _prov.write_manifest(RUN, MANIFEST)
+    if not cons_ok:
+        log(f"FAILED: conservation check failed "
+            f"({len(cons_problems)} problems) — see summary.json")
+        return 1
     log(f"DONE: {len(survivors)} survivors {tiers} from "
         f"{agg['stars_searched']} searched")
     return 0

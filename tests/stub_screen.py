@@ -120,6 +120,12 @@ def main(argv=None):
         for r in records:
             fh.write(json.dumps(r) + "\n")
     summary = {
+        "stars_in": len(records),
+        "skipped_known": {"toi": 0, "vsx": 0},
+        "stars_after_filter": len(records),
+        "download": {"downloaded": 0, "cached": len(records),
+                     "no_product": 0, "errors": 0, "bytes": 0,
+                     "seconds": 0},
         "stars_searched": len(records),
         "hits_recorded": len(records),
         "survivors": len(survivors),
