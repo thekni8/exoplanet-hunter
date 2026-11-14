@@ -65,6 +65,11 @@ What it checks
       flag firing, i.e. an EB suspect, not a planet (the V-shaped
       label itself is not reproducible on this smeared signal —
       see tests/golden_checks.py).
+* test_desk_live — the desk driver's clean-data re-fold gate on
+  REAL S96 QLP light curves (Phase 2, 2A): the flagged-cadence
+  artifacts TIC 355401152 and 382571558 must FAIL, the known
+  planet TIC 183537452 (TOI-192.01) must PASS. Also
+  download-backed; also live-CI only.
 
 CI split (Phase 1.1, item 4): the PR gate (golden.yml) runs
 --fast only — unit tests + offline fixtures, no network — so a
@@ -84,7 +89,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-DOWNLOAD_TESTS = {"test_golden_stars"}
+DOWNLOAD_TESTS = {"test_golden_stars", "test_desk_live"}
 
 # Smoke tier (F-10): the <=3 min PR check. Runner, status
 # matrix, blend, conservation, registry, fingerprint,

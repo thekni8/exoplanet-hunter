@@ -2,10 +2,12 @@
 #
 # Runs the FULL golden suite (tests/run_golden.py), including the
 # download-backed tests on TOI-700, WASP-126 b, and TIC 308851365
-# against live MAST data. This job is NOT a merge gate: a MAST
-# outage, a rate limit, or a product change at STScI must not look
-# like a code regression, so the test step is continue-on-error —
-# failures are visible in the Actions tab but never block a PR.
+# against live MAST data, plus the desk live tests (Phase 2, 2A:
+# the clean gate on real S96 artifact/planet light curves).
+# This job is NOT a merge gate: a MAST outage, a rate limit, or a
+# product change at STScI must not look like a code regression, so
+# the test step is continue-on-error — failures are visible in
+# the Actions tab but never block a PR.
 #
 # Non-blocking must not mean unwatched (Phase 1.2, item C-5): a
 # failed live run opens a GitHub issue (deduped — one open issue
