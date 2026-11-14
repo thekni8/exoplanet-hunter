@@ -133,12 +133,15 @@ Same lesson earlier: TIC 344334378 (signal only in bit-30 cadences).
   flagging (MES 9.3, survivor A) — at the boundary the mask's
   MES effect can go either way; no systematic gain claimed.
   Table in `bulk/SENSITIVITY_MAP.md` §v3.
-- [ ] C-7: Frozen v1 calibration files byte-identical at the end
+- [x] C-7: Frozen v1 calibration files byte-identical at the end
   (bulk_v1/deep_v1/gauntlet_v1); registry append-only (existing
-  entries untouched); full golden suite green. PENDING — the
-  registry diff is already verified purely additive (7
-  insertions, 0 deletions); frozen-file check + full suite run
-  at the end.
+  entries untouched); full golden suite green. VERIFIED
+  2026-11-15 — `git diff 4acbc16` on all v1/v2 calibration
+  files is empty; registry diff purely additive (7 insertions,
+  0 deletions); full suite `--fast` PASS: 393 tests
+  (385 offline at HEAD + 8 new), expected failures=1 (the v1
+  xfail), 1142.7 s. Discovery count confirms 397 total incl.
+  4 live tests (389 + 8).
 - [x] C-8: `test_flagged_cadence_signal_gate_fails` updated to
   the new pinned behavior (v2 promotes + gate FAILs; v3 does
   not promote) with the behavior change stated in the commit.
