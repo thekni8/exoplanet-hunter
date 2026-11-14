@@ -285,3 +285,54 @@ def run_external_tool(config, input_data, work_dir):
 def python_executable():
     """The current interpreter — the test seam for fake tools."""
     return sys.executable
+
+
+# Tools the policy may configure, in run order (LATTE first:
+# cheaper, and its report is useful even when TRICERATOPS
+# later fails).
+KNOWN_TOOLS = ("latte", "triceratops")
+
+
+def load_external_tool_configs(policy_name="external_tools_v1",
+                               repo_root=None):
+    """ToolConfigs from a versioned policy file (default
+    calibration/external_tools_v1.yaml, registry-verified by
+    the calibration loader). Returns {tool: ToolConfig} for
+    every tool the policy configures. The config_hash is the
+    policy file's own sha256 — the policy IS the tool config.
+    Wrapper paths are resolved against repo_root (default:
+    the repo root above gauntlet/); absolute paths pass
+    through unchanged. Per-tool timeout_s / memory_mb / seed
+    override the shared settings when present.
+    """
+    from calibration import load_profile, profile_sha256
+    if repo_root is None:
+        repo_root = str(Path(__file__).resolve().parent.parent)
+    policy = load_profile(policy_name)
+    config_hash = profile_sha256(policy_name)
+    configs = {}
+    for tool in KNOWN_TOOLS:
+        section = policy.get(tool)
+        if not isinstance(section, dict):
+            continue
+        venv_python = section.get("venv_python")
+        wrapper = section.get("wrapper")
+        if not venv_python or not wrapper:
+            continue
+        if not os.path.isabs(wrapper):
+            wrapper = os.path.join(repo_root, wrapper)
+        configs[tool] = ToolConfig(
+            tool=tool,
+            python=str(venv_python),
+            wrapper=str(wrapper),
+            timeout_s=int(section.get("timeout_s",
+                                      policy.get("timeout_s",
+                                                 DEFAULT_TIMEOUT_S))),
+            memory_mb=int(section.get("memory_mb",
+                                      policy.get("memory_mb",
+                                                 DEFAULT_MEMORY_MB))),
+            seed=int(section.get("seed",
+                                 policy.get("seed", DEFAULT_SEED))),
+            tool_version=str(section.get("tool_version", "")),
+            config_hash=config_hash)
+    return configs

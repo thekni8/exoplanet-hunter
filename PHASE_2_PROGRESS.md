@@ -94,10 +94,11 @@ at the end.
 | Item | Commit | What |
 |---|---|---|
 | 2B-1 | `39dc271` | Shared external-tool plumbing (`gauntlet/external_tool.py`): subprocess runner with timeout + RLIMIT_AS memory cap, C-10 input builder, missing-venv as a status. 14 tests. |
-| 2B-2 | (this commit) | LATTE adapter (`latte_result` in `stage_result.py`, report-only → INCONCLUSIVE) + output schema + `gauntlet/tools/run_latte.py` wrapper (targetlist CSV, stable indir via `_config.txt`, PDF check, nested timeout). 14 tests (adapter + wrapper against a fake LATTE package). |
+| 2B-2 | `c0ccc7a` | LATTE adapter (`latte_result` in `stage_result.py`, report-only → INCONCLUSIVE) + output schema + `gauntlet/tools/run_latte.py` wrapper (targetlist CSV, stable indir via `_config.txt`, PDF check, nested timeout). 14 tests (adapter + wrapper against a fake LATTE package). |
+| 2B-3 | (this commit) | Policy `calibration/external_tools_v1.yaml` (shared seed/timeout/memory + per-tool Mac venv paths + PROVISIONAL TRICERATOPS FPP bars) + registry entry + desk-driver wiring (post-runner evidence stages, expensive-gated) + `--external-tools` CLI flag + `docs/external-tools-mac-setup.md`. 10 tests. |
 
-Test tally after 2B-2: 427 + 14 + 14 = **455** (451 offline
-+ 4 live). Smoke tier green (194/194).
+Test tally after 2B-3: 427 + 14 + 14 + 10 = **465** (461
+offline + 4 live). Smoke tier green (194/194, after 2B-2).
 
 ### Tool research (2026-11-15 — read from the tools' own source, not the design doc's assumptions)
 
@@ -173,6 +174,33 @@ Test tally after 2B-2: 427 + 14 + 14 = **455** (451 offline
    permanent promotion-blocker. The desk driver runs them
    as opt-in post-runner evidence stages when tool configs
    are supplied.
+5. **LATTE needs Python 3.8 on the Mac — the main setup
+   risk.** tessLATTE 1.0.21 still pins matplotlib==3.2.0
+   and astropy<=4.0 (verified on PyPI 2026-11-15), which
+   have no wheels past CPython 3.8. On the Apple Silicon
+   Mac that means the Intel python.org 3.8 installer under
+   Rosetta 2, or a pyenv 3.8 build. If 3.8 cannot be
+   installed, the fallbacks are (a) relax the pins and
+   verify LATTE still produces its report, or (b) drop
+   LATTE — the in-repo checks already cover its
+   diagnostics. TRICERATOPS 1.1.0 is safer (Python 3.11;
+   numpy<2/scipy<1.14 have wheels through 3.12, pytransit /
+   celerite are the unverified part). Both are documented
+   in `docs/external-tools-mac-setup.md`, unverified until
+   a Mac run.
+6. **Tool results do NOT go in the verdict record.** The
+   verdict schema has no slot for them (`extra` only
+   carries the legacy per-stage fields), and the `stages`
+   map is exactly the aggregated results — adding LATTE
+   there would feed it to aggregate_verdict, which
+   judgment call 2 forbids. Tool evidence lives in
+   `desk_natives.json` (`extra_evidence.external_tools`)
+   and the 2D evidence package. C-10's acceptance
+   criterion 5 ("the verdict record carries the full
+   evidence") is therefore satisfied by the evidence
+   package + desk_natives.json, not by the verdict record
+   itself; extending the verdict schema with an
+   `external_tools` section is a vote item.
 
 ## 2C — TRICERATOPS (not started)
 

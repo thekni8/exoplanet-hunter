@@ -55,9 +55,13 @@ from gauntlet.census import (brightest_neighbour, catalogue_native,
                              run_census)
 from gauntlet.common import (event_parity_depths, flatten_transit_masked,
                              fold_depth, load_tpf)
+from gauntlet.external_tool import (build_tool_input,
+                                    run_external_tool, sha256_file)
 from gauntlet.pixel_check import pixel_check_native
 from gauntlet.refine import refine_native
 from gauntlet.runner import (Ephemeris, TargetContext, run_gauntlet)
+from gauntlet.stage_result import (EXEC_ERROR, STATUS_UNMEASURED,
+                                   StageResult, latte_result)
 from gauntlet.verdict import build_verdict
 
 CLEAN_GATE_SIGMA_MIN = 3.0
@@ -364,6 +368,147 @@ def transit_fit_native_for(ls_fit, r_star_rsun, rho_star):
             "converged": True,
             "chi2": ls_fit.get("chi2"),
             "npts": ls_fit.get("npts")}
+
+
+def external_tool_sections(tic, target, period_d, t0, duration_h,
+                           depth_pct, t, f, sectors, pfx, census,
+                           workdir):
+    """The C-10 external-tool input sections from the driver's
+    data. Writes the stitched light curve to
+    workdir/tool_lc.npz (time/flux) and the census to
+    workdir/stage0_census.json when it is not already there,
+    and hashes both. Returns (sections, ffi_mode) where
+    sections carries target/signal/lightcurve/neighbours and
+    ffi_mode says whether LATTE must run in FFI mode (any
+    light curve that is not SPOC 2-minute data). Raises
+    ValueError when required data is missing — the driver
+    catches it per tool and records the error, never a run
+    kill."""
+    if target is None:
+        raise ValueError("no census target row")
+    missing = [k for k in ("ra", "dec", "Tmag", "rad", "Teff",
+                           "mass")
+               if target.get(k) is None]
+    if missing:
+        raise ValueError(
+            f"census target row lacks {', '.join(missing)}")
+    if depth_pct is None:
+        raise ValueError("no filed depth for the tool input")
+    t = np.asarray(t, dtype=float)
+    f = np.asarray(f, dtype=float)
+    if len(t) < 2:
+        raise ValueError("stitched light curve has < 2 points")
+    cadence_s = float(np.median(np.diff(t))) * 86400.0
+    if not np.isfinite(cadence_s) or cadence_s <= 0:
+        raise ValueError("stitched light curve has no cadence")
+    sectors = [int(s) for s in (sectors or [])]
+    if not sectors:
+        raise ValueError("stitched light curve has no sectors")
+    lc_path = os.path.join(workdir, "tool_lc.npz")
+    np.savez(lc_path, time=t, flux=f)
+    census_path = os.path.join(workdir, "stage0_census.json")
+    if not os.path.exists(census_path):
+        if census is None:
+            raise ValueError("no census record for the tool "
+                             "input")
+        with open(census_path, "w") as fh:
+            json.dump(census, fh)
+    duration_d = float(duration_h) / 24.0
+    sections = {
+        "target": {
+            "tic": str(tic), "ra_deg": float(target["ra"]),
+            "dec_deg": float(target["dec"]),
+            "tmag": float(target["Tmag"]),
+            "star_radius_rsun": float(target["rad"]),
+            "star_mass_msun": float(target["mass"]),
+            "teff_k": float(target["Teff"])},
+        "signal": {
+            "period_d": float(period_d), "t0_bjd": float(t0),
+            "duration_h": float(duration_h),
+            "depth_frac": float(depth_pct) / 100.0,
+            "n_transits": count_events(t, period_d, t0,
+                                       duration_d)},
+        "lightcurve": {
+            "path": lc_path, "input_hash": sha256_file(lc_path),
+            "sectors": sectors, "cadence_s": cadence_s},
+        "neighbours": {
+            "path": census_path,
+            "input_hash": sha256_file(census_path),
+            "radius_arcsec": 180.0},
+    }
+    return sections, (pfx != "spoc")
+
+
+# Output-JSON adapters per external tool (stage_result.py).
+# TRICERATOPS joins here in 2C.
+_TOOL_ADAPTERS = {"latte": latte_result}
+
+
+def _run_external_tools(configs, tic, census, period_d, t0,
+                        duration_h, survivor, t, f, stitched,
+                        workdir, prov, extra):
+    """Run each configured external tool and record its
+    StageResult (as a dict) in extra[\"external_tools\"] and
+    its raw output JSON in extra[\"external_tools_raw\"].
+    Evidence only — the results are never fed to
+    aggregate_verdict (see PHASE_2_PROGRESS.md, 2B judgment
+    calls 2–3). Never raises: a per-tool failure is recorded
+    in extra[\"<tool>_error\"] and the run continues."""
+    if census is None or census.get("target") is None:
+        extra["external_tools_error"] = (
+            "no census target row: external tools need "
+            "ra/dec/Tmag/radius/mass/Teff")
+        return
+    for tool, config in configs.items():
+        adapter = _TOOL_ADAPTERS.get(tool)
+        if adapter is None:
+            extra[f"{tool}_error"] = (
+                f"no adapter registered for tool {tool!r}")
+            continue
+        try:
+            sections, ffi_mode = external_tool_sections(
+                tic, census["target"], period_d, t0, duration_h,
+                survivor.depth_pct, t, f,
+                stitched.get("sectors"), stitched.get("pfx"),
+                census, workdir)
+            inp = build_tool_input(
+                tool, config.tool_version, config.seed,
+                config.config_hash, sections["target"],
+                sections["signal"], sections["lightcurve"],
+                sections["neighbours"],
+                contrast_curve=(False if tool == "latte"
+                                else None),
+                timeout_s=config.timeout_s)
+            if tool == "latte":
+                inp["ffi_mode"] = ffi_mode
+            res = run_external_tool(
+                config, inp,
+                os.path.join(workdir, f"tool-{tool}"))
+        except Exception as exc:  # noqa: BLE001 - per-tool
+            extra[f"{tool}_error"] = (
+                f"{type(exc).__name__}: {exc}")
+            continue
+        if res.status == "completed":
+            try:
+                result = adapter(res.output, prov)
+            except Exception as exc:  # noqa: BLE001 - the
+                # adapter must not kill the run either.
+                result = StageResult(
+                    tool, STATUS_UNMEASURED,
+                    f"adapter raised {type(exc).__name__}: {exc}",
+                    dict(prov), {},
+                    execution_status=EXEC_ERROR)
+            extra.setdefault("external_tools_raw",
+                             {})[tool] = res.output
+        else:
+            result = StageResult(
+                tool, STATUS_UNMEASURED,
+                f"external tool {tool}: {res.status} — "
+                f"{res.stderr_tail}",
+                dict(prov), {},
+                execution_status=EXEC_ERROR)
+        extra.setdefault("external_tools", {})[tool] = (
+            result.to_dict())
 
 
 # ---------------------------------------------------------------------------
@@ -681,7 +826,7 @@ def _effective_waivers(waivers, results):
 
 def run_desk_gauntlet(survivor, workdir, source=None, policy=None,
                       waivers=None, run_expensive=True, run_id=None,
-                      repo_root=None):
+                      repo_root=None, external_tools=None):
     """Run the automated desk gauntlet on one survivor.
 
     Two passes (see the module docstring): cheap stages first,
@@ -698,6 +843,15 @@ def run_desk_gauntlet(survivor, workdir, source=None, policy=None,
     or not_applicable). Dropped waivers are recorded in
     extra_evidence["waivers_dropped"] — a waiver for a stage
     that reads unmeasured is operator error, not a run kill.
+
+    external_tools: None (default — no external tools) or a
+    dict {tool: ToolConfig} (gauntlet/external_tool.py;
+    load_external_tool_configs builds it from the
+    external_tools_v1 policy). The tools run as post-runner
+    EVIDENCE stages after pass 2, only on a survivor no stage
+    failed; their StageResults land in
+    extra_evidence["external_tools"] (+ raw outputs in
+    ["external_tools_raw"]) and never feed the verdict.
     """
     import provenance as _prov
     tic = str(survivor.tic)
@@ -981,6 +1135,20 @@ def run_desk_gauntlet(survivor, workdir, source=None, policy=None,
                            waivers=waivers_pass2 or None,
                            policy=policy,
                            work_dir=os.path.join(workdir, "cache"))
+
+        # ---- external tools (LATTE / TRICERATOPS): post-runner
+        # evidence stages, expensive-gated like holdout/diffimg/
+        # transit_fit — they run only on a survivor no stage
+        # failed (a dead candidate is not worth 5–15 min of
+        # Mac time per tool). Their results are evidence only
+        # and never feed the verdict (PHASE_2_PROGRESS.md, 2B
+        # judgment calls 2–3).
+        if external_tools and not any(
+                r.status == "fail" for r in run.results):
+            _run_external_tools(
+                external_tools, tic, census, p_ref, t0_ref,
+                dur_h, survivor, t_raw, f_raw, stitched,
+                workdir, prov, extra)
 
     # ---- verdict + records ----------------------------------------------
     filed = {"period_days": period, "t0_btjd": t0,

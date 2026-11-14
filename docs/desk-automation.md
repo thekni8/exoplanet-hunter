@@ -95,12 +95,44 @@ reads unmeasured is operator error, not a run kill.
    is calibration, and changing it needs a version bump +
    injection re-run.
 
+## External tools (LATTE / TRICERATOPS) — Phase 2, 2B/2C
+
+`run_desk_gauntlet(..., external_tools={tool: ToolConfig})`
+runs the configured tools as **post-runner evidence stages**
+after pass 2, only on a survivor no stage failed (a dead
+candidate is not worth 5–15 min of Mac time per tool).
+Enable from the CLI with `--external-tools` (loads
+`calibration/external_tools_v1.yaml`).
+
+The tools are **evidence only**: their StageResults land in
+`desk_natives.json` under
+`extra_evidence.external_tools` (raw outputs under
+`external_tools_raw`) and never feed `aggregate_verdict` —
+LATTE can never PASS (it emits a PDF report, no
+machine-readable dispositions), and TRICERATOPS's policy
+bars are PROVISIONAL until the Phase 2 vote ratifies them.
+A missing venv, a crash, or a timeout reads UNMEASURED +
+EXEC_ERROR; a missing census field skips the tool with the
+error recorded. Neither failure touches the verdict.
+
+The driver builds each tool's C-10 input from its own data
+(`external_tool_sections`): the stitched light curve is
+written to `tool_lc.npz`, the census to
+`stage0_census.json` when it is not already there, both
+hashed. LATTE runs in FFI mode unless the light curve is
+SPOC 2-minute data. Mac setup (venvs, first-run downloads,
+verification targets): `docs/external-tools-mac-setup.md`.
+
 ## Tests
 
 - `tests/test_desk.py` (18, offline): 12 end-to-end driver
   scenarios on synthetic light curves through a fake data
   source, extending the F-7 pattern, + 6 native-builder unit
   tests.
+- `tests/test_desk_external_tools.py` (10, offline): the
+  external-tools wiring — clean planet + tool result,
+  cheap-kill and pass-2-FAIL gating, missing venv, missing
+  census field, input-section units, policy loader.
 - `tests/test_desk_live.py` (1, download-backed): the clean
   gate on real S96 QLP light curves — the artifacts
   TIC 355401152 and 382571558 must FAIL, the known planet

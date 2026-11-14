@@ -56,6 +56,14 @@ def main(argv=None):
     ap.add_argument("--waive", action="append", default=[],
                     help='"STAGE:reason" (repeatable; F-5 waiver '
                          "policy applies)")
+    ap.add_argument("--external-tools", action="store_true",
+                    help="run the configured external tools "
+                         "(LATTE/TRICERATOPS, from the "
+                         "external_tools_v1 policy) as "
+                         "post-runner evidence stages "
+                         "(Mac-only by configuration: on a "
+                         "host without the venvs they read "
+                         "UNMEASURED)")
     args = ap.parse_args(argv)
 
     repo_root = os.path.dirname(os.path.dirname(
@@ -72,15 +80,27 @@ def main(argv=None):
         sde=args.sde, sector=args.sector,
         bulk_survivor=not args.no_bulk)
     source = LiveDataSource(repo_root=repo_root)
+    external = None
+    if args.external_tools:
+        from gauntlet.external_tool import (
+            load_external_tool_configs)
+        external = load_external_tool_configs(
+            repo_root=repo_root)
     result = run_desk_gauntlet(
         survivor, workdir, source=source,
         run_expensive=not args.no_expensive,
-        waivers=waivers or None, repo_root=repo_root)
+        waivers=waivers or None, repo_root=repo_root,
+        external_tools=external)
     print(f"TIC {args.tic}: {result.run.final_verdict}",
           flush=True)
     for r in result.run.results:
         print(f"  {r.stage:12s} {r.status:14s} "
               f"[{r.execution_status}] {r.reason}", flush=True)
+    for tool, res in sorted(
+            (result.extra_evidence.get("external_tools")
+             or {}).items()):
+        print(f"  {tool:12s} {res['status']:14s} "
+              f"[evidence only] {res['reason']}", flush=True)
     if result.cheap_kill:
         print("  (killed at a cheap stage — expensive stages not "
               "run)", flush=True)
