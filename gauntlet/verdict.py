@@ -32,10 +32,10 @@ from validation import validate_verdict  # noqa: E402
 try:
     from gauntlet.stage_result import aggregate_verdict  # noqa: E402
     from gauntlet.stage_result import (  # noqa: E402
-        _normalize_waivers as _norm_waivers)
+        normalize_waivers as _norm_waivers)
 except ImportError:  # run as a plain script from the gauntlet dir
     from stage_result import aggregate_verdict  # noqa: E402
-    from stage_result import _normalize_waivers as _norm_waivers  # noqa: E402
+    from stage_result import normalize_waivers as _norm_waivers  # noqa: E402
 
 CALIBRATION_VERSION = "gauntlet_v2"
 # Provenance map (A-2): per-subsystem bare versions. A-4 moved

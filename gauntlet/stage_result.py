@@ -54,9 +54,12 @@ a stage could not measure. The contract:
     stage_result-schema.json).
 
 Adapters map each existing stage's native output onto this type
-without changing the stage itself: the shape gate, the
-clean-data re-fold gate, the raw-flux fold, the odd/even parity
-check, the persistence stamp, and the holdout test.
+without changing the stage itself: the catalogue check, the
+clean-data re-fold gate, the period refinement, the raw-flux
+fold, the odd/even check, the persistence stamp, the holdout
+test, the difference imaging, the pixel check, and the formal
+transit fit. (The blend adapter lives in gauntlet/blend.py,
+item A-6.)
 `aggregate_verdict` turns a set of stage results (+ imaging)
 into a final verdict; `gauntlet/verdict.py:build_verdict`
 assembles and validates the verdict record.
@@ -111,20 +114,33 @@ def _policy_value(policy, key, version=DEFAULT_POLICY_VERSION):
         policy = load_decision_policy(version)
     return policy[key]
 
-# Stages every candidate must pass (vetting-manual order). A stage
-# that never ran is unmeasured — aggregate_verdict treats a missing
-# required stage exactly like an UNMEASURED result.
-REQUIRED_STAGES = ("clean_gate", "raw_flux", "shape_gate", "parity",
-                   "persistence", "holdout")
+# Stages every candidate must pass (vetting-manual order — the
+# A-5 DAG). A stage that never ran is unmeasured —
+# aggregate_verdict treats a missing required stage exactly like
+# an UNMEASURED result. `raw_flux` is NOT in the brief's DAG
+# table, but it stays a required stage: the S97 344334378
+# refutation rests on the standalone raw-flux dip test (a hard
+# REFUTED, where the shape gate would only say unmeasured), the
+# table's persistence RAW verdict is a different (per-sector)
+# test, and the brief never orders raw_flux's removal. The vote
+# may order it dropped; until then it runs.
+REQUIRED_STAGES = ("catalogue", "clean_refold", "refine",
+                   "raw_flux", "persistence", "shape", "odd_even",
+                   "holdout", "diffimg", "pixel_check",
+                   "transit_fit")
 
 # What a FAIL at each stage means for the final verdict.
 _FAIL_VERDICT = {
-    "clean_gate": "REFUTED",
+    "catalogue": "REFUTED",
+    "clean_refold": "REFUTED",
     "raw_flux": "REFUTED",
-    "shape_gate": "EB",
-    "parity": "EB",
+    "shape": "EB",
+    "odd_even": "EB",
     "persistence": "REFUTED",
     "holdout": "REFUTED",
+    "diffimg": "BLEND",
+    "pixel_check": "REFUTED",
+    "transit_fit": "EB",
 }
 
 
@@ -261,7 +277,7 @@ def _prov(prov):
 # Adapters: native stage output -> StageResult
 # ---------------------------------------------------------------------------
 
-def shape_gate_result(gate, prov=None):
+def shape_result(gate, prov=None):
     """trapezoid_shape_gate output -> StageResult.
 
     V-shaped or density-flagged -> FAIL (EB suspect). U-shaped
@@ -275,36 +291,36 @@ def shape_gate_result(gate, prov=None):
                if gate.get(k) is not None}
     if gate.get("verdict") == "unmeasured" or shape == "unmeasured":
         return StageResult(
-            "shape_gate", STATUS_UNMEASURED,
+            "shape", STATUS_UNMEASURED,
             gate.get("reason") or "shape gate unmeasured",
             _prov(prov), details)
     if gate.get("density_flag"):
         return StageResult(
-            "shape_gate", STATUS_FAIL,
+            "shape", STATUS_FAIL,
             gate.get("density_reason")
             or "density flag: fitted duration impossible for a "
                "planet on this star",
             _prov(prov), details)
     if shape == "V-shaped":
         return StageResult(
-            "shape_gate", STATUS_FAIL,
+            "shape", STATUS_FAIL,
             f"V-shaped transit (T23/T14={gate.get('T23_T14'):.2f})"
             if gate.get("T23_T14") is not None else "V-shaped",
             _prov(prov), details)
     if shape == "U-shaped":
         return StageResult(
-            "shape_gate", STATUS_PASS,
+            "shape", STATUS_PASS,
             "U-shaped transit, no density flag",
             _prov(prov), details)
     return StageResult(
-        "shape_gate", STATUS_INCONCLUSIVE,
+        "shape", STATUS_INCONCLUSIVE,
         f"ambiguous trapezoid shape "
         f"(T23/T14={gate.get('T23_T14'):.2f})"
         if gate.get("T23_T14") is not None else "ambiguous shape",
         _prov(prov), details)
 
 
-def clean_gate_result(fold, verdict, prov=None):
+def clean_refold_result(fold, verdict, prov=None):
     """clean_refold_gate verdict_for output -> StageResult.
 
     FAIL -> FAIL (signal lives only in flagged cadences).
@@ -328,17 +344,17 @@ def clean_gate_result(fold, verdict, prov=None):
           "n_transits": fold.get("n_events")}
     if verdict == "FAIL":
         return StageResult(
-            "clean_gate", STATUS_FAIL,
+            "clean_refold", STATUS_FAIL,
             "no dip in clean (quality==0) flux at the filed "
             "ephemeris — signal lives only in flagged cadences",
             _prov(prov), details, **ev)
     if verdict == "PASS":
         return StageResult(
-            "clean_gate", STATUS_PASS,
+            "clean_refold", STATUS_PASS,
             "dip persists in clean flux", _prov(prov), details,
             **ev)
     return StageResult(
-        "clean_gate", STATUS_UNMEASURED,
+        "clean_refold", STATUS_UNMEASURED,
         "insufficient clean in-transit cadences to test",
         _prov(prov), details, **ev)
 
@@ -391,7 +407,7 @@ def raw_flux_result(fold, prov=None, policy=None):
         _prov(prov), details, **ev)
 
 
-def parity_result(odd, even, prov=None, policy=None):
+def odd_even_result(odd, even, prov=None, policy=None):
     """event_parity_depths output -> StageResult.
 
     Either family unmeasured (None) -> UNMEASURED. Families
@@ -402,7 +418,7 @@ def parity_result(odd, even, prov=None, policy=None):
     fail_sigma = _policy_value(policy, "parity_fail_sigma")
     if odd is None or even is None:
         return StageResult(
-            "parity", STATUS_UNMEASURED,
+            "odd_even", STATUS_UNMEASURED,
             "odd/even families not both measurable",
             _prov(prov), {})
     import math
@@ -420,12 +436,12 @@ def parity_result(odd, even, prov=None, policy=None):
           "threshold": fail_sigma}
     if sig > 0 and diff > fail_sigma * sig:
         return StageResult(
-            "parity", STATUS_FAIL,
+            "odd_even", STATUS_FAIL,
             f"odd/even depths differ: {odd['depth_pct']:.2f}% vs "
             f"{even['depth_pct']:.2f}% ({diff / sig:.1f} sigma)",
             _prov(prov), details, **ev)
     return StageResult(
-        "parity", STATUS_PASS,
+        "odd_even", STATUS_PASS,
         "odd/even depths agree", _prov(prov), details, **ev)
 
 
@@ -477,11 +493,183 @@ def holdout_result(verdict, prov=None):
         "insufficient data for a holdout test", _prov(prov), {})
 
 
+def catalogue_result(native, prov=None):
+    """Catalogue check (manual §0) -> StageResult.
+
+    Native shape: {"known": bool, "source": "VSX"/"TOI"/"PHT"
+    or None, "var_type": str or None, "period_match": bool}.
+    Not known -> PASS. Known with a matching period -> FAIL
+    (the signal is already catalogued — a known variable at
+    this period is a blend until imaging proves otherwise, and
+    a catalogue hit ends the gauntlet). Known at a DIFFERENT
+    period -> PASS with a warning (it does not explain this
+    signal). No native output -> UNMEASURED.
+    """
+    if not native:
+        return StageResult(
+            "catalogue", STATUS_UNMEASURED,
+            "no catalogue check was run", _prov(prov), {})
+    details = {k: native.get(k) for k in
+               ("source", "var_type", "period_match")
+               if native.get(k) is not None}
+    if not native.get("known"):
+        return StageResult(
+            "catalogue", STATUS_PASS,
+            "not catalogued in VSX/TOI/PHT", _prov(prov), details)
+    if native.get("period_match"):
+        return StageResult(
+            "catalogue", STATUS_FAIL,
+            f"catalogued as {native.get('var_type') or 'variable'} "
+            f"in {native.get('source') or 'a catalogue'} at a "
+            f"matching period",
+            _prov(prov), details)
+    return StageResult(
+        "catalogue", STATUS_PASS,
+        "catalogued at a different period — does not explain "
+        "this signal", _prov(prov), details,
+        warnings=["known variable at a different period"])
+
+
+def refine_result(native, prov=None):
+    """Period refinement (manual §2) -> StageResult.
+
+    Native shape: {"period_d", "t0", "duration_d",
+    "converged": bool, "rms_resid_d": float or None,
+    "n_eras": int}. Converged -> PASS (the refined ephemeris is
+    the fold anchor from here on). A period that did not
+    converge -> INCONCLUSIVE (the phase scan measured but did
+    not settle). No period at all -> UNMEASURED. Evidence:
+    value is the RMS residual in days — the ephemeris is only
+    as good as its residuals.
+    """
+    if not native or native.get("period_d") is None:
+        return StageResult(
+            "refine", STATUS_UNMEASURED,
+            "no refined period was produced", _prov(prov), {})
+    details = {k: native.get(k) for k in
+               ("period_d", "t0", "duration_d", "rms_resid_d",
+                "n_eras") if native.get(k) is not None}
+    ev = {"value": native.get("rms_resid_d"),
+          "n_transits": native.get("n_eras")}
+    if native.get("converged"):
+        return StageResult(
+            "refine", STATUS_PASS,
+            f"refined period {native['period_d']:.7f} d",
+            _prov(prov), details, **ev)
+    return StageResult(
+        "refine", STATUS_INCONCLUSIVE,
+        "phase scan did not converge on a refined period",
+        _prov(prov), details, **ev)
+
+
+def diffimg_result(native, prov=None):
+    """Difference imaging / host localisation (manual §6) ->
+    StageResult.
+
+    Native shape: {"on_target": bool or None, "offset_px",
+    "offset_arcsec", "blend_host_tic", "n_sectors"}. On-target
+    -> PASS. Off-target -> FAIL (BLEND — the source is a
+    neighbour). No localisation -> UNMEASURED. Evidence: value
+    is the centroid offset in pixels.
+    """
+    if not native or native.get("on_target") is None:
+        return StageResult(
+            "diffimg", STATUS_UNMEASURED,
+            "no difference-imaging localisation", _prov(prov), {})
+    details = {k: native.get(k) for k in
+               ("offset_px", "offset_arcsec", "blend_host_tic",
+                "n_sectors") if native.get(k) is not None}
+    ev = {"value": native.get("offset_px")}
+    if native.get("on_target"):
+        return StageResult(
+            "diffimg", STATUS_PASS,
+            "source localises on-target", _prov(prov), details,
+            **ev)
+    host = native.get("blend_host_tic")
+    return StageResult(
+        "diffimg", STATUS_FAIL,
+        "source localises off-target"
+        + (f" (blend host TIC {host})" if host else ""),
+        _prov(prov), details, **ev)
+
+
+def pixel_check_result(native, prov=None):
+    """Pixel check (manual §7, P >= 8 d only) -> StageResult.
+
+    Native shape: {"verdict": "pass"/"fail"/"unmeasured",
+    "reason": str, "details": {...}}. Maps directly; the P < 8 d
+    NOT_APPLICABLE is assigned by the runner, not this adapter.
+    A FAIL means the pixels brighten where a dip is claimed —
+    the transit is not on this target.
+    """
+    if not native:
+        return StageResult(
+            "pixel_check", STATUS_UNMEASURED,
+            "no pixel check was run", _prov(prov), {})
+    verdict = native.get("verdict")
+    reason = native.get("reason") or f"pixel check {verdict}"
+    details = dict(native.get("details") or {})
+    if verdict == "pass":
+        return StageResult(
+            "pixel_check", STATUS_PASS, reason, _prov(prov),
+            details)
+    if verdict == "fail":
+        return StageResult(
+            "pixel_check", STATUS_FAIL, reason, _prov(prov),
+            details)
+    return StageResult(
+        "pixel_check", STATUS_UNMEASURED, reason, _prov(prov),
+        details)
+
+
+def transit_fit_result(native, prov=None):
+    """Formal transit fit (manual §8) -> StageResult.
+
+    Native shape: {"b": float or None, "rp_re": float or None,
+    "t14_h": float or None, "density_flag": bool,
+    "converged": bool}. The shape gate screens; the fit decides:
+    a converged physical fit (b < 1, no density flag) -> PASS.
+    Grazing (b >= 1) or density-flagged -> FAIL (EB suspect).
+    Not converged or no fit at all -> UNMEASURED. A converged
+    fit with an unconstrained impact parameter -> INCONCLUSIVE.
+    Evidence: value is the impact parameter, threshold 1.0.
+    """
+    if not native or not native.get("converged"):
+        return StageResult(
+            "transit_fit", STATUS_UNMEASURED,
+            "no converged transit fit", _prov(prov), {})
+    details = {k: native.get(k) for k in
+               ("b", "rp_re", "t14_h", "density_flag")
+               if native.get(k) is not None}
+    ev = {"value": native.get("b"), "threshold": 1.0,
+          "metrics": {k: native[k] for k in ("rp_re", "t14_h")
+                      if native.get(k) is not None}}
+    if native.get("b") is None:
+        return StageResult(
+            "transit_fit", STATUS_INCONCLUSIVE,
+            "fit converged but the impact parameter is "
+            "unconstrained", _prov(prov), details, **ev)
+    if native.get("density_flag"):
+        return StageResult(
+            "transit_fit", STATUS_FAIL,
+            "density flag: fitted duration impossible for a "
+            "planet on this star", _prov(prov), details, **ev)
+    if native["b"] >= 1.0:
+        return StageResult(
+            "transit_fit", STATUS_FAIL,
+            f"grazing fit (b={native['b']:.2f}) — EB suspect",
+            _prov(prov), details, **ev)
+    return StageResult(
+        "transit_fit", STATUS_PASS,
+        f"physical transit fit (b={native['b']:.2f})",
+        _prov(prov), details, **ev)
+
+
 # ---------------------------------------------------------------------------
 # Aggregation: stage results + imaging -> final verdict
 # ---------------------------------------------------------------------------
 
-def _normalize_waivers(waivers):
+def normalize_waivers(waivers):
     """Waivers as {stage: reason}. Accepts a dict or a list of
     {"stage", "reason"} dicts (the verdict record's shape).
     Raises ValueError on a malformed entry — a waiver with no
@@ -516,7 +704,7 @@ def validate_waivers(results, waivers, policy=None):
     ValueError on the first invalid waiver — an invalid waiver
     is a caller bug, and failing loud beats promoting a
     candidate on a waiver nobody authorized."""
-    waived = _normalize_waivers(waivers)
+    waived = normalize_waivers(waivers)
     if not waived:
         return {}
     if policy is None:

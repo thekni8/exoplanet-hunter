@@ -1,17 +1,20 @@
-"""Stage-runner tests (Phase 1.2, item P0-1).
+"""Stage-runner tests (Phase 1.2, item A-5).
 
 No downloads: the runner is about ORDER and GATING, so the
 tests drive it with synthetic contexts and stub stages.
 
-The rules under test (the Phase 1.1 vote's weakest closure):
-a fold stage cannot consume a bulk ephemeris; a stage cannot
-run on a missing or unmeasured prerequisite; a FAIL
-short-circuits the run; a skipped mandatory stage can never
-produce a candidate; a stage that raises becomes unmeasured
-with an error execution status, never a pass and never a
-run-killing crash.
+The rules under test:
+a fold stage cannot consume a bulk ephemeris (only refine
+produces a refined one); a stage cannot run on a missing or
+unmeasured prerequisite; cheap stages ALWAYS run, and only
+expensive stages short-circuit after a FAIL; a skipped
+mandatory stage can never produce a candidate; a stage that
+raises becomes unmeasured with an error execution status, never
+a pass and never a run-killing crash; the context is frozen and
+results are cached by input hash.
 """
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -23,7 +26,7 @@ from gauntlet.runner import (Ephemeris, StageSpec, TargetContext,  # noqa: E402
                              validate_plan)
 from gauntlet.stage_result import REQUIRED_STAGES, StageResult  # noqa: E402
 
-PROV = {"calibration_version": "gauntlet_v1",
+PROV = {"calibration_version": "gauntlet_v2",
         "pipeline_git_sha": "test",
         "run_id": "test-run-1",
         "timestamp_utc": "2026-11-14T00:00:00+00:00"}
@@ -31,33 +34,52 @@ PROV = {"calibration_version": "gauntlet_v1",
 IMAGING_ON = {"on_target": True, "offset_px": 0.06,
               "offset_arcsec": 1.3}
 
-# Native outputs that make every built-in adapter pass.
+# Native outputs that make every built-in adapter pass. The
+# period is 12.5 d (above the pixel-check 8 d floor) so the
+# pixel check runs and passes.
 PASSING_NATIVES = {
-    "clean_gate.native": (
+    "catalogue.native": {"known": False},
+    "clean_refold.native": (
         {"n_in": 42, "n_events": 13, "depth_percent": 0.9,
          "snr": 12.0}, "PASS"),
+    "refine.native": {"period_d": 12.5, "t0": 1500.0,
+                      "duration_d": 0.1, "converged": True,
+                      "rms_resid_d": 0.001, "n_eras": 5},
     "raw_flux.native": {"depth_pct": 0.9, "signif_white": 12.0,
                         "n_in": 42, "n_events": 13},
-    "shape_gate.native": {"shape_verdict": "U-shaped",
+    "shape.native": {"shape_verdict": "U-shaped",
                           "T23_T14": 0.62, "density_flag": False},
-    "parity.native": (
+    "odd_even.native": (
         {"depth_pct": 2.0, "sig_white_pct": 0.14},
         {"depth_pct": 1.9, "sig_white_pct": 0.13}),
     "persistence.native": {"verdict": "CONSISTENT", "n_usable": 6},
     "holdout.native": "HOLDOUT-PASS",
+    "diffimg.native": {"on_target": True, "offset_px": 0.06,
+                       "offset_arcsec": 1.3, "n_sectors": 3},
+    "pixel_check.native": {
+        "verdict": "pass",
+        "reason": "pixels darken at the claimed transit times"},
+    "transit_fit.native": {"b": 0.4, "rp_re": 3.2, "t14_h": 2.1,
+                           "density_flag": False,
+                           "converged": True},
 }
 
 
-def _ctx(natives=None, kind="refined", imaging=None):
-    eph = Ephemeris(kind, 2.17, 1500.0, 0.1,
+def _ctx(natives=None, kind="bulk", imaging=None, period=12.5,
+         refine_period=None, bulk_survivor=True):
+    natives = (dict(natives) if natives is not None
+               else dict(PASSING_NATIVES))
+    if refine_period is not None and "refine.native" in natives:
+        natives["refine.native"] = dict(natives["refine.native"])
+        natives["refine.native"]["period_d"] = refine_period
+    eph = Ephemeris(kind, period, 1500.0, 0.1,
                     source="phase-scan refinement"
                     if kind == "refined" else "filed")
     return TargetContext(
-        tic="238620464", ephemeris=eph,
-        artifacts=dict(natives if natives is not None
-                       else PASSING_NATIVES),
+        tic="238620464", ephemeris=eph, artifacts=natives,
         provenance=dict(PROV),
-        imaging=dict(imaging) if imaging is not None else None)
+        imaging=dict(imaging) if imaging is not None else None,
+        bulk_survivor=bulk_survivor)
 
 
 class TestEphemerisKind(unittest.TestCase):
@@ -81,34 +103,85 @@ class TestRunnerGating(unittest.TestCase):
         self.assertEqual([r.stage for r in run.results],
                          list(REQUIRED_STAGES))
 
-    def test_bulk_ephemeris_refuses_every_fold_stage(self):
-        # The core kind rule: a bulk period is not a fold anchor.
-        # Every fold stage is skipped (never run), the verdict is
-        # INCONCLUSIVE, and the reasons name the kind mismatch.
-        run = run_gauntlet(_ctx(kind="bulk", imaging=IMAGING_ON))
+    def test_fold_stages_refuse_bulk_ephemeris(self):
+        # The core kind rule: a bulk period is not a fold
+        # anchor. Without a refine native there is no refined
+        # ephemeris, so refine and every fold stage are skipped
+        # (never run); catalogue and clean_refold, which do not
+        # fold, still run and pass. The verdict is INCONCLUSIVE
+        # and the reasons name the refined ephemeris.
+        natives = dict(PASSING_NATIVES)
+        del natives["refine.native"]
+        run = run_gauntlet(_ctx(natives=natives,
+                                imaging=IMAGING_ON))
         self.assertEqual(run.final_verdict, "INCONCLUSIVE")
-        self.assertEqual(len(run.skipped), len(REQUIRED_STAGES))
-        for r in run.results:
-            self.assertEqual(r.status, "unmeasured")
-            self.assertEqual(r.execution_status, "skipped")
-            self.assertIn("refined ephemeris", r.reason)
+        by_stage = {r.stage: r for r in run.results}
+        self.assertEqual(by_stage["catalogue"].status, "pass")
+        self.assertEqual(by_stage["clean_refold"].status, "pass")
+        for name in ("refine", "raw_flux", "persistence",
+                     "shape", "odd_even", "holdout", "diffimg",
+                     "pixel_check", "transit_fit"):
+            self.assertEqual(by_stage[name].status, "unmeasured")
+            self.assertEqual(by_stage[name].execution_status,
+                             "skipped")
+        self.assertIn("ephemeris.refined",
+                      by_stage["raw_flux"].reason)
+
+    def test_refined_entry_is_not_a_completed_refinement(self):
+        # A caller holding only a refined ephemeris: the fold
+        # stages run (the refined ephemeris IS available), but
+        # refine and clean_refold are skipped — their input, the
+        # bulk ephemeris, is absent — and the run cannot reach
+        # CANDIDATE until refine actually runs.
+        run = run_gauntlet(_ctx(kind="refined",
+                                imaging=IMAGING_ON))
+        self.assertEqual(run.final_verdict, "INCONCLUSIVE")
+        by_stage = {r.stage: r for r in run.results}
+        self.assertEqual(by_stage["refine"].status, "unmeasured")
+        self.assertEqual(by_stage["refine"].execution_status,
+                         "skipped")
+        self.assertEqual(by_stage["clean_refold"].status,
+                         "unmeasured")
+        self.assertEqual(by_stage["raw_flux"].status, "pass")
+        # The note names the first blocker (clean_refold); the
+        # refine skip is asserted above.
+        self.assertIn("clean_refold", run.verdict_note)
+
+    def test_refine_upgrades_the_ephemeris(self):
+        # The pixel check's P >= 8 d rule reads the REFINED
+        # period: a 12.5 d bulk period refined to 2.17 d makes
+        # the pixel check not_applicable.
+        run = run_gauntlet(_ctx(imaging=IMAGING_ON,
+                                refine_period=2.17))
+        by_stage = {r.stage: r for r in run.results}
+        self.assertEqual(by_stage["refine"].status, "pass")
+        self.assertEqual(by_stage["pixel_check"].status,
+                         "not_applicable")
 
     def test_missing_native_output_skips_only_that_stage(self):
         natives = dict(PASSING_NATIVES)
-        del natives["shape_gate.native"]
+        del natives["shape.native"]
         run = run_gauntlet(_ctx(natives=natives, imaging=IMAGING_ON))
         self.assertEqual(run.final_verdict, "INCONCLUSIVE")
         by_stage = {r.stage: r for r in run.results}
-        self.assertEqual(by_stage["shape_gate"].status, "unmeasured")
-        self.assertEqual(by_stage["shape_gate"].execution_status,
+        self.assertEqual(by_stage["shape"].status, "unmeasured")
+        self.assertEqual(by_stage["shape"].execution_status,
                          "skipped")
-        self.assertIn("shape_gate.native",
-                      by_stage["shape_gate"].reason)
-        # The other stages still ran and passed.
+        self.assertIn("shape.native",
+                      by_stage["shape"].reason)
+        # The other stages still ran and passed — except
+        # transit_fit, whose prerequisite (shape) never ran.
         self.assertEqual(by_stage["raw_flux"].status, "pass")
-        self.assertEqual(by_stage["parity"].status, "pass")
+        self.assertEqual(by_stage["odd_even"].status, "pass")
+        self.assertEqual(by_stage["transit_fit"].status,
+                         "unmeasured")
+        self.assertIn("shape", by_stage["transit_fit"].reason)
 
-    def test_fail_short_circuits(self):
+    def test_fail_short_circuits_only_expensive_stages(self):
+        # v2 semantics (A-5): cheap stages ALWAYS run after a
+        # FAIL — their results are diagnostic. Only the
+        # expensive stages (holdout, diffimg, transit_fit)
+        # are not started.
         natives = dict(PASSING_NATIVES)
         natives["raw_flux.native"] = {
             "depth_pct": -0.02, "signif_white": -0.5,
@@ -117,9 +190,12 @@ class TestRunnerGating(unittest.TestCase):
         self.assertEqual(run.final_verdict, "REFUTED")
         by_stage = {r.stage: r for r in run.results}
         self.assertEqual(by_stage["raw_flux"].status, "fail")
-        # Everything after the fail never started.
-        for name in ("shape_gate", "parity", "persistence",
-                     "holdout"):
+        for name in ("shape", "odd_even", "persistence",
+                     "pixel_check"):
+            self.assertEqual(by_stage[name].status, "pass")
+            self.assertEqual(by_stage[name].execution_status,
+                             "completed")
+        for name in ("holdout", "diffimg", "transit_fit"):
             self.assertEqual(by_stage[name].status, "unmeasured")
             self.assertEqual(by_stage[name].execution_status,
                              "not_started")
@@ -133,19 +209,38 @@ class TestRunnerGating(unittest.TestCase):
                            mode="exhaustive")
         self.assertEqual(run.final_verdict, "REFUTED")
         by_stage = {r.stage: r for r in run.results}
-        self.assertEqual(by_stage["shape_gate"].status, "pass")
-        self.assertEqual(by_stage["shape_gate"].execution_status,
+        self.assertEqual(by_stage["shape"].status, "pass")
+        self.assertEqual(by_stage["shape"].execution_status,
                          "completed")
+        self.assertEqual(by_stage["holdout"].status, "pass")
+        self.assertEqual(by_stage["transit_fit"].status, "pass")
 
     def test_skipped_mandatory_stage_never_yields_candidate(self):
-        # A plan that omits a required stage cannot produce a
-        # candidate — the aggregator sees a never-run stage.
+        # A plan that omits required stages cannot produce a
+        # candidate — the aggregator sees never-run stages.
         run = run_gauntlet(_ctx(imaging=IMAGING_ON),
-                           stages=["clean_gate", "raw_flux",
-                                   "shape_gate", "parity",
-                                   "persistence"])
+                           stages=["catalogue", "clean_refold",
+                                   "refine", "raw_flux", "shape",
+                                   "odd_even", "persistence",
+                                   "pixel_check"])
         self.assertEqual(run.final_verdict, "INCONCLUSIVE")
         self.assertIn("holdout", run.verdict_note)
+
+    def test_out_of_order_plan_cannot_produce_candidate(self):
+        # A fold stage placed before refine is refused: its
+        # prerequisite (the refined ephemeris) does not exist
+        # yet. Order is enforced by the prerequisites, not by
+        # trusting the caller's list.
+        run = run_gauntlet(_ctx(imaging=IMAGING_ON),
+                           stages=["raw_flux", "refine",
+                                   "catalogue"])
+        by_stage = {r.stage: r for r in run.results}
+        self.assertEqual(by_stage["raw_flux"].status,
+                         "unmeasured")
+        self.assertEqual(by_stage["raw_flux"].execution_status,
+                         "skipped")
+        self.assertEqual(by_stage["refine"].status, "pass")
+        self.assertEqual(run.final_verdict, "INCONCLUSIVE")
 
     def test_unknown_stage_raises(self):
         with self.assertRaises(ValueError):
@@ -183,7 +278,7 @@ class TestDependencyGating(unittest.TestCase):
         # A stage requiring another stage's product runs only
         # when the producer PASSED.
         register_stage(StageSpec(
-            "fit_stage", requires=("shape_gate",),
+            "fit_stage", requires=("shape",),
             produces=("fit_stage",),
             func=lambda ctx: StageResult(
                 "fit_stage", "pass", "fit ok", dict(PROV)),
@@ -191,33 +286,81 @@ class TestDependencyGating(unittest.TestCase):
         try:
             # Producer passes -> dependent runs.
             run = run_gauntlet(_ctx(imaging=IMAGING_ON),
-                               stages=["shape_gate", "fit_stage"])
+                               stages=["refine", "shape",
+                                       "fit_stage"])
             by_stage = {r.stage: r for r in run.results}
             self.assertEqual(by_stage["fit_stage"].status, "pass")
-            # Producer fails -> dependent is refused, never run.
+            # Producer fails -> dependent is refused, never run
+            # (prerequisite gating is not short-circuiting: it
+            # applies in exhaustive mode too).
             natives = dict(PASSING_NATIVES)
-            natives["shape_gate.native"] = {
+            natives["shape.native"] = {
                 "shape_verdict": "V-shaped", "T23_T14": 0.25,
                 "density_flag": False}
             run = run_gauntlet(
                 _ctx(natives=natives, imaging=IMAGING_ON),
-                stages=["shape_gate", "fit_stage"],
+                stages=["refine", "shape", "fit_stage"],
                 mode="exhaustive")
             by_stage = {r.stage: r for r in run.results}
-            self.assertEqual(by_stage["shape_gate"].status, "fail")
+            self.assertEqual(by_stage["shape"].status, "fail")
             self.assertEqual(by_stage["fit_stage"].status,
                              "unmeasured")
             self.assertEqual(by_stage["fit_stage"].execution_status,
                              "skipped")
-            self.assertIn("shape_gate", by_stage["fit_stage"].reason)
+            self.assertIn("shape", by_stage["fit_stage"].reason)
         finally:
             from gauntlet.runner import STAGE_REGISTRY
             del STAGE_REGISTRY["fit_stage"]
 
+    def test_waived_prerequisite_satisfies_dependent(self):
+        # A producer that is inconclusive AND waived counts as
+        # satisfied (the transit_fit rule); without the waiver
+        # the dependent is refused.
+        register_stage(StageSpec(
+            "prod_stage", produces=("prod_stage",),
+            func=lambda ctx: StageResult(
+                "prod_stage", "inconclusive", "ambiguous",
+                dict(PROV)),
+            mandatory=False))
+        register_stage(StageSpec(
+            "dep_stage", requires=("prod_stage",),
+            produces=("dep_stage",),
+            func=lambda ctx: StageResult(
+                "dep_stage", "pass", "ran", dict(PROV)),
+            mandatory=False))
+        policy = {"waivers": {"prod_stage": "test grounds"}}
+        try:
+            run = run_gauntlet(
+                _ctx(imaging=IMAGING_ON),
+                stages=["prod_stage", "dep_stage"],
+                waivers={"prod_stage": "ambiguous by design"},
+                policy=policy)
+            by_stage = {r.stage: r for r in run.results}
+            self.assertEqual(by_stage["dep_stage"].status, "pass")
+            run = run_gauntlet(
+                _ctx(imaging=IMAGING_ON),
+                stages=["prod_stage", "dep_stage"])
+            by_stage = {r.stage: r for r in run.results}
+            self.assertEqual(by_stage["dep_stage"].status,
+                             "unmeasured")
+            self.assertEqual(by_stage["dep_stage"].execution_status,
+                             "skipped")
+        finally:
+            from gauntlet.runner import STAGE_REGISTRY
+            del STAGE_REGISTRY["prod_stage"]
+            del STAGE_REGISTRY["dep_stage"]
+
     def test_validate_plan_finds_missing_prerequisites(self):
         ctx = _ctx(natives={})
         problems = validate_plan(ctx, list(REQUIRED_STAGES))
-        self.assertEqual(len(problems), len(REQUIRED_STAGES))
+        # Every stage with a native input is a problem; the two
+        # stages whose only requirement is an ephemeris
+        # (clean_refold: bulk, present at entry; pixel_check:
+        # refined, produced by refine in the plan) are not.
+        self.assertEqual({s for s, _r in problems},
+                         {"catalogue", "refine", "raw_flux",
+                          "persistence", "shape", "odd_even",
+                          "holdout", "diffimg", "transit_fit"})
         self.assertTrue(all("native" in ";".join(reasons)
                             for _s, reasons in problems))
         # A full context validates clean.
@@ -227,24 +370,133 @@ class TestDependencyGating(unittest.TestCase):
             validate_plan(_ctx(), ["nope"])
 
 
+class TestConditionalStages(unittest.TestCase):
+    def test_pixel_check_not_applicable_below_8d(self):
+        # A short period makes the pixel check not_applicable,
+        # which blocks CANDIDATE without a waiver and passes
+        # with one (pixel_check is in the policy allowlist).
+        run = run_gauntlet(_ctx(imaging=IMAGING_ON, period=2.17,
+                                refine_period=2.17))
+        self.assertEqual(run.final_verdict, "INCONCLUSIVE")
+        by_stage = {r.stage: r for r in run.results}
+        self.assertEqual(by_stage["pixel_check"].status,
+                         "not_applicable")
+        run = run_gauntlet(
+            _ctx(imaging=IMAGING_ON, period=2.17,
+                 refine_period=2.17),
+            waivers={"pixel_check": "period 2.17 d < 8 d"})
+        self.assertEqual(run.final_verdict, "CANDIDATE")
+
+    def test_clean_refold_not_applicable_off_bulk(self):
+        # A non-bulk target has no clean-data gate: the stage is
+        # not_applicable, and the policy waives it.
+        run = run_gauntlet(_ctx(imaging=IMAGING_ON,
+                                bulk_survivor=False))
+        by_stage = {r.stage: r for r in run.results}
+        self.assertEqual(by_stage["clean_refold"].status,
+                         "not_applicable")
+        self.assertEqual(run.final_verdict, "INCONCLUSIVE")
+        run = run_gauntlet(
+            _ctx(imaging=IMAGING_ON, bulk_survivor=False),
+            waivers={"clean_refold":
+                     "deep-pipeline target, no bulk gate"})
+        self.assertEqual(run.final_verdict, "CANDIDATE")
+
+
+class TestFrozenContext(unittest.TestCase):
+    def test_context_is_immutable(self):
+        ctx = _ctx()
+        with self.assertRaises(Exception):
+            ctx.artifacts["new.native"] = {}
+        with self.assertRaises(Exception):
+            ctx.tic = "999"
+        # with_artifact derives a NEW context; the original is
+        # unchanged.
+        ctx2 = ctx.with_artifact("extra.native", {"a": 1})
+        self.assertNotIn("extra.native", ctx.artifacts)
+        self.assertIn("extra.native", ctx2.artifacts)
+        self.assertEqual(ctx2.tic, ctx.tic)
+
+    def test_context_hash_ignores_provenance(self):
+        # Two contexts differing only in run provenance (run_id,
+        # timestamp) hash identically — otherwise the cache
+        # could never hit.
+        ctx1 = _ctx()
+        prov2 = dict(PROV)
+        prov2["run_id"] = "a-different-run"
+        ctx2 = TargetContext(
+            tic=ctx1.tic, ephemeris=ctx1.ephemeris,
+            artifacts=dict(ctx1.artifacts), provenance=prov2,
+            imaging=dict(IMAGING_ON) if ctx1.imaging else None,
+            bulk_survivor=ctx1.bulk_survivor)
+        self.assertEqual(ctx1.context_hash(), ctx2.context_hash())
+        # A different native input hashes differently.
+        natives = dict(PASSING_NATIVES)
+        natives["shape.native"] = {
+            "shape_verdict": "V-shaped", "T23_T14": 0.25,
+            "density_flag": False}
+        ctx3 = _ctx(natives=natives)
+        self.assertNotEqual(ctx1.context_hash(),
+                            ctx3.context_hash())
+
+
+class TestResultCaching(unittest.TestCase):
+    def test_second_run_is_cached(self):
+        with tempfile.TemporaryDirectory() as td:
+            run1 = run_gauntlet(_ctx(imaging=IMAGING_ON),
+                                work_dir=td)
+            self.assertFalse(run1.cached)
+            self.assertEqual(run1.final_verdict, "CANDIDATE")
+            cache = Path(td) / "gauntlet-cache"
+            self.assertEqual(len(list(cache.glob("*.json"))), 1)
+            run2 = run_gauntlet(_ctx(imaging=IMAGING_ON),
+                                work_dir=td)
+            self.assertTrue(run2.cached)
+            self.assertEqual(run2.final_verdict, "CANDIDATE")
+            self.assertEqual(
+                [r.to_dict() for r in run2.results],
+                [r.to_dict() for r in run1.results])
+
+    def test_changed_input_misses_the_cache(self):
+        with tempfile.TemporaryDirectory() as td:
+            run_gauntlet(_ctx(imaging=IMAGING_ON), work_dir=td)
+            natives = dict(PASSING_NATIVES)
+            natives["shape.native"] = {
+                "shape_verdict": "V-shaped", "T23_T14": 0.25,
+                "density_flag": False}
+            run2 = run_gauntlet(_ctx(natives=natives,
+                                     imaging=IMAGING_ON),
+                                work_dir=td)
+            self.assertFalse(run2.cached)
+            self.assertEqual(run2.final_verdict, "EB")
+
+
 class TestReportGate(unittest.TestCase):
-    def test_report_blocked_without_blend(self):
+    def test_report_blocked_without_anything(self):
         ok, reason = check_report_ready([])
+        self.assertFalse(ok)
+        self.assertIn("persistence", reason)
+
+    def test_report_blocked_on_unmeasured_blend(self):
+        ok, reason = check_report_ready([
+            StageResult("persistence", "pass", "ok", PROV),
+            StageResult("diffimg", "pass", "ok", PROV),
+            StageResult("blend", "unmeasured", "no data", PROV)])
         self.assertFalse(ok)
         self.assertIn("blend", reason)
 
-    def test_report_blocked_on_unmeasured_blend(self):
-        ok, _r = check_report_ready([
-            StageResult("blend", "unmeasured", "no data", PROV)])
+    def test_report_blocked_on_failed_diffimg(self):
+        ok, reason = check_report_ready([
+            StageResult("persistence", "pass", "ok", PROV),
+            StageResult("diffimg", "fail", "off-target", PROV),
+            StageResult("blend", "pass", "ok", PROV)])
         self.assertFalse(ok)
+        self.assertIn("diffimg", reason)
 
-    def test_report_blocked_on_failed_blend(self):
+    def test_report_ready_on_all_pass(self):
         ok, _r = check_report_ready([
-            StageResult("blend", "fail", "photocopy", PROV)])
-        self.assertFalse(ok)
-
-    def test_report_ready_on_passed_blend(self):
-        ok, _r = check_report_ready([
+            StageResult("persistence", "pass", "ok", PROV),
+            StageResult("diffimg", "pass", "ok", PROV),
             StageResult("blend", "pass", "on-target", PROV)])
         self.assertTrue(ok)
 

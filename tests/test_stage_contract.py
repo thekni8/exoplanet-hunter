@@ -21,12 +21,12 @@ from gauntlet.stage_result import (EXEC_COMPLETED, EXEC_ERROR,  # noqa: E402
                                    EXEC_NOT_STARTED, EXEC_SKIPPED,
                                    REQUIRED_STAGES, STATUSES,
                                    StageResult, aggregate_verdict,
-                                   clean_gate_result,
+                                   clean_refold_result,
                                    holdout_result,
                                    load_decision_policy,
-                                   parity_result,
+                                   odd_even_result,
                                    persistence_result,
-                                   raw_flux_result, shape_gate_result,
+                                   raw_flux_result, shape_result,
                                    validate_waivers)
 from gauntlet.verdict import build_verdict  # noqa: E402
 from validation import RecordValidationError, validate_verdict  # noqa: E402
@@ -49,6 +49,16 @@ def _all_pass():
     return [_pass(s) for s in REQUIRED_STAGES]
 
 
+def _replace(results, stage, result):
+    """Swap one stage's result by NAME (indices shift as the
+    DAG grows — never index by position)."""
+    for i, r in enumerate(results):
+        if r.stage == stage:
+            results[i] = result
+            return results
+    raise AssertionError(f"no stage {stage!r} in results")
+
+
 def _base_verdict(final_verdict, **overrides):
     rec = {"calibration_version": "gauntlet_v1",
            "filed": dict(FILED),
@@ -65,14 +75,14 @@ def _base_verdict(final_verdict, **overrides):
 class TestStageResult(unittest.TestCase):
     def test_invalid_status_rejected(self):
         with self.assertRaises(ValueError):
-            StageResult("shape_gate", "maybe", "nope", PROV)
+            StageResult("shape", "maybe", "nope", PROV)
 
     def test_only_pass_is_pass(self):
         for status, expected in (("pass", True), ("fail", False),
                                  ("unmeasured", False),
                                  ("inconclusive", False),
                                  ("not_applicable", False)):
-            r = StageResult("shape_gate", status, "x", PROV)
+            r = StageResult("shape", status, "x", PROV)
             self.assertEqual(r.is_pass, expected, msg=status)
 
     def test_unmeasured_is_not_measured(self):
@@ -87,7 +97,7 @@ class TestStageResult(unittest.TestCase):
         self.assertFalse(r.is_pass)
 
     def test_round_trip(self):
-        r = StageResult("parity", "pass", "agree", PROV,
+        r = StageResult("odd_even", "pass", "agree", PROV,
                         {"odd_depth_pct": 1.0})
         self.assertEqual(StageResult.from_dict(r.to_dict()), r)
 
@@ -107,7 +117,7 @@ class TestStageResult(unittest.TestCase):
         # A Phase 1.1 record (no evidence fields) is a valid v1
         # record with empty evidence — the contract is backward
         # compatible.
-        old = {"stage": "parity", "status": "pass",
+        old = {"stage": "odd_even", "status": "pass",
                "reason": "agree", "provenance": dict(PROV),
                "details": {"odd_depth_pct": 1.0}}
         r = StageResult.from_dict(old)
@@ -117,7 +127,7 @@ class TestStageResult(unittest.TestCase):
 
     def test_invalid_execution_status_rejected(self):
         with self.assertRaises(ValueError):
-            StageResult("parity", "pass", "x", PROV,
+            StageResult("odd_even", "pass", "x", PROV,
                         execution_status="running")
 
     def test_error_execution_must_be_unmeasured(self):
@@ -151,24 +161,24 @@ class TestStageResult(unittest.TestCase):
 
 class TestAdapters(unittest.TestCase):
     def test_shape_gate(self):
-        v = shape_gate_result(
+        v = shape_result(
             {"shape_verdict": "V-shaped", "T23_T14": 0.25}, PROV)
         self.assertEqual(v.status, "fail")
-        d = shape_gate_result(
+        d = shape_result(
             {"shape_verdict": "U-shaped", "T23_T14": 0.62,
              "density_flag": True,
              "density_reason": "rho_circ/rho_star < 0.80"}, PROV)
         self.assertEqual(d.status, "fail")  # density kills a U
-        u = shape_gate_result(
+        u = shape_result(
             {"shape_verdict": "U-shaped", "T23_T14": 0.62,
              "density_flag": False}, PROV)
         self.assertEqual(u.status, "pass")
-        a = shape_gate_result(
+        a = shape_result(
             {"shape_verdict": "ambiguous", "T23_T14": 0.47,
              "density_flag": False}, PROV)
         self.assertEqual(a.status, "inconclusive")
         self.assertFalse(a.is_pass)
-        m = shape_gate_result(
+        m = shape_result(
             {"verdict": "unmeasured", "reason": "no core bins"},
             PROV)
         self.assertEqual(m.status, "unmeasured")
@@ -178,13 +188,13 @@ class TestAdapters(unittest.TestCase):
         fold = {"n_in": 42, "n_events": 13, "depth_percent": -0.03,
                 "snr": -0.5}
         self.assertEqual(
-            clean_gate_result(fold, "FAIL", PROV).status, "fail")
+            clean_refold_result(fold, "FAIL", PROV).status, "fail")
         self.assertEqual(
-            clean_gate_result(
+            clean_refold_result(
                 {"n_in": 42, "n_events": 13, "depth_percent": 0.9,
                  "snr": 12.0}, "PASS", PROV).status, "pass")
         self.assertEqual(
-            clean_gate_result(
+            clean_refold_result(
                 {"n_in": 3, "n_events": 1}, "INSUFFICIENT",
                 PROV).status, "unmeasured")
 
@@ -216,7 +226,7 @@ class TestAdapters(unittest.TestCase):
     def test_parity_carries_evidence(self):
         odd = {"depth_pct": 2.0, "sig_white_pct": 0.14}
         even = {"depth_pct": 1.9, "sig_white_pct": 0.13}
-        r = parity_result(odd, even, PROV)
+        r = odd_even_result(odd, even, PROV)
         self.assertEqual(r.status, "pass")
         self.assertAlmostEqual(r.threshold, 3.0)
         self.assertAlmostEqual(r.uncertainty, 1.0)
@@ -226,12 +236,12 @@ class TestAdapters(unittest.TestCase):
         odd = {"depth_pct": 2.0, "sig_white_pct": 0.14}
         even = {"depth_pct": 0.8, "sig_white_pct": 0.13}
         self.assertEqual(
-            parity_result(odd, even, PROV).status, "fail")
+            odd_even_result(odd, even, PROV).status, "fail")
         even2 = {"depth_pct": 1.9, "sig_white_pct": 0.13}
         self.assertEqual(
-            parity_result(odd, even2, PROV).status, "pass")
+            odd_even_result(odd, even2, PROV).status, "pass")
         self.assertEqual(
-            parity_result(None, even, PROV).status, "unmeasured")
+            odd_even_result(None, even, PROV).status, "unmeasured")
 
     def test_persistence(self):
         self.assertEqual(
@@ -265,32 +275,32 @@ class TestAggregate(unittest.TestCase):
 
     def test_fail_kills(self):
         results = _all_pass()
-        results[2] = StageResult("shape_gate", "fail", "V-shaped",
-                                 PROV)
+        _replace(results, "shape", StageResult("shape", "fail", "V-shaped",
+                                 PROV))
         verdict, _note = aggregate_verdict(results, IMAGING_ON)
         self.assertEqual(verdict, "EB")
         results = _all_pass()
-        results[0] = StageResult("clean_gate", "fail",
-                                 "flagged only", PROV)
+        _replace(results, "clean_refold", StageResult("clean_refold", "fail",
+                                 "flagged only", PROV))
         verdict, _note = aggregate_verdict(results, IMAGING_ON)
         self.assertEqual(verdict, "REFUTED")
 
     def test_unmeasured_is_never_candidate(self):
         results = _all_pass()
-        results[5] = StageResult("holdout", "unmeasured",
-                                 "no data", PROV)
+        _replace(results, "holdout", StageResult("holdout", "unmeasured",
+                                 "no data", PROV))
         verdict, _note = aggregate_verdict(results, IMAGING_ON)
         self.assertEqual(verdict, "INCONCLUSIVE")
 
     def test_missing_stage_is_never_candidate(self):
-        results = _all_pass()[:-1]  # holdout never ran
+        results = _all_pass()[:-1]  # transit_fit never ran
         verdict, _note = aggregate_verdict(results, IMAGING_ON)
         self.assertEqual(verdict, "INCONCLUSIVE")
 
     def test_inconclusive_is_never_candidate(self):
         results = _all_pass()
-        results[2] = StageResult("shape_gate", "inconclusive",
-                                 "ambiguous", PROV)
+        _replace(results, "shape", StageResult("shape", "inconclusive",
+                                 "ambiguous", PROV))
         verdict, _note = aggregate_verdict(results, IMAGING_ON)
         self.assertEqual(verdict, "INCONCLUSIVE")
 
@@ -356,8 +366,8 @@ class TestPromotionMatrix(unittest.TestCase):
         # apply is a gap in the case until the decision policy
         # waives it explicitly. Without a waiver it blocks.
         results = _all_pass()
-        results[5] = StageResult("holdout", "not_applicable",
-                                 "single-sector target", PROV)
+        _replace(results, "holdout", StageResult("holdout", "not_applicable",
+                                 "single-sector target", PROV))
         verdict, _note = aggregate_verdict(results, IMAGING_ON)
         self.assertEqual(verdict, "INCONCLUSIVE")
         results = _all_pass() + [
@@ -371,8 +381,8 @@ class TestPromotionMatrix(unittest.TestCase):
         # allowlist) and a reason, the candidate promotes — and
         # the note names the waiver.
         results = _all_pass()
-        results[5] = StageResult("holdout", "not_applicable",
-                                 "single-sector target", PROV)
+        _replace(results, "holdout", StageResult("holdout", "not_applicable",
+                                 "single-sector target", PROV))
         verdict, note = aggregate_verdict(
             results, IMAGING_ON,
             waivers={"holdout": "single-sector target: no "
@@ -514,8 +524,8 @@ class TestBuildVerdict(unittest.TestCase):
 
     def test_build_verdict_derives_kill(self):
         results = _all_pass()
-        results[2] = StageResult("shape_gate", "fail", "V-shaped",
-                                 PROV)
+        _replace(results, "shape", StageResult("shape", "fail", "V-shaped",
+                                 PROV))
         rec = build_verdict("238620464", FILED, results,
                             imaging=dict(IMAGING_ON),
                             run_id="test-run-1")
@@ -526,8 +536,8 @@ class TestBuildVerdict(unittest.TestCase):
         # INCONCLUSIVE — build_verdict cannot be talked into a
         # CANDIDATE by its caller.
         results = _all_pass()
-        results[5] = StageResult("holdout", "unmeasured",
-                                 "no data", PROV)
+        _replace(results, "holdout", StageResult("holdout", "unmeasured",
+                                 "no data", PROV))
         rec = build_verdict("238620464", FILED, results,
                             imaging=dict(IMAGING_ON),
                             run_id="test-run-1")
@@ -538,8 +548,8 @@ class TestBuildVerdict(unittest.TestCase):
         # verdict, with its reason — the record is the audit
         # trail for the waiver.
         results = _all_pass()
-        results[5] = StageResult("holdout", "not_applicable",
-                                 "single-sector target", PROV)
+        _replace(results, "holdout", StageResult("holdout", "not_applicable",
+                                 "single-sector target", PROV))
         rec = build_verdict(
             "238620464", FILED, results,
             imaging=dict(IMAGING_ON), run_id="test-run-1",
@@ -556,13 +566,13 @@ class TestBuildVerdict(unittest.TestCase):
         # a caller bug — build_verdict raises, it never writes
         # a CANDIDATE on an unauthorized waiver.
         results = _all_pass()
-        results[2] = StageResult("shape_gate", "inconclusive",
-                                 "ambiguous shape", PROV)
+        _replace(results, "shape", StageResult("shape", "inconclusive",
+                                 "ambiguous shape", PROV))
         with self.assertRaises(ValueError):
             build_verdict(
                 "238620464", FILED, results,
                 imaging=dict(IMAGING_ON), run_id="test-run-1",
-                waivers={"shape_gate": "looks fine to me"})
+                waivers={"shape": "looks fine to me"})
 
 
 class TestStatusExecutionMatrix(unittest.TestCase):
@@ -642,17 +652,17 @@ class TestWaivers(unittest.TestCase):
         # measurement, not a structural gap — the policy does
         # not list it, so it cannot be waived.
         results = _all_pass()
-        results[2] = StageResult("shape_gate", "inconclusive",
-                                 "ambiguous shape", PROV)
+        _replace(results, "shape", StageResult("shape", "inconclusive",
+                                 "ambiguous shape", PROV))
         with self.assertRaises(ValueError):
             aggregate_verdict(
                 results, IMAGING_ON,
-                waivers={"shape_gate": "looks fine to me"})
+                waivers={"shape": "looks fine to me"})
 
     def test_waiver_for_unmeasured_rejected(self):
         results = _all_pass()
-        results[5] = StageResult("holdout", "unmeasured",
-                                 "no data", PROV)
+        _replace(results, "holdout", StageResult("holdout", "unmeasured",
+                                 "no data", PROV))
         with self.assertRaises(ValueError):
             aggregate_verdict(
                 results, IMAGING_ON,
@@ -660,8 +670,8 @@ class TestWaivers(unittest.TestCase):
 
     def test_waiver_for_fail_rejected(self):
         results = _all_pass()
-        results[5] = StageResult("holdout", "fail",
-                                 "held-out sector empty", PROV)
+        _replace(results, "holdout", StageResult("holdout", "fail",
+                                 "held-out sector empty", PROV))
         with self.assertRaises(ValueError):
             aggregate_verdict(
                 results, IMAGING_ON,
@@ -726,11 +736,11 @@ class TestDecisionPolicy(unittest.TestCase):
         odd = {"depth_pct": 1.0, "sig_white_pct": 0.2}
         even = {"depth_pct": 1.5, "sig_white_pct": 0.2}
         self.assertEqual(
-            parity_result(odd, even, PROV).status, "pass")
+            odd_even_result(odd, even, PROV).status, "pass")
         strict2 = dict(load_decision_policy())
         strict2["parity_fail_sigma"] = 1.0
         self.assertEqual(
-            parity_result(odd, even, PROV,
+            odd_even_result(odd, even, PROV,
                           policy=strict2).status, "fail")
 
 
