@@ -7,8 +7,8 @@ Note: v1-spec commits `c630327` (runner) and `e1baef2` (contract) to review agai
 
 ## Release A
 
-- [ ] A-1 Calibration hash enforcement (registry)
-- [ ] A-2 Provenance layer 2
+- [x] A-1 Calibration hash enforcement (registry) — `5c7a26d`
+- [x] A-2 Provenance layer 2 — `c0364ad` (166-test fast suite green, 585.6 s, before the bare-version map correction; 123-test affected subset green after it)
 - [ ] A-3 Resume hash-mismatch refusal
 - [ ] A-4 StageResult contract v1 (allowlist + gauntlet_v2)
 - [ ] A-5 Stage runner (DAG + cheap-always)
