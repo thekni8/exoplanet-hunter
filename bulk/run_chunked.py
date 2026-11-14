@@ -279,7 +279,7 @@ def main():
     RUN_ID = _prov.new_run_id("bulk")
     R_HASH = _prov.recipe_hash(RECIPE)
     MANIFEST = _prov.build_manifest(
-        RUN_ID, "bulk_v1", sector=SECTOR, product="QLP",
+        RUN_ID, {"bulk": "v1"}, sector=SECTOR, product="QLP",
         recipe=RECIPE, recipe_file=RECIPE.get("_file"),
         status="started")
     _prov.write_manifest(RUN, MANIFEST)
@@ -420,7 +420,7 @@ def main():
         "tool": "bulk_screen v1.2 chunked driver (run_chunked)",
         "sector": SECTOR, "stars_in": N_STARS,
         "provenance": _prov.provenance_header(
-            RUN_ID, "bulk_v1", recipe_hash=R_HASH,
+            RUN_ID, {"bulk": "v1"}, recipe_hash=R_HASH,
             sha=MANIFEST["pipeline"]["git_sha"],
             timestamp_utc=MANIFEST["execution"]["started_at"]),
         "recipe": {"file": RECIPE["_file"],

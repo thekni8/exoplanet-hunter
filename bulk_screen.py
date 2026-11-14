@@ -152,6 +152,7 @@ import provenance as _prov
 from atomic_io import atomic_write_json as _atomic_write_json
 from atomic_io import atomic_writer as _atomic_writer
 from calibration import load_profile as _load_profile
+from calibration import short_version as _short_version
 from validation import validate_survivor as _validate_survivor
 
 # Thresholds — loaded from the versioned calibration profile
@@ -163,6 +164,8 @@ from validation import validate_survivor as _validate_survivor
 # importers (and the golden suite) see the same constants as before.
 _BULK_CAL = _load_profile("bulk_v1")
 CALIBRATION_VERSION = _BULK_CAL["version"]
+# Provenance map (A-2): per-subsystem bare versions, {"bulk": "v1"}.
+CALIBRATION_MAP = {"bulk": _short_version(CALIBRATION_VERSION)}
 RECORD_FLOOR_SDE = _BULK_CAL["record_floor_sde"]
 SURVIVOR_SDE = _BULK_CAL["survivor_sde"]
 DEPTH_MIN_PCT = _BULK_CAL["depth_min_pct"]
@@ -832,6 +835,11 @@ def _screen_one(args):
             f = f / trend
         f = f - np.median(f) + 1.0
 
+        # Layer 2 provenance (A-2): the exact arrays entering BLS,
+        # hashed so a result can be traced to the data it was
+        # computed from — not just the code that ran. In-memory
+        # and cheap; attached to every record that reaches BLS.
+        bls_hash = _prov.bls_input_hash(t, f)
         periods = 1.0 / np.linspace(1.0 / MAX_PERIOD_D, 1.0 / MIN_PERIOD_D,
                                     BLS_GRID_POINTS)
         bls = BoxLeastSquares(t, f)
@@ -851,7 +859,11 @@ def _screen_one(args):
                     "depth_percent": depth * 100.0, "sde": sde,
                     "near_systematic": bool(any(
                         abs(period - s) <= 0.03 * s
-                        for s in SYSTEMATIC_PERIODS))})
+                        for s in SYSTEMATIC_PERIODS)),
+                    "input_identity": _prov.input_identity(
+                        product_ids=[Path(path).name],
+                        sectors=[int(sector)], author=PRODUCT,
+                        bls_input_hash=bls_hash)})
         # Next two distinct peaks (hunter v2 pattern) ride along: a
         # single-sector screen can pin the wrong alias on a lone transit
         # (proof control: sector 1 holds ONE TOI-700 c transit; the
@@ -932,6 +944,13 @@ def _screen_one(args):
             rec["status"] = "survivor"
         else:
             rec["status"] = "recorded"
+        if rec["status"] == "survivor":
+            # Input file hash, survivors only (bounded cost): the
+            # file was just read, so it is warm in the page cache.
+            # A survivor's identity is its data, not just its numbers.
+            file_sha = _prov.file_sha256(path)
+            if file_sha is not None:
+                rec["input_identity"]["input_file_sha256"] = file_sha
         return rec
     except Exception as e:
         rec["status"] = "error"
@@ -949,7 +968,7 @@ _EMIT_KEYS = ("tic", "period_days", "t0_btjd", "duration_hours",
               "secondary_depth_percent", "near_systematic", "control",
               "status", "known_source", "alt_peaks", "mes_pink",
               "cdpp_pct", "n_events", "n_strong_events",
-              "max_event_snr", "v_ratio", "tier")
+              "max_event_snr", "v_ratio", "tier", "input_identity")
 
 
 def emit_survivor_record(rec, prov):
@@ -1016,10 +1035,11 @@ def main(argv=None):
     run_id = args.run_id or _prov.new_run_id("bulk")
     started_at = _prov.utc_now_iso()
     prov = _prov.provenance_header(
-        run_id, CALIBRATION_VERSION, recipe_hash=args.recipe_hash,
+        run_id, CALIBRATION_MAP,
+        recipe_hash=args.recipe_hash,
         timestamp_utc=started_at)
     manifest = _prov.build_manifest(
-        run_id, CALIBRATION_VERSION, sector=args.sector,
+        run_id, CALIBRATION_MAP, sector=args.sector,
         product=PRODUCT, sha=prov["pipeline_git_sha"],
         timestamp_utc=started_at, status="started")
     _prov.write_manifest(out_dir, manifest)

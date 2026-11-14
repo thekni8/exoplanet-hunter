@@ -466,7 +466,8 @@ class TestBuildVerdict(unittest.TestCase):
                             imaging=dict(IMAGING_ON),
                             run_id="test-run-1")
         self.assertEqual(rec["final_verdict"], "CANDIDATE")
-        self.assertEqual(rec["calibration_version"], "gauntlet_v1")
+        self.assertEqual(rec["calibration_version"],
+                         {"gauntlet": "v1"})
         self.assertEqual(rec["run_id"], "test-run-1")
         self.assertEqual(set(rec["stages"]), set(REQUIRED_STAGES))
 

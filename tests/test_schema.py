@@ -22,7 +22,7 @@ from validation import (RecordValidationError, validate_survivor,  # noqa: E402
                         validate_verdict)
 
 FIXED_PROV = prov.provenance_header(
-    "test-run-1", "bulk_v1", sha="abc1234",
+    "test-run-1", {"bulk": "v1"}, sha="abc1234",
     timestamp_utc="2026-11-14T06:00:00+00:00")
 
 

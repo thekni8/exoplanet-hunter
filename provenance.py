@@ -1,17 +1,28 @@
-"""Provenance headers and run manifests (Phase 1.1, item 1).
+"""Provenance headers and run manifests (Phase 1.1, item 1;
+layer 2 in Phase 1.2, item A-2).
 
 Every output record the pipeline writes — bulk-screen survivors and
 gauntlet verdicts — carries a provenance header so any result can be
 traced back to the exact code, calibration, recipe, and run that
 produced it:
 
-    schema_version      provenance schema version ("1.1")
+    schema_version      provenance schema version ("1.2")
     run_id              unique id for the run, e.g.
                         bulk-20261114T063000Z-a1b2
     pipeline_git_sha    short git SHA of the code that ran
                         ("unknown" when git is unavailable — never
                         a crash, but never a silent lie either)
-    calibration_version versioned calibration profile, e.g. "bulk_v1"
+    working_tree_clean  whether the working tree was clean at run
+                        start (None when git is unavailable). A git
+                        SHA with no dirty flag misleads whenever
+                        uncommitted code runs.
+    calibration_version per-subsystem map of versioned calibration
+                        profiles, e.g. {"bulk": "v1"} (1.2;
+                        a plain string is a legacy 1.1 record and
+                        still validates)
+    calibration_sha256  sha256 over the calibration CONTENT hashes
+                        (not just the labels) — the profiles' bytes
+                        are part of the computation's identity
     timestamp_utc       run start, ISO 8601 UTC (one timestamp per
                         run, so records from one run sort together
                         and the determinism test can fix it)
@@ -19,6 +30,15 @@ produced it:
                         overrides), when the run had a recipe —
                         the recipe file alone no longer describes
                         what ran once CLI > recipe applies
+
+Layer 2 (A-2) also identifies the INPUTS, not just the code:
+input_identity records the MAST product IDs, sectors, author,
+cadence, input file hash, selected-product manifest hash, and a
+hash of the arrays entering BLS — so a result can be traced to
+the exact data it was computed from. The fingerprint helper
+(fingerprint_result_affecting) hashes the result-affecting files
+(pipeline code + calibration + schemas) for resume checks (A-3)
+and work-item identity (C-2).
 
 The header is stamped at write time, never reconstructed
 afterwards: retrofitting provenance onto existing records is
@@ -40,7 +60,7 @@ from pathlib import Path
 
 from atomic_io import atomic_write_json
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 PIPELINE_NAME = "exoplanet-hunter"
 
 
@@ -65,6 +85,35 @@ def git_sha(short=True):
         return "unknown"
     sha = out.stdout.strip()
     return sha if sha and out.returncode == 0 else "unknown"
+
+
+@lru_cache(maxsize=8)
+def working_tree_clean(root=None):
+    """True when `git status --porcelain` reports a clean tree,
+    False when there are uncommitted changes, None when git is
+    unavailable (source export, git missing). Never raises.
+    Cached: the tree does not change mid-run. `root` defaults to
+    this repo; tests pass a temp repo."""
+    root = Path(root) if root is not None else repo_root()
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=root, capture_output=True, text=True,
+            timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip() == ""
+
+
+def git_dirty(root=None):
+    """The complement of working_tree_clean: True when the tree
+    has uncommitted changes, False when clean, None when git is
+    unavailable. (Claude, Phase 1.1 vote: a git SHA with no dirty
+    flag misleads whenever an agent runs uncommitted code.)"""
+    clean = working_tree_clean(root)
+    return None if clean is None else not clean
 
 
 def utc_now_iso():
@@ -112,36 +161,168 @@ def file_sha256(path):
     return h.hexdigest()
 
 
-def provenance_header(run_id, calibration_version, recipe_hash=None,
+# Result-affecting files (Phase 1.2, item A-2): the files whose
+# bytes can change a run's output. Pipeline code (root + gauntlet/
+# + bulk/ .py), calibration profiles, and schemas. NOT included:
+# tests (they check results, they don't make them), docs, recipes
+# (run config — hashed separately as recipe_hash), scripts (dev
+# tools), archive/ (old code, never imported), run data, CI
+# config. A docs-only commit must NOT change this fingerprint —
+# that is the property the resume check (A-3) depends on.
+_RESULT_AFFECTING_GLOBS = ("*.py", "gauntlet/*.py", "bulk/*.py",
+                           "calibration/*.yaml", "schema/*.json")
+
+
+def fingerprint_result_affecting(root=None):
+    """sha256 over the result-affecting files: the canonical JSON
+    of {relative path: file sha256}, sorted. Two checkouts with
+    equal fingerprints run identical pipeline code on identical
+    calibration and schemas. `root` defaults to this repo; tests
+    pass a temp tree."""
+    root = Path(root) if root is not None else repo_root()
+    files = {}
+    for pattern in _RESULT_AFFECTING_GLOBS:
+        for path in sorted(root.glob(pattern)):
+            if path.is_file():
+                files[path.relative_to(root).as_posix()] = \
+                    file_sha256(path)
+    return hashlib.sha256(
+        canonical_json(files).encode("utf-8")).hexdigest()
+
+
+def calibration_content_hash(calibration_versions):
+    """sha256 over the calibration CONTENT: the canonical JSON of
+    {subsystem: profile-file sha256} for the given versions map
+    (e.g. {"bulk": "v1"} — bare versions; the profile name is
+    resolved as "<subsystem>_<version>"). A label alone ("v1")
+    does not identify the bytes; this hash does. Raises
+    CalibrationError when a profile file is missing — a run that
+    cannot read its calibration is broken, not unhashable."""
+    import calibration as _cal
+    hashes = {sub: _cal.profile_sha256(
+                  _cal.profile_name(sub, ver))
+              for sub, ver in sorted(calibration_versions.items())}
+    return hashlib.sha256(
+        canonical_json(hashes).encode("utf-8")).hexdigest()
+
+
+def calibration_hashes(calibration_versions):
+    """The per-subsystem {subsystem: profile-file sha256} map
+    behind calibration_content_hash — for the manifest, where
+    the breakdown is as useful as the combined hash."""
+    import calibration as _cal
+    return {sub: _cal.profile_sha256(_cal.profile_name(sub, ver))
+            for sub, ver in sorted(calibration_versions.items())}
+
+
+def bls_input_hash(t, f):
+    """sha256 of the arrays entering BLS: the exact data the
+    search saw, after quality masking, clipping and flattening.
+    Two runs with equal BLS input hashes searched identical
+    arrays — the fixture-vs-live question (C-4) is answered by
+    comparing this hash, not by trusting that the paths match.
+    Shapes are hashed with the bytes so a reshape cannot alias."""
+    import numpy as np
+    t = np.asarray(t, dtype=np.float64)
+    f = np.asarray(f, dtype=np.float64)
+    h = hashlib.sha256()
+    h.update(str(t.shape).encode("utf-8"))
+    h.update(t.tobytes())
+    h.update(str(f.shape).encode("utf-8"))
+    h.update(f.tobytes())
+    return h.hexdigest()
+
+
+def input_identity(product_ids=None, sectors=None, author=None,
+                   cadence_s=None, input_file_sha256=None,
+                   input_manifest_sha256=None, bls_input_hash=None,
+                   fixture=False):
+    """The input-identity dict for a record or manifest: which
+    MAST products, which sectors, which author, which cadence,
+    the input file's hash, the selected-product manifest's hash,
+    and the hash of the arrays entering BLS. None-valued fields
+    are omitted; `fixture` is included only when True (offline
+    test data, not MAST products)."""
+    ident = {}
+    if product_ids is not None:
+        ident["product_ids"] = list(product_ids)
+    if sectors is not None:
+        ident["sectors"] = list(sectors)
+    if author is not None:
+        ident["author"] = author
+    if cadence_s is not None:
+        ident["cadence_s"] = cadence_s
+    if input_file_sha256 is not None:
+        ident["input_file_sha256"] = input_file_sha256
+    if input_manifest_sha256 is not None:
+        ident["input_manifest_sha256"] = input_manifest_sha256
+    if bls_input_hash is not None:
+        ident["bls_input_hash"] = bls_input_hash
+    if fixture:
+        ident["fixture"] = True
+    return ident
+
+
+def provenance_header(run_id, calibration_versions, recipe_hash=None,
                       sha=None, timestamp_utc=None):
     """The header dict stamped onto every output record.
 
-    `sha` and `timestamp_utc` default to the live values; tests pass
-    explicit ones for determinism. `recipe_hash` is omitted (not
-    null) when the run had no recipe — standalone bulk_screen runs
-    and deep-pipeline runs carry no recipe hash.
+    `calibration_versions` is a per-subsystem map, e.g.
+    {"bulk": "v1"} (1.2; a plain string is a legacy 1.1
+    record and still validates, but new code stamps the map).
+    `sha` and `timestamp_utc` default to the live values; tests
+    pass explicit ones for determinism. `recipe_hash` is omitted
+    (not null) when the run had no recipe — standalone
+    bulk_screen runs and deep-pipeline runs carry no recipe
+    hash. `working_tree_clean` and `calibration_sha256` are
+    stamped whenever they can be computed; a missing profile
+    file omits the calibration hash rather than crashing the
+    writer (the run already failed at profile load if its
+    calibration is unreadable).
     """
     header = {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
         "pipeline_git_sha": sha if sha is not None else git_sha(),
-        "calibration_version": calibration_version,
+        "working_tree_clean": working_tree_clean(),
+        "calibration_version": dict(calibration_versions),
         "timestamp_utc": (timestamp_utc if timestamp_utc is not None
                           else utc_now_iso()),
     }
+    try:
+        header["calibration_sha256"] = calibration_content_hash(
+            calibration_versions)
+    except Exception:
+        pass
     if recipe_hash is not None:
         header["recipe_hash"] = recipe_hash
     return header
 
 
-def build_manifest(run_id, calibration_version, sector=None,
+def build_manifest(run_id, calibration_versions, sector=None,
                    product=None, recipe=None, recipe_file=None,
-                   sha=None, timestamp_utc=None, status="started"):
+                   sha=None, timestamp_utc=None, status="started",
+                   input_identity=None):
     """The run-level manifest dict. `recipe` is the resolved recipe
     dict (or None); `recipe_file` its path. Callers add run-specific
     keys (counts, wall time) before writing, or write a second
-    manifest with status="completed" at the end of the run."""
+    manifest with status="completed" at the end of the run.
+
+    `calibration_versions` is the per-subsystem map (1.2); the
+    manifest records it three ways — the labels (`versions`), the
+    per-subsystem content hashes (`hashes`), and the combined
+    content hash (`sha256`) — so a manifest can be checked
+    against a registry without re-running anything. `execution`
+    records `working_tree_clean` (a git SHA with no dirty flag
+    misleads whenever uncommitted code runs), and `data` records
+    `input_identity` when the caller can supply it.
+    """
     root = repo_root()
+    try:
+        cal_hashes = calibration_hashes(calibration_versions)
+        cal_sha = calibration_content_hash(calibration_versions)
+    except Exception:
+        cal_hashes, cal_sha = {}, None
     manifest = {
         "run_id": run_id,
         "schema_version": SCHEMA_VERSION,
@@ -157,16 +338,21 @@ def build_manifest(run_id, calibration_version, sector=None,
                 root / "requirements-lock.txt"),
         },
         "calibration": {
-            "version": calibration_version,
+            "versions": dict(calibration_versions),
+            "hashes": cal_hashes,
+            "sha256": cal_sha,
         },
         "execution": {
             "started_at": (timestamp_utc if timestamp_utc is not None
                            else utc_now_iso()),
             "status": status,
+            "working_tree_clean": working_tree_clean(),
         },
     }
     if sector is not None:
         manifest["data"] = {"sector": sector, "product": product}
+        if input_identity is not None:
+            manifest["data"]["input_identity"] = input_identity
     if recipe is not None:
         manifest["recipe"] = {
             "file": str(recipe_file) if recipe_file else None,

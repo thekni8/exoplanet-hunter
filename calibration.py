@@ -131,6 +131,27 @@ def _verify_against_registry(name):
             f"copy to a new version instead of editing.")
 
 
+def profile_name(subsystem, version):
+    """The calibration profile name for a (subsystem, version)
+    pair: ("bulk", "v1") -> "bulk_v1". The provenance header
+    records versions as a per-subsystem map ({"bulk": "v1"} —
+    brief §A-2); this resolves the map back to the profile file.
+    Strict: the version is the bare version, never a full name —
+    passing "bulk_v1" as the version would resolve to the
+    nonexistent "bulk_bulk_v1" and fail loudly, as it should."""
+    return f"{subsystem}_{version}"
+
+
+def short_version(name):
+    """The bare version of a profile name: "bulk_v1" -> "v1".
+    Inverse of profile_name for well-formed names."""
+    if "_" not in name:
+        raise CalibrationError(
+            f"malformed calibration profile name {name!r}: "
+            f"expected '<subsystem>_<version>'")
+    return name.split("_", 1)[1]
+
+
 def load_profile(name):
     """Load a calibration profile by version name (e.g. "bulk_v1").
     Returns the profile dict. Raises CalibrationError if the file

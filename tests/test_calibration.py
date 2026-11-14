@@ -97,6 +97,19 @@ class TestGauntletDrift(unittest.TestCase):
 
 
 class TestLoader(unittest.TestCase):
+    def test_profile_name_and_short_version_round_trip(self):
+        # The provenance map carries bare versions ({"bulk": "v1"});
+        # the profile name is derived, never guessed.
+        self.assertEqual(calibration.profile_name("bulk", "v1"),
+                         "bulk_v1")
+        self.assertEqual(calibration.profile_name("gauntlet", "v2"),
+                         "gauntlet_v2")
+        self.assertEqual(calibration.short_version("bulk_v1"), "v1")
+        self.assertEqual(calibration.short_version("gauntlet_v2"),
+                         "v2")
+        with self.assertRaises(CalibrationError):
+            calibration.short_version("bulk")
+
     def test_missing_profile_raises(self):
         with self.assertRaises(CalibrationError):
             load_profile("bulk_v999")

@@ -103,6 +103,7 @@ CLI (original flags):
 import argparse
 import csv
 import gc
+import hashlib
 import json
 import math
 import os
@@ -126,6 +127,8 @@ import pandas as pd  # noqa: F401  (original import; kept for parity / ad-hoc us
 from astropy.coordinates import SkyCoord
 from astropy.timeseries import BoxLeastSquares
 from astroquery.mast import Catalogs
+
+import provenance as _prov
 
 OUTPUT_DIR = "reports"
 DISCOVERIES_CSV = "discoveries.csv"
@@ -727,6 +730,42 @@ def _raw_fold_depth(t, f, period, t0, duration):
 # Core pipeline (internal: returns scalars + arrays)
 # ---------------------------------------------------------------------------
 
+def _search_result_identity(search):
+    """Input identity for a selected SearchResult (Phase 1.2, A-2):
+    product IDs (obsID, falling back to dataURI), sectors, author,
+    cadence, and a hash of the selected-product manifest — the exact
+    list of products the analysis ran on. Returns {} when the table
+    is unreadable: provenance must never crash the pipeline."""
+    try:
+        table = search.table
+        cols = table.colnames
+        id_col = ("obsID" if "obsID" in cols else
+                  "dataURI" if "dataURI" in cols else None)
+        products = []
+        for idx in range(len(table)):
+            prod = {"sector": int(table["sequence_number"][idx]),
+                    "author": str(table["author"][idx]),
+                    "exptime": float(table["exptime"][idx])}
+            if id_col is not None:
+                prod["product_id"] = str(table[id_col][idx])
+            products.append(prod)
+        products.sort(key=lambda p: (p["sector"],
+                                     p.get("product_id", "")))
+        authors = sorted({p["author"] for p in products})
+        exptimes = sorted({p["exptime"] for p in products})
+        return _prov.input_identity(
+            product_ids=[p["product_id"] for p in products
+                         if "product_id" in p],
+            sectors=[p["sector"] for p in products],
+            author=authors[0] if len(authors) == 1 else "mixed",
+            cadence_s=exptimes[0] if len(exptimes) == 1 else None,
+            input_manifest_sha256=hashlib.sha256(
+                _prov.canonical_json(products).encode(
+                    "utf-8")).hexdigest())
+    except Exception:
+        return {}
+
+
 def _fixture_lightcurve(tic_id, max_sectors):
     """Offline test seam (Phase 1.1, item 4): if EXHUNT_FIXTURE_DIR
     is set and holds TIC_<tic>.npz built for the requested sector
@@ -778,6 +817,10 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # del below must not fail on the fixture path (Phase 1.1, item 4).
     if _fixture is not None:
         lc_raw, n_sectors = _fixture
+        # Offline test data, not MAST products — marked as such so
+        # a fixture result can never be mistaken for a live one.
+        _input_identity = _prov.input_identity(
+            fixture=True, product_ids=[f"fixture:TIC_{tic_id}"])
         _emit(progress_callback,
               f"Using offline fixture for TIC {tic_id} "
               f"({len(lc_raw)} points, {n_sectors} sector(s))...")
@@ -786,6 +829,10 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         sectors_to_fetch = _with_download_self_heal(
             lambda: _select_products(tic_id, max_sectors, progress_callback),
             progress_callback)
+        # Layer 2 provenance (A-2): the exact products selected,
+        # recorded before download — selection is deterministic,
+        # so this identity is reproducible from the TIC alone.
+        _input_identity = _search_result_identity(sectors_to_fetch)
         _emit(progress_callback,
               f"Downloading {len(sectors_to_fetch)} sector product(s) for TIC {tic_id}...")
         lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
@@ -1156,6 +1203,15 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
             float(np.std(vals, ddof=1) / math.sqrt(len(vals))) if len(vals) > 1 else 0.0
         )
 
+    # Layer 2 provenance (A-2): the exact arrays the REPORTED
+    # headline BLS ran on. Computed here — after pass-2 adoption —
+    # because an adopted pass 2 rebinds t/f to the masked
+    # re-flattened arrays, and the hash must describe the arrays
+    # behind the reported result (flat_time/flat_flux below), not
+    # the pass-1 arrays they replaced. When pass 2 is rejected or
+    # never runs, t/f are still the pass-1 arrays.
+    _input_identity["bls_input_hash"] = _prov.bls_input_hash(t, f)
+
     full = {
         "TIC": tic_id,
         "Period": best_period,
@@ -1168,6 +1224,9 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         "Star_Radius_Rsun": float(star_radius),
         "Sectors_Analyzed": int(n_sectors),
         "Total_Points": int(len(lc_raw)),
+        # Layer 2 provenance (A-2): which inputs this result was
+        # computed from (MAST products / fixture, BLS input hash).
+        "input_identity": _input_identity,
         # 2026-11-08: top-3 BLS peaks (headline first is NOT guaranteed;
         # consumers should treat Period/SDE as the headline candidate and
         # this list as the full peak set for triage). Since 2026-11-13
@@ -1316,6 +1375,7 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "host_radius_solar": full["Star_Radius_Rsun"],
             "sectors_analyzed": full["Sectors_Analyzed"],
             "total_points": full["Total_Points"],
+            "input_identity": full.get("input_identity", {}),
             "candidates": full.get("Candidates", []),
             "refined_signals": full.get("refined_signals", []),
             "pass1_sde": full.get("pass1_sde"),

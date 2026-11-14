@@ -31,6 +31,9 @@ except ImportError:  # run as a plain script from the gauntlet dir
     from stage_result import aggregate_verdict  # noqa: E402
 
 CALIBRATION_VERSION = "gauntlet_v1"
+# Provenance map (A-2): per-subsystem bare versions. A-4 moves
+# the decision policy to gauntlet_v2 and this becomes {"gauntlet": "v2"}.
+CALIBRATION_MAP = {"gauntlet": "v1"}
 
 
 def build_verdict(tic, filed, stage_results, imaging=None,
@@ -59,7 +62,7 @@ def build_verdict(tic, filed, stage_results, imaging=None,
         verdict_note = note
     header = _prov.provenance_header(
         run_id if run_id is not None else _prov.new_run_id("gauntlet"),
-        CALIBRATION_VERSION)
+        CALIBRATION_MAP)
     record = {
         "tic": str(tic),
         "filed": dict(filed),
