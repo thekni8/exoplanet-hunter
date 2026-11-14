@@ -61,6 +61,8 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from mad_clip import mad_clip_mask as _mad_clip_mask  # noqa: E402
+
 # Module globals set by main() and read by the download helpers.
 TIC = None
 DATA = None
@@ -151,14 +153,16 @@ def load_stitched(pfx, secs):
         spans.append((s, float(t.min()), float(t.max())))
     t = np.concatenate(ts); f = np.concatenate(fs)
     o = np.argsort(t); t, f = t[o], f[o]
-    med = np.median(f); sig = 1.4826 * np.median(np.abs(f - med))
     # Asymmetric clip (2026-11-14, TIC 139526205): the lower cut is
     # floored at 10% below the median. A symmetric 5-sigma cut deletes
     # real transits on quiet stars — a 6% eclipse on a 0.08%-MAD star
     # is 75 sigma, so every in-transit point was clipped and the star
     # read as refuted; even a 0.5% transit loses most of its points.
     # Genuine outliers (excursions >> 10%) are still clipped both sides.
-    keep = (f < med + 5 * sig) & (f > med - max(5 * sig, MAD_CLIP_FLOOR_FRAC))
+    # The clip is the shared function (mad_clip.py, B-2); the floor
+    # stays this module's drift-tested constant.
+    keep = _mad_clip_mask(f, "floor_10pct",
+                          floor_frac=MAD_CLIP_FLOOR_FRAC)
     return t[keep], f[keep], spans
 
 
