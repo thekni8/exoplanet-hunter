@@ -570,7 +570,10 @@ def catalogue_result(native, prov=None):
     this period is a blend until imaging proves otherwise, and
     a catalogue hit ends the gauntlet). Known at a DIFFERENT
     period -> PASS with a warning (it does not explain this
-    signal). No native output -> UNMEASURED.
+    signal). A PHT hit carries no period, so it reads
+    INCONCLUSIVE — a human must read the discussion before any
+    claim (a Talk thread may already hold this signal). No
+    native output -> UNMEASURED.
     """
     if not native:
         return StageResult(
@@ -583,6 +586,13 @@ def catalogue_result(native, prov=None):
         return StageResult(
             "catalogue", STATUS_PASS,
             "not catalogued in VSX/TOI/PHT", _prov(prov), details)
+    if (native.get("source") == "PHT"
+            and native.get("period_match") is None):
+        return StageResult(
+            "catalogue", STATUS_INCONCLUSIVE,
+            "discussed on Planet Hunters Talk — a human must read "
+            "the discussion before any claim",
+            _prov(prov), details)
     if native.get("period_match"):
         return StageResult(
             "catalogue", STATUS_FAIL,

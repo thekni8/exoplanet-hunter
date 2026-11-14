@@ -36,10 +36,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import hunter  # noqa: E402
 from calibration import load_profile  # noqa: E402
 from gauntlet.blend import check_blend  # noqa: E402
+from gauntlet.census import (  # noqa: E402
+    brightest_neighbour, catalogue_native, census_usable,
+    period_matches)
 from gauntlet.diffimg import (  # noqa: E402
     census_from_rows, census_radius_from_policy,
     load_census_json, tic_cone_census)
-from gauntlet.stage_result import blend_result  # noqa: E402
+from gauntlet.stage_result import blend_result, catalogue_result  # noqa: E402
 
 FIX = Path(__file__).resolve().parent / "fixtures" / "census"
 BLEND_FIX = Path(__file__).resolve().parent / "fixtures" / "blend"
@@ -300,6 +303,146 @@ class TestNoFalseKill(unittest.TestCase):
 
     def test_wasp126_not_killed(self):
         self._check("25155310")
+
+
+# --- Stage-0 catalogue (Phase 2, 2A) -------------------------------------
+#
+# gauntlet/census.py ports the manual stage-0 census in-repo.
+# These tests are offline: they drive the pure mapping functions
+# (catalogue_native, period_matches, brightest_neighbour,
+# census_usable) on canned census dicts, plus the PHT branch of
+# the catalogue adapter. The live run_census() has no offline
+# test — it is exercised by the live desk run (docs/
+# desk-automation.md) and by the mocked-MAST pattern below for
+# the fail-closed rule.
+
+def _census(**over):
+    base = {"target": {"ID": "183537452", "ra": 10.0, "dec": -60.0,
+                       "Tmag": 10.25, "rad": 0.9, "mass": 0.8},
+            "tic_cone_180arcsec": [],
+            "gaia_dr3_cone": None, "vsx_cone_180arcsec": [],
+            "toi": {"is_toi": False, "rows": []},
+            "pht": {"is_discussed": False, "n_hits": 0},
+            "flags": [], "errors": []}
+    base.update(over)
+    return base
+
+
+class TestCatalogueNative(unittest.TestCase):
+    def test_period_matches(self):
+        self.assertEqual(period_matches(3.9227, 3.9227), (True, "P"))
+        self.assertEqual(period_matches(7.8454, 3.9227), (True, "2P"))
+        self.assertEqual(period_matches(1.96135, 3.9227), (True, "P/2"))
+        self.assertEqual(period_matches(3.80, 3.9227), (False, None))
+        self.assertEqual(period_matches("7.8454", 3.9227), (True, "2P"))
+        self.assertEqual(period_matches(None, 3.9227), (False, None))
+        self.assertEqual(period_matches("—", 3.9227), (False, None))
+
+    def test_clean_star_passes(self):
+        native = catalogue_native(_census(), 3.9227)
+        self.assertEqual(native["known"], False)
+        self.assertEqual(catalogue_result(native).status, "pass")
+
+    def test_toi_period_match_kills(self):
+        # The 2026-11-14 rescore lead: TOI-192.01 = WASP-29b,
+        # period matches to 7 figures.
+        c = _census(toi={"is_toi": True, "rows": [
+            {"toi": "192.01", "period_d": 3.92273,
+             "disposition": "KP"}]})
+        native = catalogue_native(c, 3.9227)
+        self.assertEqual(native, {"known": True, "source": "TOI",
+                                  "var_type": "KP",
+                                  "period_match": True})
+        self.assertEqual(catalogue_result(native).status, "fail")
+
+    def test_toi_other_period_passes_with_warning(self):
+        c = _census(toi={"is_toi": True, "rows": [
+            {"toi": "999.01", "period_d": 9.5, "disposition": "PC"}]})
+        native = catalogue_native(c, 3.9227)
+        self.assertFalse(native["period_match"])
+        r = catalogue_result(native)
+        self.assertEqual(r.status, "pass")
+        self.assertTrue(r.warnings)
+
+    def test_vsx_within_30arcsec_match_kills(self):
+        c = _census(vsx_cone_180arcsec=[
+            {"name": "V123", "type": "EB", "period_d": "7.8454",
+             "sep_arcsec": 12.0}])
+        native = catalogue_native(c, 3.9227)
+        self.assertEqual(native["source"], "VSX")
+        self.assertTrue(native["period_match"])
+        self.assertEqual(catalogue_result(native).status, "fail")
+
+    def test_vsx_beyond_30arcsec_is_not_a_catalogue_kill(self):
+        # A matching variable 170" out is blend evidence, not a
+        # catalogue kill — the blend stage owns it.
+        c = _census(vsx_cone_180arcsec=[
+            {"name": "V123", "type": "EB", "period_d": "3.9227",
+             "sep_arcsec": 170.0}])
+        native = catalogue_native(c, 3.9227)
+        self.assertFalse(native["known"])
+
+    def test_pht_hit_is_inconclusive(self):
+        c = _census(pht={"is_discussed": True, "n_hits": 3})
+        native = catalogue_native(c, 3.9227)
+        self.assertEqual(native["source"], "PHT")
+        self.assertIsNone(native["period_match"])
+        r = catalogue_result(native)
+        self.assertEqual(r.status, "inconclusive")
+        self.assertIn("Planet Hunters Talk", r.reason)
+
+    def test_fail_closed_on_subcheck_error(self):
+        # A failed TOI query blocks the stage (UNMEASURED via a
+        # missing native) instead of passing on a check that
+        # never ran. A Gaia failure alone does not block.
+        self.assertIsNone(
+            catalogue_native(_census(errors=["toi: timeout"]), 3.9227))
+        self.assertIsNone(
+            catalogue_native(_census(errors=["vsx: HTTP 500"]), 3.9227))
+        self.assertIsNone(
+            catalogue_native(_census(errors=["pht: HTTP 503"]), 3.9227))
+        self.assertIsNone(
+            catalogue_native(_census(target=None), 3.9227))
+        self.assertIsNotNone(
+            catalogue_native(_census(errors=["gaia: 404"]), 3.9227))
+        self.assertTrue(census_usable(_census(errors=["gaia: 404"])))
+        self.assertFalse(census_usable(_census(errors=["toi: x"])))
+
+    def test_brightest_neighbour(self):
+        c = _census(tic_cone_180arcsec=[
+            {"tic_id": "183537452", "Tmag": 10.25, "is_target": True,
+             "sep_arcsec": 0.0},
+            {"tic_id": "111", "Tmag": 12.0, "is_target": False,
+             "sep_arcsec": 40.0},
+            {"tic_id": "222", "Tmag": 9.5, "is_target": False,
+             "sep_arcsec": 120.0},
+            {"tic_id": "333", "Tmag": None, "is_target": False,
+             "sep_arcsec": 20.0}])
+        nb = brightest_neighbour(c)
+        self.assertEqual(nb["tic_id"], "222")
+        self.assertIsNone(brightest_neighbour(_census()))
+
+    def test_census_file_feeds_diffimg(self):
+        # run_census writes tic_cone_search + radius_arcsec so the
+        # stage0 record loads straight into diffimg --census-json.
+        from gauntlet.diffimg import load_census_json
+        cone = [{"tic_id": "183537452", "Tmag": 10.25,
+                 "is_target": True, "sep_arcsec": 0.0},
+                {"tic_id": "222", "Tmag": 9.5, "is_target": False,
+                 "sep_arcsec": 120.0}]
+        c = _census(tic_cone_180arcsec=cone, tic_cone_search=cone,
+                    radius_arcsec=180.0)
+        with tempfile.NamedTemporaryFile("w", suffix=".json",
+                                        delete=False) as fh:
+            json.dump(c, fh)
+            path = fh.name
+        try:
+            tmag, cone_out, radius = load_census_json(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(tmag, 10.25)
+        self.assertEqual(radius, 180.0)
+        self.assertEqual(len(cone_out), 2)
 
 
 if __name__ == "__main__":
