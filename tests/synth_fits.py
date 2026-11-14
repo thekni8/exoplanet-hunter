@@ -40,7 +40,8 @@ def make_qlp_fits(path, *, n_points=1296, cadence_min=30.0,
     (default 30 — the S96 gauntlet artifacts live in bits 29/30;
     pass flag_bit=29 for the bit-29 variant) — the screen
     (bitmask 17087) keeps them and sees the signal, but the
-    clean-data gate (quality==0) sees no dip at all.
+    clean-data gate (v3 mask excludes bits 29/30) sees no dip
+    at all.
     """
     rng = np.random.default_rng(seed)
     t = t_start + np.arange(n_points) * cadence_min / 1440.0
