@@ -44,6 +44,8 @@ from atomic_io import atomic_write_text as _atomic_write_text
 from atomic_io import atomic_writer as _atomic_writer
 from bulk.recipe import (RecipeError, apply_overrides, default_recipe_path,
                          load_recipe)
+from calibration import load_profile as _load_profile
+from calibration import short_version as _short_version
 import provenance as _prov
 from validation import validate_survivor as _validate_survivor
 BULK = ROOT / "bulk"  # overridable via --work-dir (tests + ports)
@@ -405,6 +407,13 @@ def main():
                          "writes. Without it, a checkpoint from "
                          "different result-affecting files refuses "
                          "to resume.")
+    ap.add_argument("--calibration", default="bulk_v1",
+                    help="bulk calibration profile (default: bulk_v1; "
+                         "bulk_v2 fixes the MAD-clip defect)")
+    ap.add_argument("--allow-v1", action="store_true",
+                    help="allow screening a sector outside 96-98 "
+                         "under bulk_v1 (known MAD-clip defect — "
+                         "prefer --calibration bulk_v2)")
     ap.add_argument("--min-mag", type=float, default=None)
     ap.add_argument("--max-mag", type=float, default=None)
     ap.add_argument("--min-rad", type=float, default=None)
@@ -433,6 +442,15 @@ def main():
     SECTOR = recipe["sector"]
     if SECTOR is None:
         ap.error("--sector is required (or set sector: in the recipe)")
+    # Validate the calibration name up front (registry-verified
+    # load) so a typo fails here, not at slice 0. The v1 sector
+    # gate itself lives in bulk_screen.main — the slice command
+    # carries --calibration/--allow-v1 through, and each slice
+    # enforces it before screening.
+    try:
+        _load_profile(args.calibration)
+    except Exception as exc:
+        ap.error(str(exc))
     RECIPE = recipe
     SLICE = recipe["slice_size"]
     if args.work_dir:
@@ -447,7 +465,8 @@ def main():
     RUN_ID = _prov.new_run_id("bulk")
     R_HASH = _prov.recipe_hash(RECIPE)
     MANIFEST = _prov.build_manifest(
-        RUN_ID, {"bulk": "v1"}, sector=SECTOR, product="QLP",
+        RUN_ID, {"bulk": _short_version(args.calibration)},
+        sector=SECTOR, product="QLP",
         recipe=RECIPE, recipe_file=RECIPE.get("_file"),
         status="started")
     # A-3: the fingerprint of the result-affecting files THIS
@@ -459,7 +478,7 @@ def main():
     MIXED_PIPELINE = False
     _prov.write_manifest(RUN, MANIFEST)
     log(f"run_id: {RUN_ID} (recipe hash {R_HASH[:12]}…, "
-        f"calibration bulk_v1)")
+        f"calibration {args.calibration})")
     log(f"recipe: {recipe['_file']} (sector {SECTOR}, "
         f"window Tmag {recipe['window']['min_mag']}-"
         f"{recipe['window']['max_mag']}, R "
@@ -548,7 +567,10 @@ def main():
                "--cache-dir", str(BULK / "cache"),
                "--out-dir", str(out),
                "--run-id", RUN_ID, "--recipe-hash", R_HASH,
+               "--calibration", args.calibration,
                "--dl-workers", str(recipe["dl_workers"])]
+        if args.allow_v1:
+            cmd += ["--allow-v1"]
         if MIXED_PIPELINE:
             # A-3: every record the resumed run writes carries the
             # stamp (bulk_screen --mixed-pipeline).

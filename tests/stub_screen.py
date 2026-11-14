@@ -92,6 +92,14 @@ def main(argv=None):
     ap.add_argument("--mixed-pipeline", action="store_true",
                     help="stamp mixed_pipeline=true on every record "
                          "(A-3 test seam — mirrors bulk_screen.py)")
+    ap.add_argument("--calibration", default="bulk_v1",
+                    help="accepted, ignored — the stub is "
+                         "deterministic by TIC, calibration-"
+                         "independent by design (B-2 test seam — "
+                         "mirrors bulk_screen.py)")
+    ap.add_argument("--allow-v1", action="store_true",
+                    help="accepted, ignored (B-2 test seam — "
+                         "mirrors bulk_screen.py)")
     args = ap.parse_args(argv)
 
     out = Path(args.out_dir)

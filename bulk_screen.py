@@ -151,8 +151,12 @@ import numpy as np
 import provenance as _prov
 from atomic_io import atomic_write_json as _atomic_write_json
 from atomic_io import atomic_writer as _atomic_writer
+from calibration import CalibrationError as _CalibrationError
 from calibration import load_profile as _load_profile
 from calibration import short_version as _short_version
+from mad_clip import PROFILE_OPTIONS as _CLIP_PROFILE_OPTIONS
+from mad_clip import ALL_OPTIONS as _CLIP_ALL_OPTIONS
+from mad_clip import mad_clip_mask as _mad_clip_mask
 from validation import validate_survivor as _validate_survivor
 
 # Thresholds — loaded from the versioned calibration profile
@@ -162,25 +166,102 @@ from validation import validate_survivor as _validate_survivor
 # point the loader at the new version — never edit a profile that
 # has already stamped records. Module-level names are kept so
 # importers (and the golden suite) see the same constants as before.
-_BULK_CAL = _load_profile("bulk_v1")
-CALIBRATION_VERSION = _BULK_CAL["version"]
-# Provenance map (A-2): per-subsystem bare versions, {"bulk": "v1"}.
-CALIBRATION_MAP = {"bulk": _short_version(CALIBRATION_VERSION)}
-RECORD_FLOOR_SDE = _BULK_CAL["record_floor_sde"]
-SURVIVOR_SDE = _BULK_CAL["survivor_sde"]
-DEPTH_MIN_PCT = _BULK_CAL["depth_min_pct"]
-DEPTH_EB_PCT = _BULK_CAL["depth_eb_pct"]
-TIER_A_MES = _BULK_CAL["tier_a_mes"]
-TIER_A_MIN_EVENTS = _BULK_CAL["tier_a_min_events"]
-TIER_A_MIN_STRONG = _BULK_CAL["tier_a_min_strong"]
-STRONG_EVENT_SNR = _BULK_CAL["strong_event_snr"]
-TIER_B_EVENT_SNR = _BULK_CAL["tier_b_event_snr"]
-TIER_B_MAX_DEPTH_PCT = _BULK_CAL["tier_b_max_depth_pct"]
-MIN_PERIOD_D = _BULK_CAL["min_period_d"]
-MAX_PERIOD_D = _BULK_CAL["max_period_d"]
-BLS_GRID_POINTS = _BULK_CAL["bls_grid_points"]
-BLS_DURATIONS_D = tuple(_BULK_CAL["bls_durations_d"])
-SYSTEMATIC_PERIODS = tuple(_BULK_CAL["systematic_periods"])
+#
+# Selection (Phase 1.2, item B-2): v1 stays the DEFAULT — the
+# import-time load below is bulk_v1 unless EXHUNT_BULK_CALIBRATION
+# names another profile (the offline-suite-under-v2 seam, same
+# pattern as EXHUNT_FIXTURE_DIR). Real runs select the version
+# once, up front, with --calibration; set_calibration() is what
+# the flag calls. Per-star switching would make screens
+# incomparable, so there is no per-call selection.
+def _apply_profile(prof):
+    """Derive the module constants from a loaded profile dict."""
+    global _BULK_CAL, CALIBRATION_VERSION, CALIBRATION_MAP
+    global RECORD_FLOOR_SDE, SURVIVOR_SDE, DEPTH_MIN_PCT, DEPTH_EB_PCT
+    global TIER_A_MES, TIER_A_MIN_EVENTS, TIER_A_MIN_STRONG
+    global STRONG_EVENT_SNR, TIER_B_EVENT_SNR, TIER_B_MAX_DEPTH_PCT
+    global MIN_PERIOD_D, MAX_PERIOD_D, BLS_GRID_POINTS, BLS_DURATIONS_D
+    global SYSTEMATIC_PERIODS, CLIP_OPTION, SYSTEMATIC_WINDOWS
+    _BULK_CAL = prof
+    CALIBRATION_VERSION = prof["version"]
+    # Provenance map (A-2): per-subsystem bare versions, {"bulk": "v1"}.
+    CALIBRATION_MAP = {"bulk": _short_version(CALIBRATION_VERSION)}
+    RECORD_FLOOR_SDE = prof["record_floor_sde"]
+    SURVIVOR_SDE = prof["survivor_sde"]
+    DEPTH_MIN_PCT = prof["depth_min_pct"]
+    DEPTH_EB_PCT = prof["depth_eb_pct"]
+    TIER_A_MES = prof["tier_a_mes"]
+    TIER_A_MIN_EVENTS = prof["tier_a_min_events"]
+    TIER_A_MIN_STRONG = prof["tier_a_min_strong"]
+    STRONG_EVENT_SNR = prof["strong_event_snr"]
+    TIER_B_EVENT_SNR = prof["tier_b_event_snr"]
+    TIER_B_MAX_DEPTH_PCT = prof["tier_b_max_depth_pct"]
+    MIN_PERIOD_D = prof["min_period_d"]
+    MAX_PERIOD_D = prof["max_period_d"]
+    BLS_GRID_POINTS = prof["bls_grid_points"]
+    BLS_DURATIONS_D = tuple(prof["bls_durations_d"])
+    SYSTEMATIC_PERIODS = tuple(prof["systematic_periods"])
+    # Clip option (B-2): v1 profiles predate the field and mean
+    # the symmetric 5-sigma clip. A profile may only declare a
+    # real option — "none" is the grid's unclipped reference and
+    # is rejected here, never a runnable calibration.
+    CLIP_OPTION = prof.get("clip_option", "symmetric")
+    if CLIP_OPTION not in _CLIP_PROFILE_OPTIONS:
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"clip_option {CLIP_OPTION!r} — expected one of "
+            f"{', '.join(_CLIP_PROFILE_OPTIONS)}")
+    # Per-sector systematic windows (B-2): measured pile-up bands
+    # from the RECALIBRATION reports, hard-coded in the profile —
+    # never derived from survivor histograms. v1 has none.
+    SYSTEMATIC_WINDOWS = {
+        int(sector): [tuple(w) for w in windows]
+        for sector, windows
+        in prof.get("systematic_windows", {}).items()}
+
+
+def set_calibration(name):
+    """Load profile `name` (registry-verified) and re-derive the
+    module constants. Restores are the caller's job (tests:
+    setUp/tearDown back to bulk_v1)."""
+    _apply_profile(_load_profile(name))
+
+
+def set_clip_option(option):
+    """Override the clip option in-process — GRID + TESTS ONLY.
+    Real runs get the option from the profile; this exists so the
+    clip grid can evaluate options through the real screen path
+    without a profile per option. "none" (the grid's unclipped
+    reference) is allowed here and only here."""
+    global CLIP_OPTION
+    if option not in _CLIP_ALL_OPTIONS:
+        raise ValueError(
+            f"unknown clip option {option!r} — expected one of "
+            f"{', '.join(_CLIP_ALL_OPTIONS)}")
+    CLIP_OPTION = option
+
+
+_apply_profile(_load_profile(
+    os.environ.get("EXHUNT_BULK_CALIBRATION", "bulk_v1")))
+
+
+# Sectors screened under v1 (S96-S98). v1's MAD clip has a known
+# sensitivity defect (no depth floor); no NEW sector may screen
+# under v1 without an explicit --allow-v1 (B-2).
+V1_SECTORS = (96, 97, 98)
+
+
+def enforce_v1_gate(calibration_name, sector, allow_v1):
+    """Refuse a screen outside the v1 sectors under a v1
+    calibration, unless --allow-v1 was passed. Raises
+    CalibrationError — main() turns it into a CLI error."""
+    if (calibration_name == "bulk_v1" and int(sector) not in V1_SECTORS
+            and not allow_v1):
+        raise _CalibrationError(
+            f"refusing to screen sector {sector} under bulk_v1: "
+            f"v1's MAD clip has no depth floor (bulk_v2 fixes it). "
+            f"Screen under bulk_v2 (--calibration bulk_v2) or pass "
+            f"--allow-v1 to proceed knowingly.")
 
 warnings.filterwarnings("ignore")
 
@@ -668,6 +749,19 @@ def download_all(stars, sector, cache_dir, workers=8, logf=None):
 # Per-star screen — one fast BLS + free vetoes (process worker)
 # ---------------------------------------------------------------------------
 
+def _near_systematic(period, sector):
+    """True when the period sits in the generic systematic family
+    (+-3% of 13.7/6.85/27.4 d) or inside a measured per-sector
+    systematic window (bulk_v2+; v1 has no windows). A flag, not
+    a veto — the recalibration step is the defense."""
+    if any(abs(period - s) <= 0.03 * s for s in SYSTEMATIC_PERIODS):
+        return True
+    for lo, hi in SYSTEMATIC_WINDOWS.get(int(sector), ()):
+        if lo <= period <= hi:
+            return True
+    return False
+
+
 def _robust_sde(powers, period_vals):
     """hunter.py BLS-v2 SDE: (peak - median) / MAD-sigma of the
     periodogram, excluding the 13.7 d systematic family."""
@@ -816,13 +910,15 @@ def _screen_one(args):
         if len(t) < 200:
             rec["status"] = "too_few_points"
             return rec
-        # normalise + clip (QLP KSPSAP is already detrended/normalised)
+        # normalise + clip (QLP KSPSAP is already detrended/normalised).
+        # The clip is the shared function (mad_clip.py, B-2); the
+        # OPTION comes from the calibration profile (v1: symmetric
+        # 5-sigma — the inline expression this replaces, bit for
+        # bit; v2: the grid's choice).
         med = np.median(f)
         f = f / med
-        sd = 1.4826 * np.median(np.abs(f - 1.0))
-        if sd > 0:
-            keep = np.abs(f - 1.0) < 5 * sd
-            t, f = t[keep], f[keep]
+        keep = _mad_clip_mask(f, CLIP_OPTION)
+        t, f = t[keep], f[keep]
         # light flatten at the deep pipeline's ~2 d scale (Savitzky-Golay)
         from scipy.signal import savgol_filter
         dt = float(np.median(np.diff(t)))
@@ -857,9 +953,7 @@ def _screen_one(args):
         rec.update({"period_days": period, "t0_btjd": t0,
                     "duration_hours": duration * 24.0,
                     "depth_percent": depth * 100.0, "sde": sde,
-                    "near_systematic": bool(any(
-                        abs(period - s) <= 0.03 * s
-                        for s in SYSTEMATIC_PERIODS)),
+                    "near_systematic": _near_systematic(period, sector),
                     "input_identity": _prov.input_identity(
                         product_ids=[Path(path).name],
                         sectors=[int(sector)], author=PRODUCT,
@@ -1028,7 +1122,22 @@ def main(argv=None):
                          "(A-3): the chunked driver passes this when "
                          "the run resumed across a result-affecting "
                          "code change under --accept-code-change")
+    ap.add_argument("--calibration", default="bulk_v1",
+                    help="bulk calibration profile (default: bulk_v1; "
+                         "bulk_v2 fixes the MAD-clip defect)")
+    ap.add_argument("--allow-v1", action="store_true",
+                    help="allow screening a sector outside 96-98 "
+                         "under bulk_v1 (known MAD-clip defect — "
+                         "prefer --calibration bulk_v2)")
     args = ap.parse_args(argv)
+
+    # Calibration selection + the v1 gate (B-2) — before any work:
+    # a refused run must not download anything or write records.
+    try:
+        set_calibration(args.calibration)
+        enforce_v1_gate(args.calibration, args.sector, args.allow_v1)
+    except _CalibrationError as exc:
+        ap.error(str(exc))
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1060,6 +1169,7 @@ def main(argv=None):
                               "survivor_sde": SURVIVOR_SDE,
                               "depth_min_pct": DEPTH_MIN_PCT,
                               "depth_eb_pct": DEPTH_EB_PCT,
+                              "clip_option": CLIP_OPTION,
                               "period_range_d": [MIN_PERIOD_D,
                                                  MAX_PERIOD_D],
                               "tier_a_mes": TIER_A_MES,
