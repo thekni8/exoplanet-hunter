@@ -1417,6 +1417,18 @@ fetched from ExoFOP (tar 93,788,160 B, job 3507959),
 converted to 120 rows, Δ6.174 @ 0.5″ — all §3.2 checks
 pass.
 
+**Step 0 DONE ~20:35 IST — WASP-29b + Zorro 832 nm:
+VALIDATE (PASS).** FPP 0.169 → **0.003448**, NFPP 0.0;
+STP collapsed 0.160 → **0.000129** (Collier et al. as
+predicted — the curve removes almost entirely the STP
+scenario); SEB 0.003319, TP 0.987151, prob_planet 0.9966.
+`contrast_curve_used: true` (gate passes). **First
+validated planet in the Hunter's TRICERATOPS record.**
+Stitch SPOC, 6 sectors, 93,410 pts — exactly C-10's
+stitch. Wall 476.2 s (C-10 no-curve: 1,553 s — the curve
+run was much faster), RSS 776.7 MB. Panel (§4) launched
+next, same night.
+
 **(D) DATED REVISIT (recorded).** Trigger for the Gaia-path
 re-run (WASP-29b verification): Gaia TAP back — the watch
 hook polls every 15 min and wakes on 2 consecutive HTTP
