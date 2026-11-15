@@ -1412,7 +1412,7 @@ converged P 0.7584722, T0 1325.47254 (C-10 hunter values
 P 0.75798237, T0 1325.48631 — close). Wall 516.5 s
 (C-10: 349 s), peak RSS 722.3 MB — first P3-8
 measurement. The driver works end to end. Step 0
-(WASP-29b + Zorro curve) launched ~20:28 IST: curve
+(WASP-29b + Zorro curve) launched ~20:25 IST: curve
 fetched from ExoFOP (tar 93,788,160 B, job 3507959),
 converted to 120 rows, Δ6.174 @ 0.5″ — all §3.2 checks
 pass.
