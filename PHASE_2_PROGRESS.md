@@ -625,6 +625,46 @@ bar pinned; LATTE REPORT_ONLY.
   to any verdict, by design and by test (P-2 verdict
   invariance).
 
+### P-12 — Real-data concordance test (vote item)
+
+- **Harness:** scripts/concordance_replay.py replays the
+  25 hand-vetted rescore-v2 S96 leads through the
+  automated desk driver on live MAST data and compares
+  each automated outcome to the manual verdict in
+  tests/fixtures/concordance/manual_verdicts.json
+  (transcribed from the 2026-11-14 gauntlet LEDGER:
+  18 flagged-cadence artifacts, 4 single-event/weak
+  dips, 1 catalogued planet, 1 era-confined V-shaped
+  lead, 1 harmonic alias). Concordance = the driver
+  kills the lead at one of the expected stages (the
+  manual kill ground expressed as driver stages). The
+  4 weak-dip leads accept a clean_refold, persistence
+  or raw_flux kill — all three say "the clean-data
+  signal is too weak / not persistent".
+- **Expected mismatch:** TIC 307433122 (harmonic alias)
+  is recorded, not asserted — no stage covers
+  harmonic-alias grounds. In the subset run the driver
+  killed it anyway (persistence + shape + odd_even),
+  on different grounds than the manual verdict.
+- **Live subset run in-session (2026-11-15, 5 leads,
+  one per class, ~8 min): 4/5 agree, 0 disagree, 1
+  mismatch-recorded.** 183537452 killed at catalogue
+  (+ shape, odd_even); 355401152 at clean_refold (+
+  persistence, odd_even); 101945781 at persistence +
+  shape (+ odd_even); 41361938 at raw_flux +
+  persistence (validating the weak-dip expected set).
+- **Full 25-lead replay is a Mac/live-CI job** (~1-2 h
+  of MAST downloads + BLS refines — not a VM job):
+  tests/test_concordance_live.py runs it in live.yml
+  (weekly + on merge, non-blocking), added to
+  DOWNLOAD_TESTS. The offline fixture test
+  (test_concordance.py, rest tier) pins the fixture
+  itself — the 25 leads, the LEDGER tally, the
+  ephemerides, the single expected mismatch — plus the
+  compare rule, unit-tested. The deep-candidate leg is
+  the existing F-8 population harness
+  (scripts/toi_population.py, P-8).
+
 ### P-13 — Fault injection on the subprocess plumbing
 
 - The fault matrix is now tested end to end
