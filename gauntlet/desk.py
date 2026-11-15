@@ -1238,18 +1238,29 @@ def run_desk_gauntlet(survivor, workdir, source=None, policy=None,
         ephemeris_used=ephemeris_used,
         verdict_note=run.verdict_note, run_id=run_id,
         waivers=waivers_final or None, policy=policy)
+    natives_payload = {
+        "natives": _jsonable(natives),
+        "extra_evidence": _jsonable(extra),
+        "run": {"final_verdict": run.final_verdict,
+                "verdict_note": run.verdict_note,
+                "skipped": sorted(run.skipped),
+                "cached": run.cached,
+                "context_hash": run.context_hash}}
+    # Validate the SERIALISED form — the record as written.
+    # (run.skipped holds (stage, reason) tuples until
+    # _jsonable turns them into JSON arrays.)
+    natives_payload = _jsonable(natives_payload)
+    # P-18: the natives file is Phase 3's feature source —
+    # validate the contract BEFORE writing either record. A
+    # failure here is a code bug, not a data failure, so it
+    # raises (no malformed record is ever written).
+    from validation import validate_desk_natives
+    validate_desk_natives(natives_payload)
     with open(os.path.join(workdir, "verdict_record.json"),
               "w") as fh:
         json.dump(verdict, fh, indent=2, default=str)
     with open(os.path.join(workdir, "desk_natives.json"), "w") as fh:
-        json.dump({"natives": _jsonable(natives),
-                   "extra_evidence": _jsonable(extra),
-                   "run": {"final_verdict": run.final_verdict,
-                           "verdict_note": run.verdict_note,
-                           "skipped": sorted(run.skipped),
-                           "cached": run.cached,
-                           "context_hash": run.context_hash}},
-                  fh, indent=2, default=str)
+        json.dump(natives_payload, fh, indent=2, default=str)
     # 2D: the evidence package is built LAST — it hashes the
     # two files above, so they must exist first.
     package = build_evidence_package(

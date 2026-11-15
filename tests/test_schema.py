@@ -18,8 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import provenance as prov  # noqa: E402
 from bulk_screen import _screen_one, emit_survivor_record  # noqa: E402
 from synth_fits import make_qlp_fits, screen_job  # noqa: E402
-from validation import (RecordValidationError, validate_survivor,  # noqa: E402
-                        validate_verdict)
+from validation import (RecordValidationError, validate_desk_natives,  # noqa: E402
+                        validate_survivor, validate_verdict)
 
 FIXED_PROV = prov.provenance_header(
     "test-run-1", {"bulk": "v1"}, sha="abc1234",
@@ -119,6 +119,85 @@ class TestSurvivorValidation(unittest.TestCase):
             validate_survivor(rec)
 
 
+def _complete_desk_natives():
+    return {
+        "natives": {
+            "catalogue.native": {"known": False, "source": None,
+                                 "var_type": None,
+                                 "period_match": False},
+            "clean_refold.native": [
+                {"n_clean": 1200, "n_in": 45, "n_events": 10,
+                 "depth_percent": 0.95, "snr": 40.0,
+                 "quality_mask": 1610629823,
+                 "flagged_fold": {"n_clean": 1200, "n_in": 0,
+                                  "n_events": 0,
+                                  "depth_percent": None,
+                                  "snr": None}},
+                "PASS"],
+            "refine.native": {"period_d": 2.5, "t0": 1502.0,
+                              "duration_d": 0.1, "converged": True,
+                              "rms_resid_d": 0.0001, "n_eras": 3},
+            "raw_flux.native": {"depth_pct": 0.95,
+                                "signif_white": 40.0,
+                                "signif_red": 20.0, "n_in": 45,
+                                "n_events": 10,
+                                "sig_white_pct": 0.02,
+                                "sig_red_pct": 0.05},
+            "shape.native": {"method": "trapezoid_fit",
+                             "T14_h": 2.4, "T23_T14": 0.5,
+                             "frac_err": 0.1, "depth0_signif": 40.0,
+                             "shape_verdict": "U-shaped",
+                             "density_flag": False},
+            "odd_even.native": [
+                {"depth_pct": 0.95, "sig_white_pct": 0.02,
+                 "signif_white": 40.0, "n_in": 22, "n_events": 5},
+                None],
+            "persistence.native": {"n_usable": 3,
+                                   "verdict": "CONSISTENT"},
+            "pixel_check.native": {
+                "verdict": "pass",
+                "reason": "all pixels consistent",
+                "details": {"n_in": 45, "n_pixels_tested": 9,
+                            "target_pixel": {"y": 1, "x": 1,
+                                             "depth_pct": 0.95,
+                                             "signif": 40.0}}},
+            "holdout.native": "HOLDOUT-PASS",
+            "diffimg.native": {"on_target": True, "offset_px": 0.06,
+                               "offset_arcsec": 1.3,
+                               "blend_host_tic": None, "n_sectors": 3,
+                               "offset_sigma_px": 0.1,
+                               "offset_over_sigma": 0.6,
+                               "sigma_source": "split_half_scatter"},
+            "transit_fit.native": {"b": 0.2, "rp_re": 2.5,
+                                   "t14_h": 2.4,
+                                   "density_flag": False,
+                                   "converged": True, "chi2": 120.0,
+                                   "npts": 3000},
+        },
+        "extra_evidence": {
+            "survivor": {"tic": "999999999", "period_d": 2.5,
+                         "t0_btjd": 1502.0, "duration_h": 2.4,
+                         "depth_pct": 0.95, "sde": 59.9,
+                         "sector": 96, "bulk_survivor": True},
+            "pipeline_set": {"pfx": "SPOC", "sectors": [96]},
+            "refined_ephemeris": {"period_d": 2.5,
+                                  "t0_btjd": 1502.0,
+                                  "converged": True},
+            "external_tools": {
+                "latte": {"stage": "latte", "status": "report_only",
+                          "reason": "report-only evidence"}},
+            "waivers_dropped": {"odd_even": "waiver requires a "
+                                             "measured native"},
+        },
+        "run": {"final_verdict": "CANDIDATE",
+                "verdict_note": None,
+                "skipped": [["transit_fit",
+                             "skipped after diffimg failed"]],
+                "cached": False,
+                "context_hash": "abc123"},
+    }
+
+
 class TestVerdictValidation(unittest.TestCase):
     def test_complete_verdict_validates(self):
         validate_verdict(_complete_verdict())
@@ -134,6 +213,60 @@ class TestVerdictValidation(unittest.TestCase):
         rec["sde_raw"] = 34.0
         with self.assertRaises(RecordValidationError):
             validate_verdict(rec)
+
+
+class TestDeskNativesValidation(unittest.TestCase):
+    """P-18: desk_natives.json is the Phase 3 feature-list
+    contract. The driver validates every record before writing
+    it, so these pin the schema itself; the desk driver tests
+    prove real payloads validate."""
+
+    def test_complete_record_validates(self):
+        validate_desk_natives(_complete_desk_natives())
+
+    def test_missing_required_field_fails(self):
+        rec = _complete_desk_natives()
+        del rec["run"]
+        with self.assertRaises(RecordValidationError):
+            validate_desk_natives(rec)
+
+    def test_extra_native_key_fails(self):
+        rec = _complete_desk_natives()
+        rec["natives"]["new_stage.native"] = {"method": "x"}
+        with self.assertRaises(RecordValidationError):
+            validate_desk_natives(rec)
+
+    def test_wrong_type_fails(self):
+        rec = _complete_desk_natives()
+        rec["natives"]["shape.native"]["method"] = 42
+        with self.assertRaises(RecordValidationError):
+            validate_desk_natives(rec)
+
+    def test_shape_method_only_validates(self):
+        # Early exits return a subset: only method is required.
+        rec = _complete_desk_natives()
+        rec["natives"]["shape.native"] = {
+            "method": "trapezoid_fit", "verdict": "unmeasured",
+            "reason": "no usable in-transit points"}
+        validate_desk_natives(rec)
+
+    def test_flagged_fold_has_no_quality_mask(self):
+        # _flagged_fold returns the clean_fold shape WITHOUT
+        # quality_mask (its docstring claims otherwise). If the
+        # code ever adds the mask, the schema must change with
+        # it — the desk tests would fail loudly first.
+        rec = _complete_desk_natives()
+        flagged = rec["natives"]["clean_refold.native"][0]
+        flagged = flagged["flagged_fold"]
+        flagged["quality_mask"] = 1610629823
+        with self.assertRaises(RecordValidationError):
+            validate_desk_natives(rec)
+
+    def test_skipped_is_stage_reason_pairs(self):
+        rec = _complete_desk_natives()
+        rec["run"]["skipped"] = ["transit_fit"]
+        with self.assertRaises(RecordValidationError):
+            validate_desk_natives(rec)
 
 
 if __name__ == "__main__":

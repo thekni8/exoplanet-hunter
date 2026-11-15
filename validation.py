@@ -16,6 +16,10 @@ bug, and the run must stop, not write a corrupt handoff.
                                    # (Phase 2, 2B)
     validate_triceratops_output(record)  # TRICERATOPS output
                                    # (Phase 2, 2C)
+    validate_desk_natives(record)  # desk_natives.json
+                                   # (Phase 2 vote follow-up
+                                   # P-18 — the Phase 3
+                                   # feature-list contract)
 
 Both raise RecordValidationError listing the offending fields.
 The validators are Draft 2020-12. Timestamps are constrained by
@@ -47,7 +51,7 @@ class RecordValidationError(ValueError):
 def _validator(kind):
     if kind not in ("survivor", "verdict", "stage_result",
                     "latte-output", "triceratops-output",
-                    "evidence", "review"):
+                    "evidence", "review", "desk-natives"):
         raise ValueError(f"unknown record kind: {kind!r}")
     if kind not in _VALIDATORS:
         path = SCHEMA_DIR / f"{kind}-schema.json"
@@ -109,3 +113,10 @@ def validate_evidence_package(record):
 def validate_filing_review(record):
     """Validate a 2E filing review record."""
     return validate_record("review", record)
+
+
+def validate_desk_natives(record):
+    """Validate one desk_natives.json record (Phase 2 vote
+    follow-up P-18 — the formal contract for the Phase 3
+    feature list)."""
+    return validate_record("desk-natives", record)

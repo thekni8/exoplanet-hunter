@@ -808,6 +808,47 @@ bar pinned; LATTE REPORT_ONLY.
   premise into a design doc — the rule exists so Phase 3
   does not repeat them.
 
+### P-18 — desk-natives schema (vote item)
+
+- **`schema/desk-natives-schema.json` is the formal
+  contract for `desk_natives.json`, the Phase 3 feature
+  list.** Phase 3 reads features from the natives, so
+  their shapes are pinned here. Self-contained (no
+  cross-file $refs — `validation.py` loads schemas
+  singly). Every native key is optional (a stage that
+  never ran writes no native); every value shape is
+  pinned. Arrays appear as `_jsonable` summaries
+  (`{__array__, shape, dtype, sha256}`), never embedded
+  data.
+- **The driver validates before writing either record.**
+  `run_desk_gauntlet` builds the payload, serialises it
+  through `_jsonable` (so validation sees exactly the
+  record as written — `run.skipped` holds (stage,
+  reason) tuples until then), and `validate_desk_natives`
+  raises on failure. A malformed record is a code bug,
+  not a data failure, so no malformed record is ever
+  written.
+- **Two real shapes the excavation got wrong, caught by
+  the desk tests:** (a) `run.skipped` is a list of
+  [stage, reason] pairs, not strings. (b) `flagged_fold`
+  has NO `quality_mask` — `_flagged_fold` returns the
+  clean_fold shape minus the mask, despite its docstring
+  claiming the clean_fold shape; the schema pins a
+  separate `flaggedFold` def, and a test pins the
+  omission (if the code ever adds the mask, the schema
+  must change with it). The `external_tools` StageResult
+  values pin only stage + status — the full shape is
+  `stage_result-schema.json`, enforced at the adapter.
+- **Shape native:** only `method` is required — early
+  exits return a subset, and the density fields are
+  null/absent without a TIC density. Persistence's
+  verdict is absent when `n_usable` is 0. Holdout is a
+  string sentinel or the `holdout_test` dict.
+- Tests: 7 new in `tests/test_schema.py`
+  (TestDeskNativesValidation); the 31 desk driver tests
+  prove real payloads validate (14 → 4 → 0 errors as
+  the schema was corrected against them).
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):
