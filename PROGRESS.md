@@ -927,3 +927,199 @@ The claims ledger (§7 format) closes the section.
   curve + a new gate in the persistence path) — recorded as
   a follow-up, not silently dropped. The DF-13 fraction is
   the per-star input that rule would consume.
+
+### DF-21 — live download-to-stitch-to-mask test (bd84204)
+- tests/test_deep_mask_live.py downloads the real QLP S96 file
+  for TIC 31852076 (the sensitivity substrate star) through
+  the pipeline's own hunter._download_products under deep_v2,
+  and asserts against a quality_bitmask="none" ground-truth
+  read: reader drop == hand count (3,212/10,819), surviving
+  times identical, 0 surviving rows carry a masked bit, meta
+  QUALITY_MASK present (DF-9's counting input), stitch +
+  post-download mask drops nothing further, and the
+  post-download mask on the raw curve agrees with the reader
+  exactly. Premise guarded: fails loudly if the live file
+  ever stops carrying bit-29/30 cadences.
+- Registered in DOWNLOAD_TESTS (tests/run_golden.py) — live
+  tier only (live.yml, weekly + on merge, non-blocking); the
+  offline suite gains no network dependency. Multi-sector
+  stitching stays covered by the live golden stars.
+- Test: 1 PASS (14.8 s). Lightkurve's own warning confirms
+  the count: "30% (3212/10819) of the cadences will be
+  ignored due to the quality mask
+  (quality_bitmask=1610629823)".
+
+### DF-14 — TIC 423498314 re-run under deep_v2 (BEFORE merge)
+- Expected outcome written FIRST:
+  `hidden_files/science-vet/deepfix-vote/df14_expected_outcome.md`
+  (prediction: signal recovered, P 0.827047 d ±1% or the 2P
+  harmonic, depth 0.5–1.1%, SDE well above 8.5; material
+  change = absent from top-3, SDE < 8.5, depth < 0.3% or
+  > 2%, non-harmonic period).
+- Run: `run_df14_df15.py` (same dir), live MAST, QLP sectors
+  [32, 98], star_radius 0.67343. Full records:
+  `df14_df15_results.jsonl` lines 1–2.
+- v1 (control): P 0.8270502 d, SDE 72.96, depth 1.061%,
+  T0 2174.36589, Total_Points 27,710, n_masked 38,
+  flagged_fraction 0.0014, in-transit unmasked-flag frac
+  0.381 (bits 29: 325, 30: 98, 11: 13, 12: 8).
+- v2: P 0.8270502 d (IDENTICAL), SDE 119.43, depth 0.862%,
+  T0 2174.36589 (IDENTICAL), Total_Points 17,246, n_masked
+  10,491, flagged_fraction 0.3778, in-transit unmasked-flag
+  frac 0.016 (bit 12: 16 only). Headline under both.
+- VERDICT: prediction CONFIRMED on every point; no
+  material-change flag triggered. The SDE ROSE 64% (73 →
+  119) — 37.8% of this star's cadences were flagged noise
+  that v1's mask left in (n_masked 38); removing them cut
+  the periodogram noise floor. The depth FELL 19% (1.061% →
+  0.862%) because the flagged in-transit cadences were
+  deeper than the clean ones — they were biasing the depth
+  UP. Both moves are the mask working as intended. The
+  candidate's photometric signal is STRONGER under v2, not
+  weaker. (The planet interpretation is unchanged: still a
+  candidate, grazing EB on the RUWE companion still the
+  leading alternative — the re-run tests the signal, not
+  the interpretation.)
+
+### DF-15 — real-data controls (fixture form + live planet controls)
+- METHOD CHANGE (measured, not assumed): the live all-sector
+  batch (`run_df14_df15.py`) was KILLED at 4/42 runs — the
+  artifact stars have up to 41 QLP sectors each (382571558 v1
+  alone ran 10+ min), putting the full batch at ~7 h on this
+  shared VM (rescore-gauntlet jobs share the CPUs). The
+  artifacts are S96 phenomena, so the direct control is the
+  S96 data alone, run through the deep pipeline exactly as
+  the sensitivity harness does it
+  (`bulk/inject_deep_real_s96.py`: download_host_qlp →
+  write_fixture → _run_pipeline, NO injection) — script
+  `run_df15_fixtures.py`, analysis `analyze_df15.py`,
+  records `df15_fixture_results.jsonl` (all in
+  `hidden_files/science-vet/deepfix-vote/`). The live
+  all-sector version remains a POST-MERGE extension
+  (`run_df14_df15.py --resume`; partial data kept: 355401152
+  v1+v2 complete — live multi-sector v1 P=12.856 SDE 42.3
+  depth 1.96%, v2 P=12.867 SDE 45.1 depth 0.37% — the depth
+  collapse shows the flagged cadences carried most of the
+  apparent depth; the filed 6.514 d period absent under both
+  profiles).
+- FIXTURE BATCH: 19 stars × v1/v2 = 38 runs, 35.4 min,
+  0 errors. 18 artifacts (S96 QLP, sap_flux via lightkurve,
+  star_radius=1.0 — radius scales Rp only, not the search)
+  + WASP-29b. Median flagged fraction 0.288 (range
+  0.098–0.328).
+- RESULT — artifacts: **0/18 survive as hits under v2.**
+  Filed period (or harmonic within 1%) found under v1 in
+  4/18, under v2 in 3/18 — but ALL THREE v2 cases are
+  SUB-THRESHOLD: 176959220 refined-only SDE 5.3, 381951178
+  headline SDE 8.1, 382571558 refined-only 2:1 harmonic
+  SDE 8.0. v1: 16/18 above the hit bar (median SDE 38.1)
+  + 2 degenerate (355401152, 207213492 — P pinned at 25 d,
+  SDE NaN). v2: 4/18 above the bar (median SDE 6.5).
+- RESULT — DF-13 validates the artifact mechanism:
+  **v1 in-transit unmasked-flag fraction = 1.0 on ALL 18
+  artifacts** (min/median/max 1.0) — every in-transit
+  cadence at the v1 headline carries an unmasked (29/30)
+  flag. The v1 ~13 d systematic headlines (12/18 at
+  P 12.9–13.3 d, SDE 21–57) are 100% flagged-cadence
+  artifacts. **Under v2 the fraction is 0.0 on all 18.**
+- v2 ABOVE-BAR HEADLINES AT NON-FILED PERIODS (4, unvetted
+  byproducts — flagged, not vetted here): 355401152
+  P 13.176 SDE 9.8 depth 1.08%; 382571558 P 11.731 SDE 9.3
+  depth 0.21% (noisy periodogram, several ~8–9 peaks);
+  33836426 P 2.294 SDE 10.3 depth 0.11% (shallow short-period
+  signal, needs the gauntlet if chased); 294665553 P 24.625
+  SDE 16.8 — GRID-EDGE RESIDUE (three identical-SDE peaks
+  24.625/24.121/23.637 near the 25 d ceiling, same class as
+  the bulk v3 rescore's grid-edge singles), not a lead.
+- PLANET CONTROLS: WASP-29b (TIC 183537452, S96 fixture) —
+  v1 DEGENERATE (P=25.0, SDE NaN), v2 RECOVERED P 3.92242 d
+  (filed 3.9227), SDE 77.8, depth 0.91%. TOI-700 c — live
+  golden test `test_toi700_c_headline_b_recovered` PASS
+  (205 s) under deep_v2 (module default, no calibration
+  switch in the module): c headline, b recovered.
+- VERDICT: DF-15 PASSES. The mask kills the artifact class
+  (0/18 as hits), un-blinds the search (2 degenerate v1
+  artifacts + WASP-29b all functional under v2), and both
+  known planets are recovered.
+
+### Claims ledger (§7 format: claim, verifying command, result)
+- DF-1: desk _flagged_fold splits on the mask, not q==0.
+  `grep -n "q == 0\|q != 0" gauntlet/desk.py` → no matches
+  (docstring reworded); `run_golden.py --only test_desk` →
+  22 PASS (bit-12 transit n_in == 0, gate PASSes).
+- DF-2: no raw quality==0 split in production code.
+  `run_golden.py --only test_quality_guard` → 2 PASS
+  (62 files scanned; 3 allowlisted diagnostics; desk.py
+  re-introduction test failed the guard, naming the line).
+- DF-3: neighbour_fold masked (QLP-first, line 56);
+  tesscut 16-bit, unmasked by design. `run_golden.py --only
+  test_neighbour_fold` → 4 PASS. tesscut_fetch.py:62
+  `sector=sectortor` NameError confirmed on origin/main via
+  `git show origin/main:gauntlet/tesscut_fetch.py`.
+- DF-4: v1/v2 outputs bitwise-identical on clean stars.
+  `run_golden.py --only test_deep_identity` → 3 PASS
+  (301 s); widen check (bit 12 added to v2 only) → QLP test
+  FAILED on Period (24.625 vs 14.71), reverted → PASS.
+- DF-5: uint16 mask sites cast to int64; None column passes
+  through; rawflux fail-loud. `test_deep_quality_mask`
+  uint16/edge tests PASS; bare `uint16 & 1610629823`
+  OverflowError reproduced before the tests were written.
+- DF-6: calibration_context restores version+mask, incl. on
+  exception. `test_calibration` (26→27 incl. DF-12) PASS;
+  scratch leak test failed as expected pre-fix.
+- DF-7: trial A recovers on the committed substrate
+  (P=5.12265, SDE 40.40); the 3:2 alias row came from a
+  sap_flux download, the substrate is SYS_RM_FLUX (max diff
+  0 vs FITS SYS_RM_FLUX; differs from SAP_FLUX by ≤3.37e7).
+  `test_inject_deep_real_s96` → 3 PASS.
+- DF-8: bit-29-only artifact hit under v1, not v2.
+  `test_deep_quality_mask` bit-29 case PASS (33 s).
+- DF-9: records stamp mask + n_masked + flagged fraction.
+  Fixture hand-count test PASS (v1 17087/0, v2 1610629823/
+  hand count); JSON metrics carry the same stamp.
+- DF-10: missing quality RAISES on the live SPOC path only.
+  Unit + wiring tests 12/12 PASS; SPOC-reader synthesis
+  limitation verified in lightkurve 2.6.0 source (zeros
+  column synthesized → undetectable post-download).
+- DF-11: explicit quality_bitmask at every download; reader
+  drop == mask-alone drop. QLP 31852076 S96: 3,212 == 3,212,
+  0 surviving rows carry a masked bit; SPOC TOI-700 S1:
+  reader accepts the 32-bit mask, drop 982 == 982, 0
+  bit-29/30 cadences in file. `test_desk` 22 PASS,
+  `test_product_selection` 8 PASS, TestGauntletMaskGates
+  4 PASS.
+- DF-12: ONE shared mask definition, value unchanged.
+  `grep -rn 1610629823 --include='*.py' .` (production) →
+  only the quality_flags.py definition comment;
+  TestSharedQualityMask PASS; `test_calibration` 27 PASS.
+- DF-13: in-transit unmasked-flag fraction recorded, WARN
+  above 50%. `test_deep_quality_mask` → 25 PASS (374.8 s);
+  DF-14 v1 0.381 → v2 0.016; DF-15 v1 1.0 (all 18) → v2 0.0
+  (all 18). Multi-sector rule deferred (recorded above).
+- DF-14: 423498314 recovered under v2, SDE 73 → 119.
+  Expected outcome written FIRST (df14_expected_outcome.md);
+  actuals match every prediction; no material-change flag.
+  Records: df14_df15_results.jsonl lines 1–2.
+- DF-15: 0/18 artifacts as hits under v2; WASP-29b SDE 77.8;
+  TOI-700c live golden test PASS. Records:
+  df15_fixture_results.jsonl (38 runs, 0 errors) +
+  analyze_df15.py. Live all-sector form deferred post-merge
+  (measured ~7 h; runner + --resume kept).
+- DF-16: PROGRESS.md nits done (483b76f listed, placeholder
+  removed, gauntlet-sites claim corrected, trial-A line
+  updated) — this section.
+- DF-17: ledger census — 37 files, 1,644 rows, 760 unique
+  TICs, 0 NaN-SDE rows, 4 near-ceiling periods (3 strong
+  detections). `census_df17.py` + `census_df17.json`;
+  inputs byte-identical before/after. Quality-array
+  partition deferred to the post-merge replay (self-
+  partitioning via DF-9 stamps).
+- DF-18/DF-19/DF-20: recorded as post-merge follow-ups (no
+  code). DF-19 list: 29 RAW-REFUTED TICs in
+  candidates-vetting/*/rawflux_results.json. DF-20 in
+  PROGRESS.md (above) AND GOAL.md (Quality-mask fix
+  section, same home as M-11).
+- DF-21: live download-to-stitch-to-mask test in the live
+  tier. `python -m unittest tests.test_deep_mask_live` →
+  1 PASS (14.8 s); lightkurve confirms 3,212/10,819 masked.
+  In DOWNLOAD_TESTS; offline suite gains no network.
