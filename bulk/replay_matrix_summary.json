@@ -1,0 +1,228 @@
+{
+  "DEMOTE-ALL": {
+    "candidate": "DEMOTE-ALL",
+    "flagged_tier_a": 147,
+    "losses": {
+      "eb": 0,
+      "planet": 0,
+      "refuted_other": 0
+    },
+    "n_in": 4692,
+    "n_in_tier_a": 393,
+    "n_in_tier_b": 4299,
+    "removed": 3986,
+    "removed_pct": 84.9531116794544,
+    "removed_tier_a": 0,
+    "removed_tier_a_pct": 0.0,
+    "removed_tier_b": 3986,
+    "removed_tier_b_pct": 92.71923703186788
+  },
+  "DEMOTE-SYS": {
+    "candidate": "DEMOTE-SYS",
+    "flagged_tier_a": 0,
+    "losses": {
+      "eb": 0,
+      "planet": 0,
+      "refuted_other": 0
+    },
+    "n_in": 4692,
+    "n_in_tier_a": 393,
+    "n_in_tier_b": 4299,
+    "removed": 1098,
+    "removed_pct": 23.40153452685422,
+    "removed_tier_a": 0,
+    "removed_tier_a_pct": 0.0,
+    "removed_tier_b": 1098,
+    "removed_tier_b_pct": 25.54082344731333
+  },
+  "EPOCH-CLUSTER": {
+    "candidate": "EPOCH-CLUSTER",
+    "flagged_tier_a": 147,
+    "losses": {
+      "eb": 0,
+      "planet": 0,
+      "refuted_other": 0
+    },
+    "n_in": 4692,
+    "n_in_tier_a": 393,
+    "n_in_tier_b": 4299,
+    "removed": 3934,
+    "removed_pct": 83.84484228473998,
+    "removed_tier_a": 0,
+    "removed_tier_a_pct": 0.0,
+    "removed_tier_b": 3934,
+    "removed_tier_b_pct": 91.50965340776925
+  },
+  "PHASE-DEPTH": {
+    "candidate": "PHASE-DEPTH",
+    "flagged_tier_a": 0,
+    "losses": {
+      "eb": 0,
+      "planet": 0,
+      "refuted_other": 3
+    },
+    "n_in": 4692,
+    "n_in_tier_a": 393,
+    "n_in_tier_b": 4299,
+    "removed": 472,
+    "removed_pct": 10.059676044330775,
+    "removed_tier_a": 3,
+    "removed_tier_a_pct": 0.7633587786259542,
+    "removed_tier_b": 469,
+    "removed_tier_b_pct": 10.909513840428007
+  },
+  "SDE-10.0": {
+    "candidate": "SDE-10.0",
+    "flagged_tier_a": 0,
+    "losses": {
+      "eb": 0,
+      "planet": 0,
+      "refuted_other": 35
+    },
+    "n_in": 4692,
+    "n_in_tier_a": 393,
+    "n_in_tier_b": 4299,
+    "removed": 552,
+    "removed_pct": 11.764705882352942,
+    "removed_tier_a": 38,
+    "removed_tier_a_pct": 9.669211195928753,
+    "removed_tier_b": 514,
+    "removed_tier_b_pct": 11.956268899744126
+  },
+  "SDE-8.0": {
+    "candidate": "SDE-8.0",
+    "flagged_tier_a": 0,
+    "losses": {
+      "eb": 0,
+      "planet": 0,
+      "refuted_other": 7
+    },
+    "n_in": 4692,
+    "n_in_tier_a": 393,
+    "n_in_tier_b": 4299,
+    "removed": 128,
+    "removed_pct": 2.7280477408354646,
+    "removed_tier_a": 7,
+    "removed_tier_a_pct": 1.7811704834605597,
+    "removed_tier_b": 121,
+    "removed_tier_b_pct": 2.814608048383345
+  },
+  "SDE-9.0": {
+    "candidate": "SDE-9.0",
+    "flagged_tier_a": 0,
+    "losses": {
+      "eb": 0,
+      "planet": 0,
+      "refuted_other": 21
+    },
+    "n_in": 4692,
+    "n_in_tier_a": 393,
+    "n_in_tier_b": 4299,
+    "removed": 301,
+    "removed_pct": 6.4151747655583975,
+    "removed_tier_a": 23,
+    "removed_tier_a_pct": 5.852417302798982,
+    "removed_tier_b": 278,
+    "removed_tier_b_pct": 6.466620144219586
+  },
+  "TWO-COMBINED": {
+    "candidate": "TWO-COMBINED",
+    "flagged_tier_a": 0,
+    "losses": {
+      "eb": 0,
+      "planet": 0,
+      "refuted_other": 0
+    },
+    "n_in": 4692,
+    "n_in_tier_a": 393,
+    "n_in_tier_b": 4299,
+    "removed": 176,
+    "removed_pct": 3.7510656436487637,
+    "removed_tier_a": 0,
+    "removed_tier_a_pct": 0.0,
+    "removed_tier_b": 176,
+    "removed_tier_b_pct": 4.093975343103047
+  },
+  "TWO-STRONG": {
+    "candidate": "TWO-STRONG",
+    "flagged_tier_a": 0,
+    "losses": {
+      "eb": 0,
+      "planet": 0,
+      "refuted_other": 0
+    },
+    "n_in": 4692,
+    "n_in_tier_a": 393,
+    "n_in_tier_b": 4299,
+    "removed": 26,
+    "removed_pct": 0.5541346973572038,
+    "removed_tier_a": 0,
+    "removed_tier_a_pct": 0.0,
+    "removed_tier_b": 26,
+    "removed_tier_b_pct": 0.6047918120493138
+  },
+  "_epoch_clusters": {
+    "n_clustered": 4081,
+    "n_clusters_gt20": 15,
+    "sizes": [
+      973,
+      860,
+      539,
+      390,
+      371,
+      319,
+      154,
+      153,
+      74,
+      74,
+      44,
+      38,
+      36,
+      32,
+      24
+    ]
+  },
+  "_inputs": {
+    "n_labelled": 258,
+    "n_rows": 4692,
+    "rescore": "/home/hatch/workspace/goals/exoplanet-hunter/hidden_files/mac-run-data/rescore-v3-s96/rescore_v3_s0096.jsonl"
+  },
+  "_verdicts": {
+    "DEMOTE-ALL": {
+      "reason": "P3-10 campaign loss measurement does not exist yet",
+      "verdict": "UNDECIDED"
+    },
+    "DEMOTE-SYS": {
+      "reason": "P3-10 campaign loss measurement does not exist yet",
+      "verdict": "UNDECIDED"
+    },
+    "EPOCH-CLUSTER": {
+      "reason": "P3-10 campaign loss measurement does not exist yet",
+      "verdict": "UNDECIDED"
+    },
+    "PHASE-DEPTH": {
+      "reason": "P3-10 campaign loss measurement does not exist yet",
+      "verdict": "UNDECIDED"
+    },
+    "SDE-10.0": {
+      "reason": "SDE bars are fixed in Phase 3 (3/3 vote); the replay value is evidence for the 3.1 decision",
+      "verdict": "EVIDENCE-ONLY"
+    },
+    "SDE-8.0": {
+      "reason": "SDE bars are fixed in Phase 3 (3/3 vote); the replay value is evidence for the 3.1 decision",
+      "verdict": "EVIDENCE-ONLY"
+    },
+    "SDE-9.0": {
+      "reason": "SDE bars are fixed in Phase 3 (3/3 vote); the replay value is evidence for the 3.1 decision",
+      "verdict": "EVIDENCE-ONLY"
+    },
+    "TWO-COMBINED": {
+      "reason": "P3-10 campaign loss measurement does not exist yet",
+      "verdict": "UNDECIDED"
+    },
+    "TWO-STRONG": {
+      "reason": "P3-10 campaign loss measurement does not exist yet",
+      "verdict": "UNDECIDED"
+    }
+  }
+}
