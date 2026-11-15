@@ -268,6 +268,36 @@ class TestDeskNativesValidation(unittest.TestCase):
         with self.assertRaises(RecordValidationError):
             validate_desk_natives(rec)
 
+    def test_real_holdout_dict_validates(self):
+        # The holdout dict shape as holdout_test returns it: the
+        # identity + ephemeris fields on top, sigma_pct on usable
+        # folds. (No driver path writes the dict today — the live
+        # source returns only the verdict string — but the dict
+        # branch must describe the real record, not a guess.)
+        rec = _complete_desk_natives()
+        rec["natives"]["holdout.native"] = {
+            "tic": "999999999", "period_days": 2.5,
+            "t0_btjd": 1502.0, "duration_hours": 2.4,
+            "n_sectors_total": 3, "sectors": [96, 97, 98],
+            "criteria": {"min_usable_folds": 3,
+                         "min_total_full_events": 3,
+                         "fold_signif_bar": 3.0, "opposite_bar": -3.0,
+                         "pass_rule": "strict majority"},
+            "folds": [{"fold": 0, "held_out_sectors": [96],
+                       "tmin": 1500.0, "tmax": 1527.0,
+                       "n_raw_points": 3888, "usable": True,
+                       "reason": None,
+                       "refined_period_days": 2.5,
+                       "refined_t0_btjd": 1502.0,
+                       "events_in_span": 10, "full_events": 10,
+                       "depth_pct": 0.95, "signif": 40.0,
+                       "n_chunks_out": 5, "sigma_pct": 0.02}],
+            "verdict": "HOLDOUT-PASS", "n_folds": 3,
+            "n_usable_folds": 3, "total_full_events_held_out": 30,
+            "folds_at_or_above_bar": 3, "folds_opposite": 0,
+            "combined_depth_pct": 0.95, "combined_signif": 40.0}
+        validate_desk_natives(rec)
+
 
 if __name__ == "__main__":
     unittest.main()
