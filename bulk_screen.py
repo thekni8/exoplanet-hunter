@@ -1270,15 +1270,26 @@ MAX_CONSECUTIVE_TIMEOUTS = 25
 
 
 def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
-                            max_consecutive_timeouts=None):
-    """Submit every screen job and collect the records, with a
-    per-star watchdog (C-1) and a consecutive-timeout circuit
-    breaker (F-13).
+                            max_consecutive_timeouts=None,
+                            max_in_flight=None):
+    """Submit screen jobs in a bounded in-flight window and
+    collect the records, with a per-star watchdog (C-1) and a
+    consecutive-timeout circuit breaker (F-13).
 
-    Each future gets ``timeout_s`` from submission; a star that
-    has not returned by then is recorded as ``status="unmeasured"``
-    with a ``watchdog_timeout`` reason and the run moves on to
-    the next star — a pathological star must never hang a whole
+    At most ``max_in_flight`` jobs (default 16) are submitted
+    at any time; a new job is submitted only when a slot frees.
+    Each future gets ``timeout_s`` from submission, so
+    submitting every job up front would make each queued job
+    "time out" once the run's wall time passed ``timeout_s`` --
+    the 2026-11-16 inverted-null run (36,075 jobs, one pool
+    call) tripped its breaker exactly 600 s after launch on
+    stars that screen in ~0.7 s. The bounded window keeps a
+    submitted job within ~one star's runtime of its actual
+    start, so a timeout means the star's own screen hung, not
+    that it waited in the queue. A star that has not returned
+    by then is recorded as ``status="unmeasured"`` with a
+    ``watchdog_timeout`` reason and the run moves on to the
+    next star — a pathological star must never hang a whole
     slice. The late result, if it ever arrives, is ignored (the
     star is already accounted for). ``worker`` is _screen_one in
     production; tests pass a fake.
@@ -1301,11 +1312,27 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
     """
     if max_consecutive_timeouts is None:
         max_consecutive_timeouts = MAX_CONSECUTIVE_TIMEOUTS
+    if max_in_flight is None:
+        max_in_flight = 16
+    max_in_flight = max(1, max_in_flight)
+    job_iter = iter(jobs)
     futures = {}
-    for job in jobs:
-        futures[ex.submit(worker, job)] = (job, time.monotonic())
     records, counts = [], {}
     consecutive_timeouts = 0
+
+    def _top_up():
+        # Submit until the in-flight window is full or the
+        # jobs run out (see the docstring: the watchdog's
+        # submission-time clock is only honest if a submitted
+        # job starts promptly).
+        while len(futures) < max_in_flight:
+            try:
+                job = next(job_iter)
+            except StopIteration:
+                return
+            futures[ex.submit(worker, job)] = (job, time.monotonic())
+
+    _top_up()
     pending = set(futures)
     while pending:
         done, pending = _futures_wait(
@@ -1313,6 +1340,7 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
             return_when=FIRST_COMPLETED)
         for fut in done:
             rec = fut.result()
+            del futures[fut]
             records.append(rec)
             counts[rec["status"]] = counts.get(rec["status"], 0) + 1
             # A success breaks the consecutive-timeout run.
@@ -1322,6 +1350,7 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
             job, t0 = futures[fut]
             if now - t0 > timeout_s:
                 pending.discard(fut)
+                del futures[fut]
                 tic, _path, sector, star = job
                 rec = {"tic": tic, "sector": int(sector),
                        "product": PRODUCT,
@@ -1344,6 +1373,12 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
                         f"stopping the slice")
                 log(f"star {tic}: WATCHDOG — screen exceeded "
                     f"{timeout_s:g}s, recorded unmeasured", logf)
+        # Refill the in-flight window; `futures` now holds
+        # exactly the live futures (done and timed-out ones
+        # were removed above), so it is the next round's
+        # pending set.
+        _top_up()
+        pending = set(futures)
     # Completion order is nondeterministic; sort by TIC so the
     # slice's output files are identical run to run (the old
     # ex.map loop preserved submission order).
@@ -1529,7 +1564,8 @@ def main(argv=None):
         # checkpointed and the driver stops the run.
         try:
             records, counts = _collect_screen_results(
-                ex, jobs, _screen_one, _net.STAR_TIMEOUT_S, logf)
+                ex, jobs, _screen_one, _net.STAR_TIMEOUT_S, logf,
+                max_in_flight=2 * args.workers)
         except CircuitBreakerError as exc:
             log(f"CIRCUIT BREAKER: {exc}", logf)
             log("slice NOT checkpointed (no summary written) — "

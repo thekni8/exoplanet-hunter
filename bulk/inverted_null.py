@@ -221,13 +221,26 @@ def _screen_flipped_star(job):
 # ---------------------------------------------------------------------------
 
 def _collect_null_results(ex, jobs, worker, timeout_s, on_record,
-                          logf=None, max_consecutive_timeouts=None):
-    """Submit every job and collect records, with a per-star
-    watchdog and a consecutive-timeout circuit breaker -- the
-    same semantics as bulk_screen._collect_screen_results
-    (C-1/F-13), plus `on_record(rec)` called for EVERY record
-    the moment it lands, so the parent can checkpoint per star
-    instead of holding 36k records in memory until the end.
+                          logf=None, max_consecutive_timeouts=None,
+                          max_in_flight=None):
+    """Submit jobs in a bounded in-flight window and collect
+    records, with a per-star watchdog and a consecutive-timeout
+    circuit breaker -- the same semantics as
+    bulk_screen._collect_screen_results (C-1/F-13), plus
+    `on_record(rec)` called for EVERY record the moment it
+    lands, so the parent can checkpoint per star instead of
+    holding 36k records in memory until the end.
+
+    At most `max_in_flight` jobs (default 16) are submitted at
+    any time; a new job is submitted only when a slot frees.
+    The watchdog measures each star's age from its SUBMISSION
+    time, so submitting every job up front would make each
+    queued job "time out" once the run's wall time passed
+    `timeout_s` -- the 2026-11-16 null run tripped its breaker
+    exactly 600 s after launch, on stars that screen in ~0.7 s.
+    The bounded window keeps a submitted job within ~one star's
+    runtime of its actual start, so a timeout means the star's
+    own screen hung, not that it waited in the queue.
 
     A star that has not returned within `timeout_s` of
     submission is recorded as status="unmeasured" with a
@@ -240,17 +253,35 @@ def _collect_null_results(ex, jobs, worker, timeout_s, on_record,
     """
     if max_consecutive_timeouts is None:
         max_consecutive_timeouts = bs.MAX_CONSECUTIVE_TIMEOUTS
+    if max_in_flight is None:
+        max_in_flight = 16
+    max_in_flight = max(1, max_in_flight)
+    job_iter = iter(jobs)
     futures = {}
-    for job in jobs:
-        futures[ex.submit(worker, job)] = (job, time.monotonic())
     counts = {}
     consecutive_timeouts = 0
+
+    def _top_up():
+        # Submit until the in-flight window is full or the
+        # jobs run out. A submitted future sits at most
+        # (max_in_flight - workers) queue positions from
+        # starting, so its submission time is within ~one
+        # star's runtime of its actual start.
+        while len(futures) < max_in_flight:
+            try:
+                job = next(job_iter)
+            except StopIteration:
+                return
+            futures[ex.submit(worker, job)] = (job, time.monotonic())
+
+    _top_up()
     pending = set(futures)
     while pending:
         done, pending = wait(pending, timeout=timeout_s,
                              return_when=FIRST_COMPLETED)
         for fut in done:
             rec = fut.result()
+            del futures[fut]
             on_record(rec)
             counts[rec["status"]] = counts.get(rec["status"], 0) + 1
             consecutive_timeouts = 0
@@ -259,6 +290,7 @@ def _collect_null_results(ex, jobs, worker, timeout_s, on_record,
             job, t0 = futures[fut]
             if now - t0 > timeout_s:
                 pending.discard(fut)
+                del futures[fut]
                 tic, path, sector, _workdir = job
                 rec = {"tic": tic, "sector": int(sector),
                        "product": bs.PRODUCT,
@@ -279,6 +311,12 @@ def _collect_null_results(ex, jobs, worker, timeout_s, on_record,
                         f"stopping the null run")
                 _log(f"star {tic}: WATCHDOG -- screen exceeded "
                      f"{timeout_s:g}s, recorded unmeasured")
+        # Refill the in-flight window with jobs that have not
+        # been submitted yet; `futures` now holds exactly the
+        # live futures (done and timed-out ones were removed
+        # above), so it is the next round's pending set.
+        _top_up()
+        pending = set(futures)
     return counts
 
 
@@ -539,6 +577,10 @@ def run_null(cache, sector, out_dir, workers=DEFAULT_WORKERS,
             out["inverted_null"] = True
             fh_surv.write(json.dumps(out) + "\n")
             fh_surv.flush()
+        # Count here, not in the callers: the pool path's
+        # collector keeps its own counts, so without this the
+        # progress line below always read 0 survivors.
+        counts[rec["status"]] = counts.get(rec["status"], 0) + 1
         n_done_this_run[0] += 1
         if n_done_this_run[0] % 500 == 0:
             _log(f"[inverted-null] {n_done_this_run[0]}/"
@@ -550,20 +592,30 @@ def run_null(cache, sector, out_dir, workers=DEFAULT_WORKERS,
     try:
         if workers <= 1:
             # Sequential path: debugging + tests. Same worker,
-            # same checkpointing, no pool.
+            # same checkpointing, no pool. on_record counts
+            # each record (see above) -- do not count here
+            # too, or sequential mode double-counts.
             for job in jobs:
                 rec = _screen_flipped_star(job)
                 on_record(rec)
-                counts[rec["status"]] = \
-                    counts.get(rec["status"], 0) + 1
         else:
-            with ProcessPoolExecutor(
-                    max_workers=workers,
-                    initializer=_init_worker,
-                    initargs=(str(ROOT), profile)) as ex:
+            # Explicit executor (not `with`): on a breaker
+            # trip the pool still holds the queued jobs, and
+            # the `with` form's shutdown(wait=True) would drain
+            # them all with the results discarded. cancel_futures
+            # drops the queued ones; running ones finish (a
+            # worker cannot be killed mid-task -- same caveat
+            # as the watchdog itself).
+            ex = ProcessPoolExecutor(
+                max_workers=workers,
+                initializer=_init_worker,
+                initargs=(str(ROOT), profile))
+            try:
                 counts = _collect_null_results(
                     ex, jobs, _screen_flipped_star, timeout_s,
-                    on_record)
+                    on_record, max_in_flight=2 * workers)
+            finally:
+                ex.shutdown(wait=True, cancel_futures=True)
     finally:
         fh_ckpt.close()
         fh_surv.close()
