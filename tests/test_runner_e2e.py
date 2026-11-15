@@ -197,6 +197,9 @@ class TestRunnerEndToEnd(unittest.TestCase):
         run = run_gauntlet(_target(natives={
             "shape.native": {"shape_verdict": "V-shaped",
                              "T23_T14": 0.15,
+                             # P-8 legs (see test_runner.py).
+                             "frac_err": 0.02,
+                             "depth0_signif": 10.0,
                              "density_flag": False}}))
         self.assertEqual(run.final_verdict, "EB")
         by_stage = _by_stage(run)

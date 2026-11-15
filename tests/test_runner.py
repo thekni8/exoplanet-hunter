@@ -334,6 +334,10 @@ class TestDependencyGating(unittest.TestCase):
             natives = dict(PASSING_NATIVES)
             natives["shape.native"] = {
                 "shape_verdict": "V-shaped", "T23_T14": 0.25,
+                # P-8: a V-shaped FAIL needs the legs — frac_err
+                # known with the upper bound under the 0.30 bar,
+                # at depth0_signif >= 5.
+                "frac_err": 0.02, "depth0_signif": 10.0,
                 "density_flag": False}
             run = run_gauntlet(
                 _ctx(natives=natives, imaging=IMAGING_ON),
@@ -489,6 +493,10 @@ class TestFrozenContext(unittest.TestCase):
         natives = dict(PASSING_NATIVES)
         natives["shape.native"] = {
             "shape_verdict": "V-shaped", "T23_T14": 0.25,
+            # P-8: a V-shaped FAIL needs the legs — frac_err
+            # known with the upper bound under the 0.30 bar,
+            # at depth0_signif >= 5.
+            "frac_err": 0.02, "depth0_signif": 10.0,
             "density_flag": False}
         ctx3 = _ctx(natives=natives)
         self.assertNotEqual(ctx1.context_hash(),
@@ -518,6 +526,10 @@ class TestResultCaching(unittest.TestCase):
             natives = dict(PASSING_NATIVES)
             natives["shape.native"] = {
                 "shape_verdict": "V-shaped", "T23_T14": 0.25,
+                # P-8: a V-shaped FAIL needs the legs — frac_err
+                # known with the upper bound under the 0.30 bar,
+                # at depth0_signif >= 5.
+                "frac_err": 0.02, "depth0_signif": 10.0,
                 "density_flag": False}
             run2 = run_gauntlet(_ctx(natives=natives,
                                      imaging=IMAGING_ON),
