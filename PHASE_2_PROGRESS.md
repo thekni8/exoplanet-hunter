@@ -433,6 +433,35 @@ bar pinned; LATTE REPORT_ONLY.
   policy_version make the run reproducible in principle;
   a remote catalog change could move the number.
 
+### P-5 — LATTE status REPORT_ONLY, not INCONCLUSIVE
+
+- **New status:** `STATUS_REPORT_ONLY = "report_only"`
+  joins the contract vocabulary (module docstring,
+  `STATUSES`, and the status enum in all three schemas
+  that inline the stage shape: stage-result, verdict,
+  evidence — the evidence schema's `stages` and
+  `external_tools` sections both). A completed LATTE run
+  reads `report_only`: inconclusive means the stage
+  measured and could not decide; here there was nothing
+  to decide. It is never a pass, never a fail, never
+  waivable (pinned by a test), and AGGREGATION-NEUTRAL —
+  no `aggregate_verdict` branch matches it, so it could
+  neither promote nor block if one ever entered
+  aggregation (it never does; tool results live in extra
+  evidence).
+- **Test changes, stated:** the LATTE assertions in
+  test_latte / test_desk_external_tools / test_evidence
+  moved from "inconclusive" to "report_only" (the
+  deliberate status change, not a weakening); the
+  status×execution matrix gained
+  `("report_only", EXEC_COMPLETED) → CANDIDATE`
+  (10 legal combinations now, test renamed) and a
+  report-only-cannot-be-waived pin.
+- **Schema note:** the P-4 `policy_version` field also
+  had to be added to the evidence schema's two inlined
+  stage shapes — the first P-5 test run caught it
+  (evidence-package validation rejected the field).
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):

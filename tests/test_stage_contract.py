@@ -606,13 +606,17 @@ class TestStatusExecutionMatrix(unittest.TestCase):
         ("unmeasured", EXEC_COMPLETED): "INCONCLUSIVE",
         ("inconclusive", EXEC_COMPLETED): "INCONCLUSIVE",
         ("not_applicable", EXEC_COMPLETED): "INCONCLUSIVE",
+        # P-5: report_only is aggregation-neutral — it
+        # neither promotes nor blocks, so with every other
+        # required stage passing the verdict is CANDIDATE.
+        ("report_only", EXEC_COMPLETED): "CANDIDATE",
         ("unmeasured", EXEC_NOT_STARTED): "INCONCLUSIVE",
         ("unmeasured", EXEC_SKIPPED): "INCONCLUSIVE",
         ("not_applicable", EXEC_SKIPPED): "INCONCLUSIVE",
         ("unmeasured", EXEC_ERROR): "INCONCLUSIVE",
     }
 
-    def test_all_twenty_combinations(self):
+    def test_all_status_execution_combinations(self):
         seen_legal = set()
         for status in STATUSES:
             for exec_status in (EXEC_COMPLETED, EXEC_NOT_STARTED,
@@ -634,7 +638,7 @@ class TestStatusExecutionMatrix(unittest.TestCase):
                         StageResult(
                             "persistence", status, "matrix probe",
                             PROV, execution_status=exec_status)
-        self.assertEqual(len(seen_legal), 9)
+        self.assertEqual(len(seen_legal), 10)
 
 
 class TestWaivers(unittest.TestCase):
@@ -656,6 +660,15 @@ class TestWaivers(unittest.TestCase):
             self._one_inconclusive(), IMAGING_ON,
             waivers={"holdout": "single-sector target"})
         self.assertEqual(verdict, "CANDIDATE")
+
+    def test_report_only_cannot_be_waived(self):
+        # P-5: a report needs no waiver — it is neither a
+        # pass nor a gap, and the type refuses to carry a
+        # waiver code on it.
+        with self.assertRaises(ValueError):
+            StageResult("latte", "report_only",
+                        "report generated", PROV,
+                        waiver_code="single_sector")
 
     def test_waiver_as_list_of_dicts(self):
         # The verdict record's shape is accepted too.

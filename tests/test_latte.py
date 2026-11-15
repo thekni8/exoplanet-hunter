@@ -69,12 +69,15 @@ def _output(**overrides):
 
 class TestLatteResult(unittest.TestCase):
 
-    def test_completed_is_inconclusive_never_pass(self):
+    def test_completed_is_report_only_never_pass(self):
         res = latte_result(_output())
         self.assertEqual(res.stage, "latte")
         # LATTE has no machine-readable dispositions: a
-        # completed run is inconclusive, never a pass.
-        self.assertEqual(res.status, "inconclusive")
+        # completed run is report_only (P-5), never a pass —
+        # and never inconclusive either: inconclusive means
+        # the stage measured and could not decide, and here
+        # there was nothing to decide.
+        self.assertEqual(res.status, "report_only")
         self.assertEqual(res.execution_status, "completed")
         self.assertIn("human must read it", res.reason)
         self.assertEqual(res.value, None)

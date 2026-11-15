@@ -178,7 +178,7 @@ class TestEvidencePackage(unittest.TestCase):
             lat_score = pkg["scores"]["latte"]
             self.assertEqual(lat_score["report_pdf"],
                              "/tmp/work/DV_report.pdf")
-            self.assertEqual(lat_score["status"], "inconclusive")
+            self.assertEqual(lat_score["status"], "report_only")
 
     def test_missing_source_files_hash_null(self):
         with tempfile.TemporaryDirectory() as tmp:

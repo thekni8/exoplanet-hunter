@@ -8,7 +8,7 @@ and touches a marker file, so the test can prove whether
 the tool ran) on synthetic light curves:
 
   1. a clean planet -> CANDIDATE + a LATTE result in
-     extra_evidence (inconclusive, report-only), raw output
+     extra_evidence (report_only), raw output
      recorded, tool_lc.npz + stage0_census.json written and
      hashed;
   2. a flagged-cadence artifact -> REFUTED at the cheap
@@ -364,11 +364,11 @@ class TestDeskExternalTools(unittest.TestCase):
             self.assertEqual(result.run.final_verdict,
                              "CANDIDATE")
             # The tool ran (marker) and its result is in the
-            # extra evidence — inconclusive, report-only.
+            # extra evidence — report_only (P-5).
             self.assertTrue(os.path.exists(marker))
             tools = result.extra_evidence["external_tools"]
             self.assertEqual(tools["latte"]["status"],
-                             "inconclusive")
+                             "report_only")
             self.assertEqual(tools["latte"]["tool_version"],
                              "1.0.21")
             raw = result.extra_evidence["external_tools_raw"]

@@ -7,7 +7,7 @@ with a different shape per stage, or (worst) nothing at all when
 a stage could not measure. The contract:
 
   * status is one of pass / fail / unmeasured / inconclusive /
-    not_applicable.
+    not_applicable / report_only.
   * "unmeasured" means NOT YET VETTED — the stage had too little
     data to judge. It is NEVER a pass: no aggregation may treat
     it as one, and no CANDIDATE verdict may stand on it. It is
@@ -17,6 +17,15 @@ a stage could not measure. The contract:
     blocks candidacy unless the decision policy waives that
     stage explicitly (per-stage, in the policy, with a reason —
     see aggregate_verdict).
+  * "report_only" (P-5) means the stage produced a report a
+    human must read, with no machine-readable disposition at
+    all — LATTE emits plots + a PDF, never a pass/fail. It is
+    NEVER a pass and NEVER a fail, it is not waivable, and it
+    is AGGREGATION-NEUTRAL: it neither promotes nor blocks
+    (it never enters aggregation in the first place — tool
+    results live in extra evidence). It is not "inconclusive":
+    inconclusive means the stage measured and could not
+    decide; report_only means there was nothing to decide.
   * "not_applicable" means the stage does not apply to this
     target (e.g. a holdout test on a single-sector candidate).
     It BLOCKS candidacy unless the decision policy waives that
@@ -76,8 +85,13 @@ STATUS_FAIL = "fail"
 STATUS_UNMEASURED = "unmeasured"
 STATUS_INCONCLUSIVE = "inconclusive"
 STATUS_NOT_APPLICABLE = "not_applicable"
+# P-5: a report was produced and a human must read it — no
+# machine-readable disposition exists (LATTE). Never a pass,
+# never a fail, never waivable, aggregation-neutral.
+STATUS_REPORT_ONLY = "report_only"
 STATUSES = (STATUS_PASS, STATUS_FAIL, STATUS_UNMEASURED,
-            STATUS_INCONCLUSIVE, STATUS_NOT_APPLICABLE)
+            STATUS_INCONCLUSIVE, STATUS_NOT_APPLICABLE,
+            STATUS_REPORT_ONLY)
 
 # Execution outcome — separate from the scientific outcome. A stage
 # that crashed did not fail scientifically; a stage that never ran
@@ -831,9 +845,12 @@ def latte_result(native, prov=None):
     per-check dispositions (verified against the 1.0.21
     source; the C-10 design doc's dispositions assumption
     does not exist in the tool). So a completed run reads
-    INCONCLUSIVE — "report generated; a human must read it"
-    — never PASS and never FAIL. A failed / timed-out /
-    report-less run reads UNMEASURED + EXEC_ERROR.
+    REPORT_ONLY — "report generated; a human must read it"
+    — never PASS and never FAIL, and never INCONCLUSIVE
+    either (P-5): inconclusive means the stage measured
+    and could not decide; here there was nothing to decide.
+    A failed / timed-out / report-less run reads UNMEASURED
+    + EXEC_ERROR.
 
     The result is EVIDENCE ONLY: it is stored in the verdict
     record's extra evidence and the 2D evidence package, and
@@ -872,7 +889,7 @@ def latte_result(native, prov=None):
             _prov(prov), details, execution_status=EXEC_ERROR,
             **ev)
     return StageResult(
-        "latte", STATUS_INCONCLUSIVE,
+        "latte", STATUS_REPORT_ONLY,
         "LATTE report generated — a human must read it: "
         "LATTE emits plots + a PDF, no machine-readable "
         "dispositions, so no check can pass or fail here",
@@ -1167,6 +1184,11 @@ def aggregate_verdict(results, imaging=None, waivers=None,
     a {stage: reason} dict or a list of {"stage", "reason"}
     dicts; `policy` is the decision-policy dict (default:
     gauntlet_v2).
+
+    Report-only stages (P-5, e.g. LATTE) never enter
+    aggregation — their results live in extra evidence. If
+    one ever did, no branch above would match it: it could
+    neither promote nor block, by design.
     """
     waived = validate_waivers(results, waivers, policy)
     by_stage = {r.stage: r for r in results}
