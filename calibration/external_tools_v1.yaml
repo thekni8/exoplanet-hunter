@@ -1,0 +1,60 @@
+# External-tool configuration v1 (Phase 2, 2B-3).
+# IMMUTABLE once used in a run: to change a setting, copy this
+# file to external_tools_v2.yaml, bump `version`, and update the
+# code + golden suite in the same change. See calibration/README.md
+# for the rules. Registered in calibration/registry.json — the
+# loader verifies this file's sha256 against the registry and
+# refuses a mismatch. This profile never reached main, so
+# pre-merge edits update the registry entry in the same commit
+# rather than minting a v2 (the F-1 precedent).
+version: external_tools_v1
+status: active
+rationale: "External-tool configuration v1 (2026-11-15, Phase 2 2B): shared run settings (seed, timeout, memory cap) + per-tool venv paths and versions for LATTE and TRICERATOPS, + PROVISIONAL TRICERATOPS FPP/NFPP bars. The venv paths point at the Mac (/Volumes/NVME/...); on any host without them the tool stage reads UNMEASURED (missing_venv), never a crash. The FPP bars are PROVISIONAL — the Giacalone et al. 2021 validation bars (FPP < 0.015, NFPP < 0.001) and a 0.5 refute bar — and do not gate promotion until the Phase 2 vote ratifies them (see PHASE_2_PROGRESS.md, 2B/2C judgment call 3)."
+
+# --- shared run settings -----------------------------------------------
+# The seed is FIXED per tool config, not per target and not random
+# per run — a re-run reproduces the number (C-10 constraint 3).
+seed: 20261114
+# Wall-clock timeout per tool invocation, seconds (C-10: 1800).
+timeout_s: 1800
+# RLIMIT_AS memory cap per tool invocation, MB (the Mac has
+# 16 GB; the cap is a guardrail for the Mac's other work, not
+# a constraint — the VM never runs these tools).
+memory_mb: 2048
+
+# --- LATTE (Eisner et al. 2020) -----------------------------------------
+# Version 1.0.21: the latest stable on PyPI at build time
+# (2026-11-15). Pins matplotlib==3.2.0 / astropy<=4.0 — the
+# venv needs Python 3.8 (see docs/external-tools-mac-setup.md).
+latte:
+  tool_version: "1.0.21"
+  venv_python: "/Volumes/NVME/pingu-jobs/exoplanet-hunter/venvs/latte/bin/python"
+  wrapper: "gauntlet/tools/run_latte.py"
+
+# --- TRICERATOPS (Giacalone et al. 2021) --------------------------------
+# Version 1.1.0: the latest release at build time (2026-11-15).
+# Pins numpy<2 / scipy<1.14 on Python < 3.13 — the venv needs
+# Python 3.11 or older (see docs/external-tools-mac-setup.md).
+triceratops:
+  tool_version: "1.1.0"
+  venv_python: "/Volumes/NVME/pingu-jobs/exoplanet-hunter/venvs/triceratops/bin/python"
+  wrapper: "gauntlet/tools/run_triceratops.py"
+  # P-10: the bars below are Giacalone et al. 2021's
+  # published validation criteria — full citation,
+  # verified 2026-11-15: Giacalone, S., Dressing, C. D.,
+  # Jensen, E. L. N., et al. 2021, AJ, 161, 24, "Vetting of
+  # 384 TESS Objects of Interest with TRICERATOPS and
+  # Statistical Validation of 12 Planet Candidates",
+  # doi:10.3847/1538-3881/abc6af, arXiv:2002.00691.
+  # Validated planets: FPP < 0.015 and NFPP < 1e-3; likely
+  # planets: FPP < 0.5 and NFPP < 1e-3; likely nearby FPs:
+  # NFPP > 1e-1. (C-10's "FPP < 0.01" was a misremembering
+  # — the paper's bar is 0.015.)
+  citation: "Giacalone, S., Dressing, C. D., Jensen, E. L. N., et al. 2021, AJ, 161, 24, doi:10.3847/1538-3881/abc6af, arXiv:2002.00691"
+  # PROVISIONAL policy bars — the vote ratifies or replaces
+  # them (C-10 open question 4). Until then the adapter
+  # computes the policy-mapped status for the evidence record
+  # but the result does not gate promotion.
+  fpp_validate_max: 0.015  # Giacalone et al. 2021 validation bar
+  nfpp_validate_max: 0.001  # (FPP < 0.015 and NFPP < 0.001)
+  fpp_refute_min: 0.5  # FPP above this reads FAIL ("likely FP")

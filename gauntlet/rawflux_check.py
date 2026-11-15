@@ -108,21 +108,29 @@ def select_pipeline_set(sets, sector_cap=20):
     return pfx, list(sets[pfx][:sector_cap])
 
 
-def download_author(author, pfx, no_download=False):
-    """One npz per sector (earliest products; SPOC prefers 120 s rows)."""
+def download_author(author, pfx, no_download=False, tic=None,
+                    data_dir=None):
+    """One npz per sector (earliest products; SPOC prefers 120 s rows).
+
+    tic / data_dir default to the module globals set by main()
+    (TIC / DATA); the desk driver passes them explicitly so the
+    fetch path is callable without main()'s globals."""
+    tic = TIC if tic is None else str(tic)
+    data_dir = DATA if data_dir is None else data_dir
     if no_download:
         # cached-only mode: never touch MAST, just inventory DATA
         import glob as _glob
         got = sorted(int(os.path.basename(p)[len(pfx) + 2:-4])
-                     for p in _glob.glob(os.path.join(DATA, f'{pfx}_s*.npz')))
+                     for p in _glob.glob(os.path.join(
+                         data_dir, f'{pfx}_s*.npz')))
         print(f'{author}: cached sectors {got}', flush=True)
         return got
     import netbound as _net  # C-1: watch the search + downloads
     try:
         # C-1: lightkurve takes no timeout — watch the call.
         sr = _net.mast_call(
-            lambda: lk.search_lightcurve(f'TIC {TIC}', author=author),
-            name=f"rawflux search TIC {TIC} ({author})")
+            lambda: lk.search_lightcurve(f'TIC {tic}', author=author),
+            name=f"rawflux search TIC {tic} ({author})")
     except Exception as e:
         print(f'{author}: search failed {e}', flush=True)
         return []
@@ -142,7 +150,7 @@ def download_author(author, pfx, no_download=False):
             by_sector[sec] = i
     got = []
     for sec in sorted(by_sector):
-        fn = os.path.join(DATA, f'{pfx}_s{sec:03d}.npz')
+        fn = os.path.join(data_dir, f'{pfx}_s{sec:03d}.npz')
         if os.path.exists(fn):
             got.append(sec)
             continue
@@ -153,7 +161,7 @@ def download_author(author, pfx, no_download=False):
                 # download retries like any other failure.
                 lc = _net.mast_call(
                     lambda: sr[by_sector[sec]].download(),
-                    name=f"rawflux download TIC {TIC} s{sec} "
+                    name=f"rawflux download TIC {tic} s{sec} "
                          f"({author})")
                 if lc is not None:
                     break
@@ -185,10 +193,12 @@ def download_author(author, pfx, no_download=False):
     return got
 
 
-def load_stitched(pfx, secs):
+def load_stitched(pfx, secs, data_dir=None):
+    """data_dir defaults to the module global set by main()."""
+    data_dir = DATA if data_dir is None else data_dir
     ts, fs, spans = [], [], []
     for s in secs:
-        z = np.load(os.path.join(DATA, f'{pfx}_s{s:03d}.npz'))
+        z = np.load(os.path.join(data_dir, f'{pfx}_s{s:03d}.npz'))
         t = np.asarray(z['time'], dtype=float)
         f = np.asarray(z['flux'], dtype=float)
         f = f / np.median(f)
@@ -360,6 +370,13 @@ def raw_measure(pfx, secs, P, T0, DUR):
 # T23/T14 -> 0 (423498314's formal fit: 0.25). So frac <= 0.30 is
 # firmly grazing territory and frac >= 0.50 requires a substantial
 # full-transit phase; the 0.30-0.50 band is genuinely ambiguous.
+# HOW T23 IS ESTIMATED (P-8): T23 is NOT fitted separately —
+# the trapezoid fit's `frac` parameter IS T23/T14 (the model
+# sets t23 = t14 * frac; see _trap_model), so T23_d = t14 *
+# frac is the derived flat-bottom duration and frac_err is the
+# fit's 1-sigma error on the fraction from the least-squares
+# covariance (None when the fit sits on a parameter bound and
+# the covariance is degenerate — see _fit_trap's sanitiser).
 # The density flag has two clauses, both bound arguments: (1)
 # rho_circ/rho_star < 0.80, i.e. the transit exceeds the rp->0
 # central maximum duration by >7.7% — a gross mismatch, any shape;
@@ -553,7 +570,9 @@ def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
     (DUR) is several times the true duration (TOI-700 c: DUR
     0.183 d vs true T14 0.058 d — DUR/10 bins put only ~3 bins
     across the transit, which no fit can shape). Returns a
-    JSON-able dict."""
+    JSON-able dict. T23 is t14 * frac from the fit (frac IS
+    T23/T14; see the header comment) and frac_err is the fit's
+    1-sigma error on the fraction (None on a bound)."""
     out = {'method': 'symmetric trapezoid on binned raw fold'}
     ph = phase_days(t, P, T0)
     hw = min(3.5 * DUR, 0.30 * P)  # half-window; capped so the window

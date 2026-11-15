@@ -353,11 +353,13 @@ TargetContext, not a list).
    disagree, diffimg wins (it is the mandatory gate; LATTE's
    is a cross-check). The adapter must say so in `details`
    when they disagree, not silently prefer one.
-4. **FPP thresholds.** The policy bar (e.g. FPP < 0.01 to
+4. **FPP thresholds.** The policy bar (e.g. FPP < 0.015 to
    validate, FPP > 0.5 to refute) is a calibration decision
    for the Phase 2 vote, informed by the tools' literature
-   (Giacalone et al. use FPP < 0.01 + NFPP < 0.001 for
-   validation). This doc deliberately does not set them.
+   (Giacalone et al. use FPP < 0.015 + NFPP < 0.001 for
+   validation — corrected 2026-11-15, P-10: the paper's bar
+   is 0.015, not 0.01 as first written here). This doc
+   deliberately does not set them.
 5. **Where the tools run.** The Mac is the compute host
    (scheduled jobs only, per Dev's rules). The tools' venvs
    live on the Mac alongside the pipeline; the VM never runs

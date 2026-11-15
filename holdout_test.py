@@ -65,6 +65,8 @@ warnings.filterwarnings("ignore")
 
 import hunter  # noqa: E402
 import persistence  # noqa: E402
+from gauntlet.refine import (  # noqa: E402
+    REFINE_GRID_HALF_FRAC, REFINE_PERIOD_TOL_FRAC, refine_ephemeris)
 
 # --- Verdict constants (set in advance; see header) ------------------------
 MIN_USABLE_FOLDS = 3
@@ -72,44 +74,11 @@ MIN_TOTAL_FULL_EVENTS = 3
 FOLD_SIGNIF_BAR = 3.0        # the house raw-flux bar (pass-2 gate)
 OPPOSITE_BAR = -3.0
 MAX_FOLDS_SINGLE_SECTOR = 6  # <= this many sectors -> one fold per sector
-REFINE_PERIOD_TOL_FRAC = 0.01
-REFINE_GRID_HALF_FRAC = 0.015
 
-
-def _refine_ephemeris(t, f, period_in, duration_d):
-    """BLS refit on TRAINING flux only, narrow grid around the filed
-    period. Returns (period, t0) or None if the refit fails or lands
-    outside +/- REFINE_PERIOD_TOL_FRAC of the filed period."""
-    import astropy.units as u
-    from astropy.timeseries import BoxLeastSquares
-
-    t = np.asarray(t, dtype=float)
-    f = np.asarray(f, dtype=float)
-    ok = np.isfinite(t) & np.isfinite(f)
-    t, f = t[ok], f[ok]
-    if len(t) < 500 or period_in <= 0 or duration_d <= 0:
-        return None
-    baseline = float(t.max() - t.min())
-    if baseline <= 0:
-        return None
-    f_lo = 1.0 / (period_in * (1.0 + REFINE_GRID_HALF_FRAC))
-    f_hi = 1.0 / (period_in * (1.0 - REFINE_GRID_HALF_FRAC))
-    n_freq = int(min(20000, max(2000, 5.0 * baseline * (f_hi - f_lo) + 500)))
-    periods = (1.0 / np.linspace(f_lo, f_hi, n_freq)) * u.day
-    durations = np.unique(np.clip(
-        np.array([0.6, 1.0, 1.5]) * duration_d, 0.02, 0.35)) * u.day
-    try:
-        bls = BoxLeastSquares(t * u.day, f)
-        res = bls.power(periods, durations)
-        i = int(np.argmax(res.power))
-        p_ref = float(res.period[i].value)
-        t0_ref = float(res.transit_time[i].value)
-    except Exception:
-        return None
-    if not np.isfinite(p_ref) or abs(p_ref - period_in) > (
-            REFINE_PERIOD_TOL_FRAC * period_in):
-        return None
-    return p_ref, t0_ref
+# The refit lives in gauntlet/refine.py (Phase 2, 2A) so the desk
+# driver can use it; this alias keeps holdout_test's existing
+# callers (holdout_extended, holdout_supp) working unchanged.
+_refine_ephemeris = refine_ephemeris
 
 
 def _window_coverage(t, tmin, tmax, period, t0, duration_d):
@@ -146,25 +115,36 @@ def _chunk_count(t_out, duration_d):
     return int((cnt >= 3).sum())
 
 
-def holdout_test(tic_id, period_days, t0_days, duration_hours,
-                 sector_cap=20, star_radius=1.0, max_folds=5,
-                 progress_callback=None):
-    """Run the holdout prediction test at a filed ephemeris.
+def holdout_from_arrays(flat_t, flat_f, raw_t, raw_f, ranges,
+                        tic_id, period_days, t0_days, duration_hours,
+                        max_folds=5):
+    """Run the holdout prediction test on in-memory arrays
+    (Phase 2 vote follow-up P-19).
 
-    Returns a JSON-able dict with verdict in {HOLDOUT-PASS,
-    HOLDOUT-FAIL, HOLDOUT-INSUFFICIENT-DATA} and the per-fold record.
+    flat_t/flat_f is the detrended light curve (training:
+    the BLS refit runs on it); raw_t/raw_f is the raw light
+    curve (measurement: fold depths are read off it).
+    ranges is a list of {"sector", "tmin", "tmax"} dicts —
+    one per sector, or one per product (overlapping ranges
+    for the same sector are merged before folding, so the
+    same photons never sit on both sides of a fold
+    boundary).
+
+    Returns the same JSON-able dict as holdout_test, with
+    verdict in {HOLDOUT-PASS, HOLDOUT-FAIL,
+    HOLDOUT-INSUFFICIENT-DATA} and the per-fold record.
+    holdout_test() is the thin wrapper that acquires the
+    arrays by re-running the pipeline; the desk driver
+    calls this function with the arrays it already holds
+    (its stitched raw flux + its flattened flux), so a
+    desk run never pays for a second detrend + BLS.
     """
     tic_id = str(tic_id)
     P = float(period_days)
     T0 = float(t0_days)
     DUR = float(duration_hours) / 24.0
 
-    full = hunter._run_pipeline(
-        tic_id, star_radius=star_radius, bls_points=10000,
-        max_sectors=sector_cap, progress_callback=progress_callback)
-    ranges = persistence._sector_ranges(tic_id, sector_cap,
-                                        progress_callback)
-    # _sector_ranges returns one entry per PRODUCT, and a sector with
+    # Ranges arrive one entry per PRODUCT, and a sector with
     # both 120 s and 20 s products appears twice with overlapping
     # ranges. persistence.py tolerates that (it grades each product's
     # range separately); a holdout partition may not — the same
@@ -181,10 +161,10 @@ def holdout_test(tic_id, period_days, t0_days, duration_hours,
             cur["tmax"] = max(cur["tmax"], rng["tmax"])
     ranges = list(merged.values())
 
-    ft = np.asarray(full["flat_time"], dtype=float)
-    ff = np.asarray(full["flat_flux"], dtype=float)
-    rt = np.asarray(full["raw_time"], dtype=float)
-    rf = np.asarray(full["raw_flux"], dtype=float)
+    ft = np.asarray(flat_t, dtype=float)
+    ff = np.asarray(flat_f, dtype=float)
+    rt = np.asarray(raw_t, dtype=float)
+    rf = np.asarray(raw_f, dtype=float)
 
     # Per-sector splits, chronological (same split as persistence.py).
     sectors = []
@@ -197,8 +177,6 @@ def holdout_test(tic_id, period_days, t0_days, duration_hours,
                         "tmin": rng["tmin"], "tmax": rng["tmax"],
                         "ft": ft[m], "ff": ff[m],
                         "rt": rt[mr], "rf": rf[mr]})
-    del full
-    gc.collect()
 
     result = {
         "tic": tic_id, "period_days": P, "t0_btjd": T0,
@@ -338,6 +316,37 @@ def holdout_test(tic_id, period_days, t0_days, duration_hours,
     else:
         result["verdict"] = "HOLDOUT-FAIL"
     return result
+
+
+def holdout_test(tic_id, period_days, t0_days, duration_hours,
+                 sector_cap=20, star_radius=1.0, max_folds=5,
+                 progress_callback=None):
+    """Run the holdout prediction test at a filed ephemeris.
+
+    Returns a JSON-able dict with verdict in {HOLDOUT-PASS,
+    HOLDOUT-FAIL, HOLDOUT-INSUFFICIENT-DATA} and the per-fold record.
+
+    Thin wrapper over holdout_from_arrays: re-runs the pipeline
+    for the light curves and queries the sector ranges, then
+    folds the arrays. Callers that already hold the arrays
+    (the desk driver) call holdout_from_arrays directly and
+    skip the re-run.
+    """
+    tic_id = str(tic_id)
+    full = hunter._run_pipeline(
+        tic_id, star_radius=star_radius, bls_points=10000,
+        max_sectors=sector_cap, progress_callback=progress_callback)
+    ranges = persistence._sector_ranges(tic_id, sector_cap,
+                                        progress_callback)
+    ft = np.asarray(full["flat_time"], dtype=float)
+    ff = np.asarray(full["flat_flux"], dtype=float)
+    rt = np.asarray(full["raw_time"], dtype=float)
+    rf = np.asarray(full["raw_flux"], dtype=float)
+    del full
+    gc.collect()
+    return holdout_from_arrays(ft, ff, rt, rf, ranges, tic_id,
+                               period_days, t0_days, duration_hours,
+                               max_folds=max_folds)
 
 
 def main():

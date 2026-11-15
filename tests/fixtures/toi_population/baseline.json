@@ -10,7 +10,7 @@
     },
     "planets": {
       "all_measured_pass": 1,
-      "any_fail": 1,
+      "any_fail": 0,
       "n": 2
     },
     "stages": {
@@ -101,7 +101,7 @@
           "fail": 1
         },
         "planets": {
-          "fail": 1,
+          "inconclusive": 1,
           "pass": 1
         }
       },
@@ -115,8 +115,8 @@
       }
     }
   },
-  "generated_from": "scripts/toi_population.py offline run, 2026-11-14 (golden fixtures)",
-  "note": "TOI-700 c fails shape (V-shaped, T23/T14 0.2925 vs the 0.30 bar; triangle beats trapezoid by dchi2 1.6) \u2014 a marginal false-kill at the V/U boundary on a shallow (0.32%) transit, pinned here, not fixed. WASP-126 b passes all measured stages. The EB is killed by catalogue + shape. No star reaches CANDIDATE offline (diffimg/transit_fit unmeasured \u2014 known gaps).",
+  "generated_from": "scripts/toi_population.py offline run, 2026-11-15 (golden fixtures, P-8)",
+  "note": "P-8 (2026-11-15, Phase 2 vote follow-up): the shape gate is uncertainty-aware \u2014 TOI-700 c reads INCONCLUSIVE, not FAIL (V-shaped point estimate T23/T14 0.2925 \u00b1 0.107, 1-sigma upper bound 0.40 above the 0.30 bar, at 18.6 sigma dip significance \u2014 the SNR leg holds, the upper-bound leg does not). The 0.30 bar itself is unchanged (the vote pinned it). No planet fails any stage now (any_fail 0). WASP-126 b passes all measured stages. The EB is still killed by catalogue + shape \u2014 its shape kill is the DENSITY flag (rho_circ/rho_star < 0.80), not the V-shape test, so P-8 leaves it untouched. No star reaches CANDIDATE offline (diffimg/transit_fit unmeasured \u2014 known gaps).",
   "stages": {
     "150428135": {
       "blend": "pass",
@@ -129,7 +129,7 @@
       "pixel_check": "unmeasured",
       "raw_flux": "pass",
       "refine": "pass",
-      "shape": "fail",
+      "shape": "inconclusive",
       "transit_fit": "unmeasured"
     },
     "25155310": {

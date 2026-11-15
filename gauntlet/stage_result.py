@@ -7,7 +7,7 @@ with a different shape per stage, or (worst) nothing at all when
 a stage could not measure. The contract:
 
   * status is one of pass / fail / unmeasured / inconclusive /
-    not_applicable.
+    not_applicable / report_only.
   * "unmeasured" means NOT YET VETTED — the stage had too little
     data to judge. It is NEVER a pass: no aggregation may treat
     it as one, and no CANDIDATE verdict may stand on it. It is
@@ -17,6 +17,15 @@ a stage could not measure. The contract:
     blocks candidacy unless the decision policy waives that
     stage explicitly (per-stage, in the policy, with a reason —
     see aggregate_verdict).
+  * "report_only" (P-5) means the stage produced a report a
+    human must read, with no machine-readable disposition at
+    all — LATTE emits plots + a PDF, never a pass/fail. It is
+    NEVER a pass and NEVER a fail, it is not waivable, and it
+    is AGGREGATION-NEUTRAL: it neither promotes nor blocks
+    (it never enters aggregation in the first place — tool
+    results live in extra evidence). It is not "inconclusive":
+    inconclusive means the stage measured and could not
+    decide; report_only means there was nothing to decide.
   * "not_applicable" means the stage does not apply to this
     target (e.g. a holdout test on a single-sector candidate).
     It BLOCKS candidacy unless the decision policy waives that
@@ -69,14 +78,20 @@ from dataclasses import dataclass, field, replace
 from functools import lru_cache
 
 import provenance as _provenance
+import validation as _validation
 
 STATUS_PASS = "pass"
 STATUS_FAIL = "fail"
 STATUS_UNMEASURED = "unmeasured"
 STATUS_INCONCLUSIVE = "inconclusive"
 STATUS_NOT_APPLICABLE = "not_applicable"
+# P-5: a report was produced and a human must read it — no
+# machine-readable disposition exists (LATTE). Never a pass,
+# never a fail, never waivable, aggregation-neutral.
+STATUS_REPORT_ONLY = "report_only"
 STATUSES = (STATUS_PASS, STATUS_FAIL, STATUS_UNMEASURED,
-            STATUS_INCONCLUSIVE, STATUS_NOT_APPLICABLE)
+            STATUS_INCONCLUSIVE, STATUS_NOT_APPLICABLE,
+            STATUS_REPORT_ONLY)
 
 # Execution outcome — separate from the scientific outcome. A stage
 # that crashed did not fail scientifically; a stage that never ran
@@ -97,6 +112,11 @@ EXEC_STATUSES = (EXEC_COMPLETED, EXEC_NOT_STARTED, EXEC_SKIPPED,
 DEFAULT_POLICY_VERSION = "gauntlet_v2"
 RECORD_TYPE = "stage_result"
 
+# External-tools policy (Phase 2, 2B-3): the TRICERATOPS FPP
+# bars live in calibration/external_tools_v1.yaml, NOT in
+# code — a threshold change is a calibration change.
+EXTERNAL_TOOLS_POLICY_VERSION = "external_tools_v1"
+
 
 @lru_cache(maxsize=4)
 def load_decision_policy(version=DEFAULT_POLICY_VERSION):
@@ -104,6 +124,17 @@ def load_decision_policy(version=DEFAULT_POLICY_VERSION):
     version (default gauntlet_v2). Cached; call
     load_decision_policy.cache_clear() after changing the
     calibration dir in tests."""
+    from calibration import load_profile
+    return load_profile(version)
+
+
+@lru_cache(maxsize=4)
+def load_external_tools_policy(
+        version=EXTERNAL_TOOLS_POLICY_VERSION):
+    """The external-tools policy dict (default
+    external_tools_v1). Cached; call
+    load_external_tools_policy.cache_clear() after changing
+    the calibration dir in tests."""
     from calibration import load_profile
     return load_profile(version)
 
@@ -186,7 +217,12 @@ class StageResult:
     (e.g. TRICERATOPS FPP/NFPP — preserved, never reduced to a
     bare PASS/FAIL), `artifacts` the paths/ids of evidence
     files, `tool_version` / `config_hash` / `input_hashes` the
-    reproducibility of the measurement itself.
+    reproducibility of the measurement itself. `policy_version`
+    (P-4) names the decision policy that produced this
+    result's disposition (e.g. "external_tools_v1") — the raw
+    evidence (value, metrics) is policy-free, so a policy-only
+    edit re-derives the disposition without re-running the
+    tool; None for stages with no policy-mapped disposition.
     """
     stage: str
     status: str
@@ -203,6 +239,7 @@ class StageResult:
     artifacts: list = field(default_factory=list)
     tool_version: str | None = None
     config_hash: str | None = None
+    policy_version: str | None = None
     input_hashes: dict = field(default_factory=dict)
     warnings: list = field(default_factory=list)
     execution_status: str = EXEC_COMPLETED
@@ -291,7 +328,8 @@ class StageResult:
              "warnings": list(self.warnings)}
         for k in ("value", "uncertainty", "threshold",
                   "detection_limit", "n_transits", "tool_version",
-                  "config_hash", "waiver_code", "waiver_reason"):
+                  "config_hash", "policy_version", "waiver_code",
+                  "waiver_reason"):
             v = getattr(self, k)
             if v is not None:
                 d[k] = v
@@ -315,12 +353,36 @@ class StageResult:
                    artifacts=list(d.get("artifacts") or []),
                    tool_version=d.get("tool_version"),
                    config_hash=d.get("config_hash"),
+                   policy_version=d.get("policy_version"),
                    input_hashes=dict(d.get("input_hashes") or {}),
                    warnings=list(d.get("warnings") or []),
                    execution_status=d.get("execution_status",
                                           EXEC_COMPLETED),
                    waiver_code=d.get("waiver_code"),
                    waiver_reason=d.get("waiver_reason"))
+
+
+# The shape gate's V-shape bar, mirroring
+# gauntlet/rawflux_check.py's V_SHAPE_MAX_T23_T14 — the adapter
+# cannot import it (rawflux_check imports lightkurve at module
+# scope). Pinned equal by
+# tests/test_stage_contract.py::test_shape_bar_matches_gate, and
+# the gate constant is itself drift-tested against
+# calibration/gauntlet_v1.yaml. The vote PINNED this bar at
+# 0.30 — do not nudge it to 0.29.
+SHAPE_V_MAX_T23_T14 = 0.30
+# P-8: a V-shape FAIL also needs an adequate dip
+# significance in the binned fold (the gate's
+# depth0_signif) — a V-shaped point estimate on a marginal
+# dip does not establish a fail.
+SHAPE_FAIL_MIN_DEPTH_SIGNIF = 5.0
+
+
+# The diffimg absolute on-target cap, mirroring
+# gauntlet/desk.py's DIFFIMG_ON_TARGET_PX — the adapter cannot
+# import it (desk imports this module). Pinned equal by
+# tests/test_stage_contract.py::test_diffimg_bar_matches_driver.
+DIFFIMG_ON_TARGET_PX = 1.0
 
 
 def _prov(prov):
@@ -336,15 +398,40 @@ def _prov(prov):
 def shape_result(gate, prov=None):
     """trapezoid_shape_gate output -> StageResult.
 
-    V-shaped or density-flagged -> FAIL (EB suspect). U-shaped
-    with no density flag -> PASS. Ambiguous -> INCONCLUSIVE (the
-    shape was measured but does not decide). Unmeasured (too few
-    bins, no dip) -> UNMEASURED.
+    T23 is estimated as t14 * frac from the symmetric-
+    trapezoid fit to the binned raw fold (the fit's frac
+    parameter IS T23/T14; T23_d = t14 * frac is the derived
+    flat-bottom duration, not a separately fitted quantity).
+
+    V-shaped or density-flagged -> FAIL (EB suspect), with
+    the P-8 uncertainty rule (Phase 2 vote, F-8): a
+    V-shaped point estimate FAILs ONLY when the 1-sigma
+    UPPER bound (frac + frac_err) is under the 0.30 bar AND
+    the dip significance is >= 5 — otherwise the shape was
+    measured but the fail is not established, and the stage
+    reads INCONCLUSIVE (TOI-700 c: frac 0.2925, upper bound
+    above the bar). The density flag is a separate physical
+    argument (fitted duration impossible for a planet on
+    this star) and still FAILs unconditionally. U-shaped
+    with no density flag -> PASS. Ambiguous -> INCONCLUSIVE
+    (the shape was measured but does not decide).
+    Unmeasured (too few bins, no dip) -> UNMEASURED.
+
+    Evidence: value is T23/T14, uncertainty its 1-sigma
+    fit error, threshold the 0.30 V-shape (fail) bar — not
+    the 0.50 U-shape pass bar, which the single threshold
+    field cannot also express.
     """
     shape = gate.get("shape_verdict")
     details = {k: gate.get(k) for k in
-               ("T23_T14", "T14_h", "density_flag", "depth_frac")
+               ("T23_T14", "frac_err", "depth0_signif", "T14_h",
+                "density_flag", "depth_frac")
                if gate.get(k) is not None}
+    frac = gate.get("T23_T14")
+    frac_err = gate.get("frac_err")
+    signif = gate.get("depth0_signif")
+    ev = {"value": frac, "uncertainty": frac_err,
+          "threshold": SHAPE_V_MAX_T23_T14}
     if gate.get("verdict") == "unmeasured" or shape == "unmeasured":
         return StageResult(
             "shape", STATUS_UNMEASURED,
@@ -356,24 +443,50 @@ def shape_result(gate, prov=None):
             gate.get("density_reason")
             or "density flag: fitted duration impossible for a "
                "planet on this star",
-            _prov(prov), details)
+            _prov(prov), details, **ev)
     if shape == "V-shaped":
+        gaps = []
+        if frac is None:
+            gaps.append("T23/T14 unknown")
+        elif frac_err is None:
+            gaps.append("frac_err unknown")
+        elif frac + frac_err >= SHAPE_V_MAX_T23_T14:
+            gaps.append(
+                f"1-sigma upper bound {frac + frac_err:.2f} "
+                f"not under the {SHAPE_V_MAX_T23_T14} bar")
+        if signif is None:
+            gaps.append("dip significance unknown")
+        elif signif < SHAPE_FAIL_MIN_DEPTH_SIGNIF:
+            gaps.append(
+                f"dip significance {signif:.1f} below "
+                f"{SHAPE_FAIL_MIN_DEPTH_SIGNIF}")
+        if not gaps:
+            return StageResult(
+                "shape", STATUS_FAIL,
+                f"V-shaped transit (T23/T14 {frac:.2f} ± "
+                f"{frac_err:.2f}; 1-sigma upper bound "
+                f"{frac + frac_err:.2f} under the "
+                f"{SHAPE_V_MAX_T23_T14} bar at "
+                f"{signif:.1f} sigma)",
+                _prov(prov), details, **ev)
+        frac_txt = (f"T23/T14 {frac:.2f}" if frac is not None
+                    else "T23/T14 unknown")
         return StageResult(
-            "shape", STATUS_FAIL,
-            f"V-shaped transit (T23/T14={gate.get('T23_T14'):.2f})"
-            if gate.get("T23_T14") is not None else "V-shaped",
-            _prov(prov), details)
+            "shape", STATUS_INCONCLUSIVE,
+            f"V-shaped point estimate ({frac_txt}) but the "
+            f"fail is not established: " + "; ".join(gaps),
+            _prov(prov), details, **ev)
     if shape == "U-shaped":
         return StageResult(
             "shape", STATUS_PASS,
             "U-shaped transit, no density flag",
-            _prov(prov), details)
+            _prov(prov), details, **ev)
     return StageResult(
         "shape", STATUS_INCONCLUSIVE,
         f"ambiguous trapezoid shape "
         f"(T23/T14={gate.get('T23_T14'):.2f})"
         if gate.get("T23_T14") is not None else "ambiguous shape",
-        _prov(prov), details)
+        _prov(prov), details, **ev)
 
 
 def clean_refold_result(fold, verdict, prov=None):
@@ -570,7 +683,10 @@ def catalogue_result(native, prov=None):
     this period is a blend until imaging proves otherwise, and
     a catalogue hit ends the gauntlet). Known at a DIFFERENT
     period -> PASS with a warning (it does not explain this
-    signal). No native output -> UNMEASURED.
+    signal). A PHT hit carries no period, so it reads
+    INCONCLUSIVE — a human must read the discussion before any
+    claim (a Talk thread may already hold this signal). No
+    native output -> UNMEASURED.
     """
     if not native:
         return StageResult(
@@ -583,6 +699,13 @@ def catalogue_result(native, prov=None):
         return StageResult(
             "catalogue", STATUS_PASS,
             "not catalogued in VSX/TOI/PHT", _prov(prov), details)
+    if (native.get("source") == "PHT"
+            and native.get("period_match") is None):
+        return StageResult(
+            "catalogue", STATUS_INCONCLUSIVE,
+            "discussed on Planet Hunters Talk — a human must read "
+            "the discussion before any claim",
+            _prov(prov), details)
     if native.get("period_match"):
         return StageResult(
             "catalogue", STATUS_FAIL,
@@ -634,10 +757,17 @@ def diffimg_result(native, prov=None):
     StageResult.
 
     Native shape: {"on_target": bool or None, "offset_px",
-    "offset_arcsec", "blend_host_tic", "n_sectors"}. On-target
-    -> PASS. Off-target -> FAIL (BLEND — the source is a
-    neighbour). No localisation -> UNMEASURED. Evidence: value
-    is the centroid offset in pixels.
+    "offset_arcsec", "blend_host_tic", "n_sectors",
+    "offset_sigma_px", "offset_over_sigma", "sigma_source"}.
+    On-target -> PASS. Off-target -> FAIL (BLEND — the source
+    is a neighbour). No localisation -> UNMEASURED. The
+    on-target decision itself is the driver's (P-9: offset <
+    3 sigma AND offset < 1 px cap AND closer to the target
+    than the neighbour, or the flat 1-px bar when no scatter
+    exists). Evidence: value is the centroid offset in
+    pixels, uncertainty its 1-sigma error (the split-half
+    scatter, None on the flat-bar fallback), threshold the
+    1-px absolute cap.
     """
     if not native or native.get("on_target") is None:
         return StageResult(
@@ -645,18 +775,32 @@ def diffimg_result(native, prov=None):
             "no difference-imaging localisation", _prov(prov), {})
     details = {k: native.get(k) for k in
                ("offset_px", "offset_arcsec", "blend_host_tic",
-                "n_sectors") if native.get(k) is not None}
-    ev = {"value": native.get("offset_px")}
+                "n_sectors", "offset_sigma_px",
+                "offset_over_sigma", "sigma_source")
+               if native.get(k) is not None}
+    ev = {"value": native.get("offset_px"),
+          "uncertainty": native.get("offset_sigma_px"),
+          "threshold": DIFFIMG_ON_TARGET_PX}
+    over = native.get("offset_over_sigma")
+    offset = native.get("offset_px")
+    if offset is None:
+        suffix = ""
+    elif isinstance(over, (int, float)):
+        suffix = f" (offset {offset:.2f} px, {over:.1f} sigma)"
+    else:
+        suffix = (f" (offset {offset:.2f} px; flat 1 px bar — "
+                  f"no scatter available)")
     if native.get("on_target"):
         return StageResult(
             "diffimg", STATUS_PASS,
-            "source localises on-target", _prov(prov), details,
-            **ev)
+            "source localises on-target" + suffix,
+            _prov(prov), details, **ev)
     host = native.get("blend_host_tic")
     return StageResult(
         "diffimg", STATUS_FAIL,
         "source localises off-target"
-        + (f" (blend host TIC {host})" if host else ""),
+        + (f" (blend host TIC {host})" if host else "")
+        + suffix,
         _prov(prov), details, **ev)
 
 
@@ -782,6 +926,226 @@ def blend_result(native, prov=None, policy=None):
         "blend", status, res["reason"], _prov(prov), details,
         value=res.get("depth_ratio"),
         threshold=res.get("min_depth_ratio"), metrics=metrics)
+
+
+def latte_result(native, prov=None):
+    """LATTE diagnostic report (Phase 2, 2B) -> StageResult.
+
+    Native shape: the LATTE tool output JSON (schema
+    latte-output-schema.json), validated here before
+    translation — a schema failure is UNMEASURED +
+    EXEC_ERROR, not a crash (C-10 constraint 4).
+
+    LATTE emits plots + a PDF report, NOT machine-readable
+    per-check dispositions (verified against the 1.0.21
+    source; the C-10 design doc's dispositions assumption
+    does not exist in the tool). So a completed run reads
+    REPORT_ONLY — "report generated; a human must read it"
+    — never PASS and never FAIL, and never INCONCLUSIVE
+    either (P-5): inconclusive means the stage measured
+    and could not decide; here there was nothing to decide.
+    A failed / timed-out / report-less run reads UNMEASURED
+    + EXEC_ERROR.
+
+    The result is EVIDENCE ONLY: it is stored in the verdict
+    record's extra evidence and the 2D evidence package, and
+    never participates in promotion aggregation — including
+    it would block every promotion, since it can never PASS.
+    """
+    if not native:
+        return StageResult(
+            "latte", STATUS_UNMEASURED,
+            "no LATTE output supplied", _prov(prov), {})
+    try:
+        _validation.validate_latte_output(native)
+    except _validation.RecordValidationError as exc:
+        return StageResult(
+            "latte", STATUS_UNMEASURED,
+            f"LATTE output failed schema validation: {exc}",
+            _prov(prov), {},
+            execution_status=EXEC_ERROR)
+    status = native["status"]
+    metrics = native["metrics"]
+    ev = {"metrics": {"n_artifacts": metrics["n_artifacts"]},
+          "artifacts": list(native["artifacts"]),
+          "tool_version": native["tool_version"],
+          "config_hash": native["config_hash"],
+          "input_hashes": dict(native["input_hashes"]),
+          "warnings": list(native["warnings"]),
+          "n_transits": native.get("n_transits")}
+    details = {k: metrics.get(k) for k in
+               ("report_pdf", "output_dir", "latte_indir")
+               if metrics.get(k) is not None}
+    details["wall_time_s"] = native["wall_time_s"]
+    if status != "completed":
+        return StageResult(
+            "latte", STATUS_UNMEASURED,
+            f"LATTE {status}: no report was produced",
+            _prov(prov), details, execution_status=EXEC_ERROR,
+            **ev)
+    return StageResult(
+        "latte", STATUS_REPORT_ONLY,
+        "LATTE report generated — a human must read it: "
+        "LATTE emits plots + a PDF, no machine-readable "
+        "dispositions, so no check can pass or fail here",
+        _prov(prov), details, **ev)
+
+
+def triceratops_disposition(fpp, nfpp, degenerate, policy):
+    """Pure policy mapping: raw TRICERATOPS numbers + a policy
+    -> (status, reason). P-4 (Phase 2 vote follow-up).
+
+    No I/O, no global state: the adapter calls this, and a
+    policy-only edit re-derives the disposition from a stored
+    raw record (FPP/NFPP/degenerate) WITHOUT re-running the
+    tool — the raw numbers are the evidence, the disposition
+    is a reading of them under one policy version. `policy`
+    is the external-tools policy dict (its ["triceratops"]
+    section carries the bars). The reason is the policy
+    sentence only; the adapter appends the per-run story
+    (most-likely false positive, contrast-curve note).
+    A NaN FPP fails both policy comparisons and reads
+    inconclusive (the grey zone) — it is not a pass and not
+    a refutation.
+    """
+    tri = policy["triceratops"]
+    fpp_max = tri["fpp_validate_max"]
+    nfpp_max = tri["nfpp_validate_max"]
+    fpp_refute = tri["fpp_refute_min"]
+    if degenerate:
+        return (STATUS_UNMEASURED,
+                "TRICERATOPS computation degenerate: every MC "
+                "draw was geometrically invalid, so FPP=1.0 "
+                "reflects a failed computation, not a confident "
+                "false positive")
+    if fpp >= fpp_refute:
+        return (STATUS_FAIL,
+                f"FPP {fpp:.4f} clears the refute bar "
+                f"{fpp_refute} — likely false positive.")
+    if fpp <= fpp_max and nfpp <= nfpp_max:
+        return (STATUS_PASS,
+                f"FPP {fpp:.4f} and NFPP {nfpp:.4f} clear the "
+                f"validation bars ({fpp_max}, {nfpp_max}).")
+    return (STATUS_INCONCLUSIVE,
+            f"FPP/NFPP in the grey zone between the validation "
+            f"bars ({fpp_max}, {nfpp_max}) and the refute bar "
+            f"{fpp_refute} — a human decides.")
+
+
+def triceratops_result(native, prov=None, policy=None):
+    """TRICERATOPS false-positive probability (Phase 2, 2C) ->
+    StageResult.
+
+    Native shape: the TRICERATOPS tool output JSON (schema
+    triceratops-output-schema.json), validated here before
+    translation — a schema failure is UNMEASURED +
+    EXEC_ERROR, not a crash (C-10 constraint 4).
+
+    The status comes from the POLICY thresholds (the
+    external_tools_v1 profile; PROVISIONAL until the Phase 2
+    vote ratifies them), never from the tool — via the pure
+    triceratops_disposition() mapping, so a policy-only edit
+    re-derives the status from the stored raw numbers without
+    re-running the tool (P-4). PASS when FPP and NFPP both
+    clear the validation bars, FAIL when FPP clears the
+    refute bar, INCONCLUSIVE in the grey zone (including a
+    low FPP blocked by a high NFPP — NFPP alone never
+    refutes in v1, since without a contrast curve it is an
+    upper bound). A DEGENERATE computation (every MC draw
+    geometrically invalid, FPP=1.0) reads UNMEASURED +
+    EXEC_ERROR: FPP=1.0 there reflects a failed computation,
+    not a confident false positive. A failed / timed-out run
+    reads UNMEASURED + EXEC_ERROR.
+
+    Evidence: value is the FPP, threshold the policy's
+    validation bar, metrics carry the full per-scenario
+    breakdown + seed + most-likely false positive —
+    preserved, never reduced to a bare PASS/FAIL.
+    policy_version records which policy produced the
+    disposition. Uncertainty is None in v1: a single seeded
+    run carries no Monte Carlo error bar (a repeat-run
+    harness is future work; the seed makes a re-run
+    reproducible).
+
+    Limitation, recorded honestly (P-4): TRICERATOPS fetches
+    neighbour-star data and TRILEGAL simulations from remote
+    catalogs at run time, inside the tool — the wrapper
+    cannot hash what it does not download through its own
+    code path, so input_hashes cover only the files the
+    pipeline handed the tool (light curve + census). The
+    seed + tool_version + policy_version make the run
+    reproducible in principle, but a remote catalog change
+    could move the number; the record does not pretend
+    otherwise.
+    """
+    if not native:
+        return StageResult(
+            "triceratops", STATUS_UNMEASURED,
+            "no TRICERATOPS output supplied", _prov(prov), {})
+    try:
+        _validation.validate_triceratops_output(native)
+    except _validation.RecordValidationError as exc:
+        return StageResult(
+            "triceratops", STATUS_UNMEASURED,
+            f"TRICERATOPS output failed schema validation: {exc}",
+            _prov(prov), {},
+            execution_status=EXEC_ERROR)
+    if policy is None:
+        policy = load_external_tools_policy()
+    metrics = native["metrics"]
+    ev = {"metrics": {
+        "fpp": metrics["fpp"], "nfpp": metrics["nfpp"],
+        "prob_planet": metrics["prob_planet"],
+        "prob_eb_target": metrics["prob_eb_target"],
+        "prob_eb_neighbour": metrics["prob_eb_neighbour"],
+        "prob_hierarchical_eb":
+            metrics["prob_hierarchical_eb"],
+        "n_samples": metrics["n_samples"],
+        "most_likely_false_positive":
+            metrics["most_likely_false_positive"],
+        "fpp_degenerate": metrics["fpp_degenerate"],
+        "dilution_corrected": metrics["dilution_corrected"],
+        "contrast_curve_used":
+            metrics["contrast_curve_used"],
+        "n_fold_points": metrics["n_fold_points"],
+        "seed": native["seed"]},
+        "artifacts": list(native["artifacts"]),
+        "tool_version": native["tool_version"],
+        "config_hash": native["config_hash"],
+        "policy_version": policy.get("version"),
+        "input_hashes": dict(native["input_hashes"]),
+        "warnings": list(native["warnings"]),
+        "n_transits": native.get("n_transits"),
+        "value": metrics["fpp"],
+        "threshold": policy["triceratops"]["fpp_validate_max"]}
+    details = {
+        "fpp": metrics["fpp"], "nfpp": metrics["nfpp"],
+        "most_likely_false_positive":
+            metrics["most_likely_false_positive"],
+        "wall_time_s": native["wall_time_s"]}
+    if native["status"] != "completed":
+        return StageResult(
+            "triceratops", STATUS_UNMEASURED,
+            f"TRICERATOPS {native['status']}: no FPP was "
+            f"computed",
+            _prov(prov), details, execution_status=EXEC_ERROR,
+            **ev)
+    fpp = metrics["fpp"]
+    nfpp = metrics["nfpp"]
+    story = (f"FPP {fpp:.4f}, NFPP {nfpp:.4f}; most likely "
+             f"false positive: "
+             f"{metrics['most_likely_false_positive']}")
+    if not metrics["contrast_curve_used"]:
+        story += " (no contrast curve: NFPP is an upper bound)"
+    status, reason = triceratops_disposition(
+        fpp, nfpp, metrics["fpp_degenerate"], policy)
+    if status != STATUS_UNMEASURED:
+        reason = f"{reason} {story}"
+    return StageResult(
+        "triceratops", status, reason, _prov(prov), details,
+        execution_status=EXEC_ERROR
+        if metrics["fpp_degenerate"] else EXEC_COMPLETED,
+        **ev)
 
 
 # ---------------------------------------------------------------------------
@@ -916,6 +1280,11 @@ def aggregate_verdict(results, imaging=None, waivers=None,
     a {stage: reason} dict or a list of {"stage", "reason"}
     dicts; `policy` is the decision-policy dict (default:
     gauntlet_v2).
+
+    Report-only stages (P-5, e.g. LATTE) never enter
+    aggregation — their results live in extra evidence. If
+    one ever did, no branch above would match it: it could
+    neither promote nor block, by design.
     """
     waived = validate_waivers(results, waivers, policy)
     by_stage = {r.stage: r for r in results}

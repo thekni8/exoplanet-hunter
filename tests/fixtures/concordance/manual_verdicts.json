@@ -1,0 +1,389 @@
+{
+  "generated_from": "Rescore-v2 S96 gauntlet ledger, 2026-11-14 (25 NEW tier-A non-systematic leads, manual desk gauntlet, 0 survivors); ephemerides from leads25.json (rescore-v2 filed values)",
+  "note": "Concordance = the automated desk driver kills the lead at one of the expected stages. The 4 single-event/weak leads accept a clean_refold, persistence or raw_flux kill (all three say 'the clean-data signal is too weak / not persistent'). 307433122 is the EXPECTED MISMATCH \u2014 no stage covers harmonic-alias grounds, so its automated outcome is recorded, not asserted.",
+  "leads": [
+    {
+      "tic": "183537452",
+      "period_d": 3.9226519337016574,
+      "t0_btjd": 3910.099656135258,
+      "duration_h": 2.208,
+      "depth_pct": 0.8302371579870713,
+      "sde": 29.21218871521459,
+      "sector": 96,
+      "manual_verdict": "killed_catalogued",
+      "manual_evidence": "TOI-192.01, known planet (KP), P matches to 7 figs",
+      "expected_kill_stages": [
+        "catalogue"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "355401152",
+      "period_d": 6.513761467889909,
+      "t0_btjd": 3914.255264976005,
+      "duration_h": 3.168,
+      "depth_pct": 2.9091715453547646,
+      "sde": 26.46201179224713,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "Signal only in bit-30 cadences; 0 clean in-transit; scattered-light ramps",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "382571558",
+      "period_d": 12.290279627163782,
+      "t0_btjd": 3908.9433141040063,
+      "duration_h": 6.048,
+      "depth_pct": 2.03472735333588,
+      "sde": 25.350355960159273,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "8.7% dip only in bit-29/30 cadences; 0 clean in-transit",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "101945781",
+      "period_d": 12.364367046215675,
+      "t0_btjd": 3908.4547738814626,
+      "duration_h": 4.32,
+      "depth_pct": 0.968032425784688,
+      "sde": 25.23517325788443,
+      "sector": 96,
+      "manual_verdict": "killed_v_shaped_era_confined",
+      "manual_evidence": "Late sectors only; T14 28h vs 3.2h max; brightens at phase 0.5",
+      "expected_kill_stages": [
+        "shape",
+        "persistence"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "307433122",
+      "period_d": 8.76959619952494,
+      "t0_btjd": 3908.8690594312334,
+      "duration_h": 4.32,
+      "depth_pct": 2.2333553587210924,
+      "sde": 24.499576657497183,
+      "sector": 96,
+      "manual_verdict": "killed_harmonic_alias",
+      "manual_evidence": "Real 8-17% s96 dips, unequal depths; 0.73/0.80 d sub-day signals at SDE 26-34",
+      "expected_kill_stages": [],
+      "expected": "mismatch",
+      "mismatch_reason": "No stage covers harmonic-alias grounds: the filed 8.77 d ephemeris is an 11x/12x harmonic of the true 0.73/0.80 d signal. The automated outcome is recorded, not asserted."
+    },
+    {
+      "tic": "140599833",
+      "period_d": 12.540760869565217,
+      "t0_btjd": 3908.29995898979,
+      "duration_h": 6.048,
+      "depth_pct": 1.0692851680037871,
+      "sde": 21.56000318151958,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "6.6% dip only in bit-29/30 cadences; 0 clean in-transit",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "149307626",
+      "period_d": 12.515254237288136,
+      "t0_btjd": 3908.3071312451907,
+      "duration_h": 6.048,
+      "depth_pct": 0.6635504698839796,
+      "sde": 21.13586669574865,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "3.52% dip, 0 clean cadences in transit; bits 29+30",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "141865558",
+      "period_d": 6.281047975501871,
+      "t0_btjd": 3908.259560937019,
+      "duration_h": 6.048,
+      "depth_pct": 0.4880045392098785,
+      "sde": 19.58434091593645,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "1.47% dip only in bit-29/30 cadences; clean 0.005%. Same P/T0 as closed 234510264",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "41361938",
+      "period_d": 6.268251273344652,
+      "t0_btjd": 3908.29523691462,
+      "duration_h": 6.048,
+      "depth_pct": 0.41161337562759354,
+      "sde": 19.471173032306904,
+      "sector": 96,
+      "manual_verdict": "killed_single_event_weak",
+      "manual_evidence": "One 0.63% event in clean data; other windows no clean coverage; flagged deepen to 1.4%",
+      "expected_kill_stages": [
+        "clean_refold",
+        "persistence",
+        "raw_flux"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "33836426",
+      "period_d": 12.643835616438356,
+      "t0_btjd": 3908.2361065878476,
+      "duration_h": 6.048,
+      "depth_pct": 1.1308556915721242,
+      "sde": 18.949039292272353,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "7.64% dip, 0 clean cadences in transit; bits 29+30",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "389501533",
+      "period_d": 12.66986959505834,
+      "t0_btjd": 3908.2153766569636,
+      "duration_h": 6.048,
+      "depth_pct": 0.786638249288802,
+      "sde": 18.944589537218402,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "5.16% dip, 0 clean cadences in transit; bits 29+30 on all 225",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "141708967",
+      "period_d": 6.2874659400544965,
+      "t0_btjd": 3908.2315784056245,
+      "duration_h": 6.048,
+      "depth_pct": 0.5723121441951128,
+      "sde": 18.866523648650436,
+      "sector": 96,
+      "manual_verdict": "killed_single_event_weak",
+      "manual_evidence": "One 0.32% event in clean data; other windows no clean coverage; flagged deepen to 2.28%",
+      "expected_kill_stages": [
+        "clean_refold",
+        "persistence",
+        "raw_flux"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "142087258",
+      "period_d": 6.268251273344652,
+      "t0_btjd": 3908.2952819700236,
+      "duration_h": 6.048,
+      "depth_pct": 0.4494333252226323,
+      "sde": 18.763858383337464,
+      "sector": 96,
+      "manual_verdict": "killed_single_event_weak",
+      "manual_evidence": "Clean 0.12%, flagged deepen to 1.20%; same P/T0 as 41361938",
+      "expected_kill_stages": [
+        "clean_refold",
+        "persistence",
+        "raw_flux"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "294665553",
+      "period_d": 12.617908407382092,
+      "t0_btjd": 3908.2877895934657,
+      "duration_h": 6.048,
+      "depth_pct": 0.906956406113805,
+      "sde": 18.285075588929224,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "5.67% dip, 0 clean cadences in transit; bits 29+30",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "176959220",
+      "period_d": 12.643835616438356,
+      "t0_btjd": 3908.2747798177224,
+      "duration_h": 6.048,
+      "depth_pct": 1.0960634590603777,
+      "sde": 17.457387462799236,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "8.56% dip, 0 clean cadences in transit; bits 29+30 on all 221",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "381951178",
+      "period_d": 12.643835616438356,
+      "t0_btjd": 3908.2581064584574,
+      "duration_h": 6.048,
+      "depth_pct": 1.7092997933548177,
+      "sde": 16.641446322466656,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "8.98% dip, 0 clean cadences in transit; bits 29+30 on all 229",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "149060820",
+      "period_d": 12.540760869565217,
+      "t0_btjd": 3908.27919918159,
+      "duration_h": 6.048,
+      "depth_pct": 0.9226631203011142,
+      "sde": 16.306048055233372,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "5.82% dip, 0 clean cadences in transit; bits 29+30",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "260004306",
+      "period_d": 12.592087312414735,
+      "t0_btjd": 3908.190328949317,
+      "duration_h": 6.048,
+      "depth_pct": 1.6142387036531185,
+      "sde": 16.10237720291943,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "6.46% dip, 0 clean cadences in transit; bits 29+30",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "382256433",
+      "period_d": 12.643835616438356,
+      "t0_btjd": 3908.0989583369364,
+      "duration_h": 3.168,
+      "depth_pct": 2.9012810719300566,
+      "sde": 15.886284462028465,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "9.10% dip, 0 clean cadences in transit; bits 29+30",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "370220679",
+      "period_d": 12.643835616438356,
+      "t0_btjd": 3908.24784773321,
+      "duration_h": 6.048,
+      "depth_pct": 1.1620853874639414,
+      "sde": 15.866893706227279,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "7.45% dip, 0 clean cadences in transit; bits 29+30",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "370228465",
+      "period_d": 12.617908407382092,
+      "t0_btjd": 3908.2956397085777,
+      "duration_h": 6.048,
+      "depth_pct": 1.3490948517032952,
+      "sde": 15.42548211149448,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "8.70% dip, 0 clean cadences in transit; bits 29+30",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "55402407",
+      "period_d": 12.592087312414735,
+      "t0_btjd": 3908.299283098841,
+      "duration_h": 6.048,
+      "depth_pct": 1.4680127787942583,
+      "sde": 15.157203731321166,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "6.05% dip, 0 clean cadences in transit; bits 29+30",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "141680194",
+      "period_d": 6.268251273344652,
+      "t0_btjd": 3908.2915169023395,
+      "duration_h": 6.048,
+      "depth_pct": 0.5328895912120307,
+      "sde": 14.768170781190893,
+      "sector": 96,
+      "manual_verdict": "killed_single_event_weak",
+      "manual_evidence": "Clean 0.16%, flagged deepen to 1.73%; same P as 41361938/142087258",
+      "expected_kill_stages": [
+        "clean_refold",
+        "persistence",
+        "raw_flux"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "207213492",
+      "period_d": 12.696011004126548,
+      "t0_btjd": 3908.0835234909855,
+      "duration_h": 4.32,
+      "depth_pct": 2.9591173845715724,
+      "sde": 14.017478760378797,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "9.25% dip, 0 clean cadences in transit; bits 29+30 (+11)",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    },
+    {
+      "tic": "38635773",
+      "period_d": 12.389261744966444,
+      "t0_btjd": 3908.3998803916556,
+      "duration_h": 4.32,
+      "depth_pct": 1.0643512865616394,
+      "sde": 11.534589637964249,
+      "sector": 96,
+      "manual_verdict": "killed_flagged_cadence",
+      "manual_evidence": "4.17% dip, 0 clean cadences in transit; bits 29+30",
+      "expected_kill_stages": [
+        "clean_refold"
+      ],
+      "expected": "agree"
+    }
+  ]
+}

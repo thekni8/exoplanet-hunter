@@ -12,6 +12,14 @@ bug, and the run must stop, not write a corrupt handoff.
     validate_verdict(record)    # gauntlet verdict records
     validate_stage_result(record)  # standalone stage results
                                    # (contract v1, Phase 1.2)
+    validate_latte_output(record)  # LATTE tool output JSON
+                                   # (Phase 2, 2B)
+    validate_triceratops_output(record)  # TRICERATOPS output
+                                   # (Phase 2, 2C)
+    validate_desk_natives(record)  # desk_natives.json
+                                   # (Phase 2 vote follow-up
+                                   # P-18 — the Phase 3
+                                   # feature-list contract)
 
 Both raise RecordValidationError listing the offending fields.
 The validators are Draft 2020-12. Timestamps are constrained by
@@ -41,7 +49,9 @@ class RecordValidationError(ValueError):
 
 
 def _validator(kind):
-    if kind not in ("survivor", "verdict", "stage_result"):
+    if kind not in ("survivor", "verdict", "stage_result",
+                    "latte-output", "triceratops-output",
+                    "evidence", "review", "desk-natives"):
         raise ValueError(f"unknown record kind: {kind!r}")
     if kind not in _VALIDATORS:
         path = SCHEMA_DIR / f"{kind}-schema.json"
@@ -83,3 +93,30 @@ def validate_verdict(record):
 def validate_stage_result(record):
     """Validate one standalone stage result (contract v1)."""
     return validate_record("stage_result", record)
+
+
+def validate_latte_output(record):
+    """Validate one LATTE tool output JSON (Phase 2, 2B)."""
+    return validate_record("latte-output", record)
+
+
+def validate_triceratops_output(record):
+    """Validate one TRICERATOPS tool output JSON (Phase 2, 2C)."""
+    return validate_record("triceratops-output", record)
+
+
+def validate_evidence_package(record):
+    """Validate a 2D evidence package."""
+    return validate_record("evidence", record)
+
+
+def validate_filing_review(record):
+    """Validate a 2E filing review record."""
+    return validate_record("review", record)
+
+
+def validate_desk_natives(record):
+    """Validate one desk_natives.json record (Phase 2 vote
+    follow-up P-18 — the formal contract for the Phase 3
+    feature list)."""
+    return validate_record("desk-natives", record)

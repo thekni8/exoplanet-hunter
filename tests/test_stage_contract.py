@@ -19,10 +19,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from gauntlet.stage_result import (EXEC_COMPLETED, EXEC_ERROR,  # noqa: E402
                                    EXEC_NOT_STARTED, EXEC_SKIPPED,
-                                   REQUIRED_STAGES, STATUSES,
+                                   REQUIRED_STAGES,
+                                   SHAPE_V_MAX_T23_T14, STATUSES,
                                    StageResult, aggregate_verdict,
                                    apply_waivers,
                                    clean_refold_result,
+                                   diffimg_result,
                                    holdout_result,
                                    load_decision_policy,
                                    odd_even_result,
@@ -162,9 +164,18 @@ class TestStageResult(unittest.TestCase):
 
 class TestAdapters(unittest.TestCase):
     def test_shape_gate(self):
+        # P-8: a V-shape FAILs only when the 1-sigma upper
+        # bound is under the 0.30 bar at >= 5 sigma dip
+        # significance — so the FAIL fixture carries
+        # frac_err + depth0_signif (0.25 + 0.02 = 0.27 <
+        # 0.30 at 12 sigma).
         v = shape_result(
-            {"shape_verdict": "V-shaped", "T23_T14": 0.25}, PROV)
+            {"shape_verdict": "V-shaped", "T23_T14": 0.25,
+             "frac_err": 0.02, "depth0_signif": 12.0}, PROV)
         self.assertEqual(v.status, "fail")
+        self.assertEqual(v.value, 0.25)
+        self.assertEqual(v.uncertainty, 0.02)
+        self.assertEqual(v.threshold, 0.30)
         d = shape_result(
             {"shape_verdict": "U-shaped", "T23_T14": 0.62,
              "density_flag": True,
@@ -184,6 +195,88 @@ class TestAdapters(unittest.TestCase):
             PROV)
         self.assertEqual(m.status, "unmeasured")
         self.assertFalse(m.is_pass)
+
+    def test_shape_v_uncertainty_aware(self):
+        # P-8 (Phase 2 vote, F-8): the V-shape fail needs
+        # the 1-sigma upper bound under the bar AND adequate
+        # SNR — each missing leg reads inconclusive, not
+        # fail. The 0.2925 case is TOI-700 c's numbers.
+        base = {"shape_verdict": "V-shaped", "T23_T14": 0.2925,
+                "frac_err": 0.05, "depth0_signif": 12.0}
+        r = shape_result(base, PROV)
+        self.assertEqual(r.status, "inconclusive")
+        self.assertIn("upper bound", r.reason)
+        no_err = dict(base, frac_err=None)
+        r = shape_result(no_err, PROV)
+        self.assertEqual(r.status, "inconclusive")
+        self.assertIn("frac_err unknown", r.reason)
+        weak = dict(base, T23_T14=0.20, frac_err=0.02,
+                    depth0_signif=4.0)
+        r = shape_result(weak, PROV)
+        self.assertEqual(r.status, "inconclusive")
+        self.assertIn("below 5", r.reason)
+        # And the fail still fires when all four legs hold.
+        strong = dict(base, T23_T14=0.20, frac_err=0.02,
+                      depth0_signif=12.0)
+        r = shape_result(strong, PROV)
+        self.assertEqual(r.status, "fail")
+        self.assertIn("upper bound", r.reason)
+
+    def test_shape_bar_matches_gate(self):
+        # P-8: the adapter's mirrored V-shape bar must equal
+        # the gate's constant (which is itself drift-tested
+        # against calibration/gauntlet_v1.yaml).
+        from gauntlet.rawflux_check import V_SHAPE_MAX_T23_T14
+        self.assertEqual(SHAPE_V_MAX_T23_T14,
+                         V_SHAPE_MAX_T23_T14)
+        self.assertEqual(SHAPE_V_MAX_T23_T14, 0.30)
+
+    def test_diffimg_adapter(self):
+        # P-9: the adapter carries the sigma evidence — value
+        # is the offset, uncertainty the split-half scatter,
+        # threshold the 1-px absolute cap.
+        r = diffimg_result(
+            {"on_target": True, "offset_px": 0.06,
+             "offset_arcsec": 1.26, "blend_host_tic": None,
+             "n_sectors": 3, "offset_sigma_px": 0.14,
+             "offset_over_sigma": 0.42,
+             "sigma_source": "split_half_scatter"}, PROV)
+        self.assertEqual(r.status, "pass")
+        self.assertEqual(r.value, 0.06)
+        self.assertEqual(r.uncertainty, 0.14)
+        self.assertEqual(r.threshold, 1.0)
+        self.assertIn("0.4 sigma", r.reason)
+        # Fallback native: no sigma, flat-bar note in the
+        # reason, uncertainty None.
+        r = diffimg_result(
+            {"on_target": True, "offset_px": 0.06,
+             "offset_arcsec": 1.26, "blend_host_tic": None,
+             "n_sectors": 3, "offset_sigma_px": None,
+             "offset_over_sigma": None,
+             "sigma_source": "flat_1px_fallback"}, PROV)
+        self.assertEqual(r.status, "pass")
+        self.assertIsNone(r.uncertainty)
+        self.assertIn("flat 1 px bar", r.reason)
+        # Off-target names the blend host.
+        r = diffimg_result(
+            {"on_target": False, "offset_px": 3.5,
+             "offset_arcsec": 73.5, "blend_host_tic": "888",
+             "n_sectors": 1, "offset_sigma_px": 0.1,
+             "offset_over_sigma": 35.0,
+             "sigma_source": "split_half_scatter"}, PROV)
+        self.assertEqual(r.status, "fail")
+        self.assertIn("888", r.reason)
+        r = diffimg_result({"on_target": None}, PROV)
+        self.assertEqual(r.status, "unmeasured")
+
+    def test_diffimg_bar_matches_driver(self):
+        # P-9: the adapter's mirrored on-target cap must
+        # equal the driver's constant.
+        from gauntlet.desk import DIFFIMG_ON_TARGET_PX as DRIVER
+        from gauntlet.stage_result import (
+            DIFFIMG_ON_TARGET_PX as ADAPTER)
+        self.assertEqual(ADAPTER, DRIVER)
+        self.assertEqual(ADAPTER, 1.0)
 
     def test_clean_gate(self):
         fold = {"n_in": 42, "n_events": 13, "depth_percent": -0.03,
@@ -606,13 +699,17 @@ class TestStatusExecutionMatrix(unittest.TestCase):
         ("unmeasured", EXEC_COMPLETED): "INCONCLUSIVE",
         ("inconclusive", EXEC_COMPLETED): "INCONCLUSIVE",
         ("not_applicable", EXEC_COMPLETED): "INCONCLUSIVE",
+        # P-5: report_only is aggregation-neutral — it
+        # neither promotes nor blocks, so with every other
+        # required stage passing the verdict is CANDIDATE.
+        ("report_only", EXEC_COMPLETED): "CANDIDATE",
         ("unmeasured", EXEC_NOT_STARTED): "INCONCLUSIVE",
         ("unmeasured", EXEC_SKIPPED): "INCONCLUSIVE",
         ("not_applicable", EXEC_SKIPPED): "INCONCLUSIVE",
         ("unmeasured", EXEC_ERROR): "INCONCLUSIVE",
     }
 
-    def test_all_twenty_combinations(self):
+    def test_all_status_execution_combinations(self):
         seen_legal = set()
         for status in STATUSES:
             for exec_status in (EXEC_COMPLETED, EXEC_NOT_STARTED,
@@ -634,7 +731,7 @@ class TestStatusExecutionMatrix(unittest.TestCase):
                         StageResult(
                             "persistence", status, "matrix probe",
                             PROV, execution_status=exec_status)
-        self.assertEqual(len(seen_legal), 9)
+        self.assertEqual(len(seen_legal), 10)
 
 
 class TestWaivers(unittest.TestCase):
@@ -656,6 +753,15 @@ class TestWaivers(unittest.TestCase):
             self._one_inconclusive(), IMAGING_ON,
             waivers={"holdout": "single-sector target"})
         self.assertEqual(verdict, "CANDIDATE")
+
+    def test_report_only_cannot_be_waived(self):
+        # P-5: a report needs no waiver — it is neither a
+        # pass nor a gap, and the type refuses to carry a
+        # waiver code on it.
+        with self.assertRaises(ValueError):
+            StageResult("latte", "report_only",
+                        "report generated", PROV,
+                        waiver_code="single_sector")
 
     def test_waiver_as_list_of_dicts(self):
         # The verdict record's shape is accepted too.

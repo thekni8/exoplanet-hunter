@@ -28,10 +28,45 @@ achieve speed):
   runs _run_pipeline on fixtures, ~2 min per module.
 * injection shard: test_injection + test_clip_grid (the
   injection-recovery harness + the clip grid, ~5 min).
+* rest shard: everything else offline (34 modules) — the
+  Phase 2 desk/tool/evidence/review modules live here
+  (test_desk, test_desk_external_tools, test_external_tool,
+  test_latte, test_triceratops, test_evidence, test_review,
+  test_pixel_check, test_concordance, test_holdout): they run fake tools
+  and fixtures, no downloads, no pipeline runs, so they
+  belong in rest, not smoke (smoke stays the <=3 min PR
+  check) and not golden (no _run_pipeline).
+* live (DOWNLOAD_TESTS, not in any offline tier):
+  test_golden_stars, test_desk_live, test_concordance_live
+  — real MAST downloads; weekly + on merge in live.yml,
+  non-blocking.
+
+Phase 2 placement (P-14): the desk driver's contract tests
+(test_runner, test_runner_e2e, test_stage_contract) are
+smoke — the verdict machinery is the PR gate's core. The
+labelled-population harness (test_toi_population) is golden
+(it runs _run_pipeline on fixtures). Everything else Phase 2
+is rest, except the two live modules above.
+
+Parallelism (P-14): the shards already parallelise in CI
+(golden.yml runs smoke + golden + injection + rest as four
+jobs). Within-shard parallelism via pytest-xdist is BLOCKED:
+xdist is not in requirements.lock, and adding a dependency
+means a lockfile regeneration (pip-compile + hashes) plus a
+full suite re-run — out of scope for this build. The suite
+stays unittest + the shard split.
+
+Mac-nightly tools tier (P-16 step, not built here): the
+golden tool tests — real LATTE/TRICERATOPS runs on the
+labelled population — cannot run in CI (the venvs live on
+the Mac, and LATTE needs Rosetta Python 3.8). When the
+venvs exist they run as a nightly Mac job, not a CI shard,
+and their results are recorded, not gated on.
 * rest shard: everything else offline (the medium modules).
 * full (--fast): the standard gate — smoke + golden + injection
-  + rest, offline, ~15 min. The live tests (test_golden_stars)
-  are NOT in any offline tier; they run weekly in live.yml.
+  + rest, offline, ~15 min. The live tests (test_golden_stars,
+  test_desk_live, test_concordance_live) are NOT in any
+  offline tier; they run weekly in live.yml.
 
 CI split: golden.yml runs smoke (the PR check) plus the three
 shards in parallel; together the shards cover the full --fast
@@ -65,6 +100,17 @@ What it checks
       flag firing, i.e. an EB suspect, not a planet (the V-shaped
       label itself is not reproducible on this smeared signal —
       see tests/golden_checks.py).
+* test_desk_live — the desk driver's clean-data re-fold gate on
+  REAL S96 QLP light curves (Phase 2, 2A): the flagged-cadence
+  artifacts TIC 355401152 and 382571558 must FAIL, the known
+  planet TIC 183537452 (TOI-192.01) must PASS. Also
+  download-backed; also live-CI only.
+* test_concordance_live — the full 25-lead concordance replay
+  (Phase 2 vote follow-up P-12): all 25 hand-vetted rescore-v2
+  S96 leads through the automated desk driver on live MAST
+  data, asserting agreement with the manual verdicts (TIC
+  307433122, harmonic alias, is the expected mismatch —
+  recorded, not asserted). ~1-2 h; live-CI only.
 
 CI split (Phase 1.1, item 4): the PR gate (golden.yml) runs
 --fast only — unit tests + offline fixtures, no network — so a
@@ -84,7 +130,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-DOWNLOAD_TESTS = {"test_golden_stars"}
+DOWNLOAD_TESTS = {"test_golden_stars", "test_desk_live",
+                  "test_concordance_live"}
 
 # Smoke tier (F-10): the <=3 min PR check. Runner, status
 # matrix, blend, conservation, registry, fingerprint,
