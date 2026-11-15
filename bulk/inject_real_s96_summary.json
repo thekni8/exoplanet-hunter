@@ -1,0 +1,468 @@
+{
+  "tool": "inject_real_s96",
+  "sector": 96,
+  "trials": [
+    {
+      "label": "A",
+      "depth_frac": 0.02,
+      "period_d": 5.123,
+      "epoch_offset_d": 2.0
+    },
+    {
+      "label": "B",
+      "depth_frac": 0.01,
+      "period_d": 3.317,
+      "epoch_offset_d": 1.0
+    }
+  ],
+  "calibrations": [
+    "bulk_v2",
+    "bulk_v3"
+  ],
+  "recovery_tol": 0.01,
+  "n_stars": 6,
+  "n_trials": 12,
+  "recovered_v2": 2,
+  "recovered_v3": 8,
+  "stars": [
+    {
+      "tic": "231011325",
+      "source_file": "231011325.fits",
+      "source_sha256": "5f99c01f1a2b4378cfd5c32776b62f81db7330a9dc93e9400f2241e8da06d1be",
+      "flux_col": "SYS_RM_FLUX",
+      "flags": {
+        "n_cadences": 10819,
+        "frac_bit29": 0.0,
+        "frac_bit30": 0.09363157408263241,
+        "frac_any_flag": 0.0937240040669193
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.7727513161735,
+          "duration_d": 0.14365702639325748,
+          "bulk_v2": {
+            "sde": 26.749211634780924,
+            "mes_pink": 22.35774085921995,
+            "status": "demoted",
+            "tier": null,
+            "period_days": 13.073654390934843,
+            "depth_percent": 5.90520801945653,
+            "flags": [
+              "DEPTH_EB"
+            ],
+            "odd_even_ratio": 0.8862289353370725,
+            "recovered": false
+          },
+          "bulk_v3": {
+            "sde": 46.20921637116185,
+            "mes_pink": 28.036552088770428,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 5.120665742024966,
+            "depth_percent": 1.6293349121775773,
+            "flags": [],
+            "odd_even_ratio": 0.989431351436676,
+            "recovered": true
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.7727513161735,
+          "duration_d": 0.12427980918779241,
+          "bulk_v2": {
+            "sde": 43.10428112635397,
+            "mes_pink": 26.300220365653438,
+            "status": "demoted",
+            "tier": null,
+            "period_days": 13.073654390934843,
+            "depth_percent": 5.777123903010628,
+            "flags": [
+              "DEPTH_EB"
+            ],
+            "odd_even_ratio": 0.9341706272865474,
+            "recovered": false
+          },
+          "bulk_v3": {
+            "sde": 57.05729486570019,
+            "mes_pink": 27.15461874574043,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 3.3177570093457946,
+            "depth_percent": 0.9075901953206043,
+            "flags": [],
+            "odd_even_ratio": 0.9290048915089905,
+            "recovered": true
+          }
+        }
+      }
+    },
+    {
+      "tic": "231852754",
+      "source_file": "231852754.fits",
+      "source_sha256": "e3cce21acb94ff68724e3e9650d6c5932bd1c464e4ff37866d4ecae572febf3b",
+      "flux_col": "SYS_RM_FLUX",
+      "flags": {
+        "n_cadences": 10819,
+        "frac_bit29": 0.0,
+        "frac_bit30": 0.10084111285701082,
+        "frac_any_flag": 0.10093354284129771
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.772538354036,
+          "duration_d": 0.14365702639325748,
+          "bulk_v2": {
+            "sde": 30.436567720403126,
+            "mes_pink": 25.330335226801242,
+            "status": "demoted",
+            "tier": "A",
+            "period_days": 5.779586725109581,
+            "depth_percent": 5.969162629400775,
+            "flags": [
+              "DEPTH_EB"
+            ],
+            "odd_even_ratio": 0.8520491349040302,
+            "recovered": false
+          },
+          "bulk_v3": {
+            "sde": 28.566570957844437,
+            "mes_pink": 31.45560851624236,
+            "status": "demoted",
+            "tier": "A",
+            "period_days": 5.779586725109581,
+            "depth_percent": 5.7670199628029675,
+            "flags": [
+              "DEPTH_EB"
+            ],
+            "odd_even_ratio": 0.8420706492443791,
+            "recovered": false
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.772538354036,
+          "duration_d": 0.12427980918779241,
+          "bulk_v2": {
+            "sde": 39.850913710074984,
+            "mes_pink": 25.620262913760175,
+            "status": "demoted",
+            "tier": "A",
+            "period_days": 5.779586725109581,
+            "depth_percent": 5.511764611139737,
+            "flags": [
+              "DEPTH_EB"
+            ],
+            "odd_even_ratio": 0.7484923161884856,
+            "recovered": false
+          },
+          "bulk_v3": {
+            "sde": 39.162446743118814,
+            "mes_pink": 32.814955300815875,
+            "status": "demoted",
+            "tier": "A",
+            "period_days": 5.779586725109581,
+            "depth_percent": 5.361093070142306,
+            "flags": [
+              "DEPTH_EB"
+            ],
+            "odd_even_ratio": 0.7413597822902113,
+            "recovered": false
+          }
+        }
+      }
+    },
+    {
+      "tic": "234510264",
+      "source_file": "234510264.fits",
+      "source_sha256": "9045aad332d7dff4ffa308d09d072e57cc615a198b1cd4c5be240c518a9f07c2",
+      "flux_col": "SYS_RM_FLUX",
+      "flags": {
+        "n_cadences": 10819,
+        "frac_bit29": 0.0,
+        "frac_bit30": 0.10084111285701082,
+        "frac_any_flag": 0.10093354284129771
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.7731727226187,
+          "duration_d": 0.14365702639325748,
+          "bulk_v2": {
+            "sde": 22.86249736011141,
+            "mes_pink": 11.359168840618034,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 5.120665742024966,
+            "depth_percent": 1.4802003513794428,
+            "flags": [],
+            "odd_even_ratio": 0.8851503941319251,
+            "recovered": true
+          },
+          "bulk_v3": {
+            "sde": 32.45900029450042,
+            "mes_pink": 19.881579497750067,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 5.120665742024966,
+            "depth_percent": 1.540312961357595,
+            "flags": [],
+            "odd_even_ratio": 0.9335240251913033,
+            "recovered": true
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.7731727226187,
+          "duration_d": 0.12427980918779241,
+          "bulk_v2": {
+            "sde": 14.788543739150729,
+            "mes_pink": 15.49152193295437,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 6.43205574912892,
+            "depth_percent": 1.5227171412638465,
+            "flags": [],
+            "odd_even_ratio": 0.5322518236634539,
+            "recovered": false
+          },
+          "bulk_v3": {
+            "sde": 22.776143172427258,
+            "mes_pink": 14.857631038006906,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 3.3159691036464882,
+            "depth_percent": 0.8802847554487301,
+            "flags": [],
+            "odd_even_ratio": 0.9212107022449122,
+            "recovered": true
+          }
+        }
+      }
+    },
+    {
+      "tic": "237911080",
+      "source_file": "237911080.fits",
+      "source_sha256": "cdd839c554119e1863b6aef71300d8c60a7fa7c92731d943686bfaf1bc112994",
+      "flux_col": "SYS_RM_FLUX",
+      "flags": {
+        "n_cadences": 10819,
+        "frac_bit29": 0.0,
+        "frac_bit30": 0.10084111285701082,
+        "frac_any_flag": 0.10093354284129771
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.772751356917,
+          "duration_d": 0.14365702639325748,
+          "bulk_v2": {
+            "sde": 26.93755350812295,
+            "mes_pink": 12.020568054682592,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 5.120665742024966,
+            "depth_percent": 1.619015965705179,
+            "flags": [],
+            "odd_even_ratio": 0.9803022165925985,
+            "recovered": true
+          },
+          "bulk_v3": {
+            "sde": 40.18808516401486,
+            "mes_pink": 27.17980959980689,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 5.120665742024966,
+            "depth_percent": 1.6467775938667921,
+            "flags": [],
+            "odd_even_ratio": 0.9473633034581287,
+            "recovered": true
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.772751356917,
+          "duration_d": 0.12427980918779241,
+          "bulk_v2": {
+            "sde": 42.583332116810205,
+            "mes_pink": 46.65833404297896,
+            "status": "demoted",
+            "tier": null,
+            "period_days": 12.828353022932593,
+            "depth_percent": 5.903928217873403,
+            "flags": [
+              "DEPTH_EB"
+            ],
+            "odd_even_ratio": 0.9289167648461479,
+            "recovered": false
+          },
+          "bulk_v3": {
+            "sde": 56.81903417395549,
+            "mes_pink": 25.330451387132822,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 3.3159691036464882,
+            "depth_percent": 0.9543938669252252,
+            "flags": [],
+            "odd_even_ratio": 0.9991627070197926,
+            "recovered": true
+          }
+        }
+      }
+    },
+    {
+      "tic": "31852076",
+      "source_file": "31852076.fits",
+      "source_sha256": "36ba2132e2e7600ead5311b8e4f00986549935f87ca2c9f417b40a92ab07e4c9",
+      "flux_col": "SYS_RM_FLUX",
+      "flags": {
+        "n_cadences": 10819,
+        "frac_bit29": 0.2798779924207413,
+        "frac_bit30": 0.09926980312413347,
+        "frac_any_flag": 0.2968851095295314
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.7714778382838,
+          "duration_d": 0.14365702639325748,
+          "bulk_v2": {
+            "sde": 15.39721829394497,
+            "mes_pink": 17.438955937979703,
+            "status": "demoted",
+            "tier": null,
+            "period_days": 13.101490418736693,
+            "depth_percent": 4.789158699392267,
+            "flags": [
+              "DEPTH_EB"
+            ],
+            "odd_even_ratio": 0.8337915847086176,
+            "recovered": false
+          },
+          "bulk_v3": {
+            "sde": 33.239033731682696,
+            "mes_pink": 26.63639314219052,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 5.124930594114382,
+            "depth_percent": 1.5584308097337944,
+            "flags": [],
+            "odd_even_ratio": 0.8823474507709212,
+            "recovered": true
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.7714778382838,
+          "duration_d": 0.12427980918779241,
+          "bulk_v2": {
+            "sde": 16.124958056117727,
+            "mes_pink": 18.23468220524413,
+            "status": "demoted",
+            "tier": null,
+            "period_days": 13.101490418736693,
+            "depth_percent": 4.829967651226627,
+            "flags": [
+              "DEPTH_EB"
+            ],
+            "odd_even_ratio": 0.924251111018414,
+            "recovered": false
+          },
+          "bulk_v3": {
+            "sde": 44.12617958511532,
+            "mes_pink": 29.682519490635116,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 3.3177570093457946,
+            "depth_percent": 0.9166370280298082,
+            "flags": [],
+            "odd_even_ratio": 0.9985629435464096,
+            "recovered": true
+          }
+        }
+      }
+    },
+    {
+      "tic": "382069441",
+      "source_file": "382069441.fits",
+      "source_sha256": "3bd0dabcd1c95cd610bca31bd3ed69a0efd77406ee674fa9a77943b21584ff88",
+      "flux_col": "SYS_RM_FLUX",
+      "flags": {
+        "n_cadences": 10819,
+        "frac_bit29": 0.2815417321379055,
+        "frac_bit30": 0.1275533783159257,
+        "frac_any_flag": 0.29586837970237545
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.770076676724,
+          "duration_d": 0.14365702639325748,
+          "bulk_v2": {
+            "sde": 7.908058615778825,
+            "mes_pink": 7.192139167088918,
+            "status": "recorded",
+            "tier": null,
+            "period_days": 5.500595947556614,
+            "depth_percent": 1.2806857082782168,
+            "flags": [],
+            "odd_even_ratio": 0.9186581398073105,
+            "recovered": false
+          },
+          "bulk_v3": {
+            "sde": 12.316373701056195,
+            "mes_pink": 10.720459345715142,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 5.490779298036883,
+            "depth_percent": 1.239207030687219,
+            "flags": [],
+            "odd_even_ratio": 0.9582830850179793,
+            "recovered": false
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.770076676724,
+          "duration_d": 0.12427980918779241,
+          "bulk_v2": {
+            "sde": 10.445521402890234,
+            "mes_pink": 7.729640957998339,
+            "status": "recorded",
+            "tier": null,
+            "period_days": 5.500595947556614,
+            "depth_percent": 1.382734709389092,
+            "flags": [],
+            "odd_even_ratio": 0.897845744607461,
+            "recovered": false
+          },
+          "bulk_v3": {
+            "sde": 16.521398838863153,
+            "mes_pink": 11.374530439132904,
+            "status": "survivor",
+            "tier": "A",
+            "period_days": 5.500595947556614,
+            "depth_percent": 1.394711443330406,
+            "flags": [],
+            "odd_even_ratio": 0.8905336474241068,
+            "recovered": false
+          }
+        }
+      }
+    }
+  ],
+  "wall_seconds": 25.967902660369873
+}

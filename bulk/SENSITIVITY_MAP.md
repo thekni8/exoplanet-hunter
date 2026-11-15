@@ -178,6 +178,40 @@ with margin, and blocks that avoid the transit cost no more
 than random flags. The block variant is the harsher, more
 realistic bound on the mask's cost.
 
+Injection into REAL S96 light curves (M-6, 2026-11-15; Claude's
+item (d)): trapezoid transits injected into the six S96 files
+on the VM — all carrying bit 30 (9–13%), two carrying bit 29
+(~28%) — and screened under v2 vs v3. Script:
+`bulk/inject_real_s96.py`; summary:
+`bulk/inject_real_s96_summary.json`. Trials: A = 2.0% @ 5.123 d,
+B = 1.0% @ 3.317 d. Recovery = survivor + period within 1%.
+
+| TIC | bit29 / bit30 | v2 recovered | v3 recovered |
+|---|---|---|---|
+| 231011325 | 0% / 9.4% | 0/2 (demoted) | 2/2 |
+| 231852754 | 0% / 10.1% | 0/2 (demoted) | 0/2 (demoted) |
+| 234510264 | 0% / 10.1% | 1/2 | 2/2 |
+| 237911080 | 0% / 10.1% | 1/2 | 2/2 |
+| 31852076 | 28.0% / 9.9% | 0/2 (demoted) | 2/2 |
+| 382069441 | 28.2% / 12.8% | 0/2 (recorded) | 0/2 (survivor, wrong P) |
+| **total** | | **2/12** | **8/12** |
+
+**v3 lost 0/12 relative to v2** — it recovered everything v2
+recovered, plus six more. The v2 failures are instructive: on
+231011325, 237911080 (trial B) and 31852076, v2's BLS finds a
+deep (>3%) ~13.1 d systematic — the flagged-cadence dropouts
+themselves — and the DEPTH_EB veto demotes the star. Masking
+the flagged cadences removes the systematic and the injected
+transit recovers (31852076: v2 SDE 15–16 demoted → v3 SDE
+33–44 recovered). The four v3 non-recoveries are host-confusion,
+not mask losses: on 231852754 BLS finds the host's own 5.78 d
+5.8% dipper signal (DEPTH_EB, identical under v2 and v3), and
+on 382069441 it finds the host's own 5.50 d 1.3% persistent
+signal (same period in both trials, both calibrations — the
+injection never wins on those hosts). Pinned in CI by
+`tests/test_inject_real_s96.py` on the committed 31852076
+substrate (v2 demoted, v3 recovered, both trials).
+
 Artifact rejection is pinned in `tests/test_quality_mask.py`:
 five synthetic cells at real gauntlet periods/depths (bits 29/30,
 flag fractions 0.7/1.0) promote under v2 and fall below the
