@@ -635,7 +635,10 @@ def _apply_quality_mask(lc, quality_mask=None):
     removed: rows whose QUALITY carries ANY bit in the mask are
     dropped. A curve without a `quality` column (offline fixtures
     built before the deep_v2 seam, HLSP products without QUALITY)
-    passes through unchanged — there is nothing to mask.
+    passes through unchanged — there is nothing to mask. A
+    quality column of None (or other non-numeric values) takes
+    the same path: it carries no flag information. A masked
+    quality entry is dropped — unknown quality is not clean.
 
     quality_mask defaults to the module QUALITY_MASK (the active
     deep profile's mask). Callers that know their own profile
@@ -644,7 +647,19 @@ def _apply_quality_mask(lc, quality_mask=None):
         quality_mask = QUALITY_MASK
     if "quality" not in getattr(lc, "columns", ()):
         return lc
-    q = np.asarray(lc.quality, dtype=np.int64)
+    q_raw = np.asarray(lc.quality)
+    if q_raw.dtype == object:
+        # A quality column of None (or other non-numeric values)
+        # carries no flag information — nothing to mask, so the
+        # curve passes through unchanged (DF-5). Real TESS
+        # products always carry an integer QUALITY column.
+        return lc
+    # Cast to int64 BEFORE the bitwise AND: a bare
+    # uint16 & 1610629823 raises OverflowError under numpy 2.x
+    # (SPOC 16-bit QUALITY — DF-5). A masked quality array keeps
+    # its mask through the cast, and boolean indexing drops
+    # masked entries.
+    q = q_raw.astype(np.int64)
     return lc[(q & int(quality_mask)) == 0]
 
 

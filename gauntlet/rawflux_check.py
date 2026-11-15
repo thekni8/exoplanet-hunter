@@ -192,15 +192,19 @@ def download_author(author, pfx, no_download=False, tic=None,
         q = getattr(lc, 'quality', None)
         m = np.isfinite(t_all) & np.isfinite(f_all)
         if q is not None:
-            try:
-                # deep_v2: "clean" = kept by the pipeline's
-                # quality mask, not quality==0 (M-8: the old
-                # (q == 0) dropped genuine bit-12 transits and
-                # read them RAW-REFUTED; TOI-700 c lesson).
-                m &= (np.asarray(q, dtype=np.int64)
-                      & int(quality_mask)) == 0
-            except Exception:
-                pass
+            # deep_v2: "clean" = kept by the pipeline's quality
+            # mask, not quality==0 (M-8: the old (q == 0) dropped
+            # genuine bit-12 transits and read them RAW-REFUTED;
+            # TOI-700 c lesson). The cast to int64 comes first:
+            # a bare uint16 & mask raises OverflowError under
+            # numpy 2.x (SPOC 16-bit QUALITY — DF-5). DF-5 removed
+            # the try/except Exception: pass that used to swallow
+            # a mask failure here: a malformed quality column on
+            # a live download is a hard error, not a silent
+            # unmasked pass — proceeding without the mask could
+            # flip a verdict. Fail loud (DF-10's principle).
+            m &= (np.asarray(q, dtype=np.int64)
+                  & int(quality_mask)) == 0
         if m.sum() < 100:
             print(f'{author} s{sec}: too few good points', flush=True)
             continue

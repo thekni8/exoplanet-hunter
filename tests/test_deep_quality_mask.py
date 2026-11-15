@@ -131,6 +131,71 @@ class TestApplyQualityMask(unittest.TestCase):
         out = hunter._apply_quality_mask(lc)
         self.assertEqual(len(out), 4)
 
+    def test_uint16_quality_does_not_overflow(self):
+        # DF-5 (Gemini's catch): SPOC QUALITY columns are 16-bit,
+        # and a bare uint16 & 1610629823 raises OverflowError
+        # under numpy 2.x. The int64 cast is the defence — this
+        # pins it, with exact row drops. A 16-bit column can only
+        # carry bits 0-15: bit 0 and bit 14 are in the SPOC
+        # default mask, bit 12 is not.
+        t = np.arange(5, dtype=float)
+        f = np.ones(5)
+        q = np.array([0, 1, 4096, 16384, 0], dtype=np.uint16)
+        lc = lk.LightCurve(time=t, flux=f, quality=q)
+        out = hunter._apply_quality_mask(lc, qf.DEEP_V2_MASK)
+        self.assertEqual(len(out), 3)
+        np.testing.assert_array_equal(
+            np.asarray(out.time.value), [0.0, 2.0, 4.0])
+
+    def test_masked_array_quality_drops_masked_entries(self):
+        # DF-5 (Claude's edge case): a masked quality entry has
+        # unknown flags — unknown quality is not clean, so the
+        # cadence is dropped. Unmasked entries mask normally.
+        t = np.arange(5, dtype=float)
+        f = np.ones(5)
+        q = np.ma.array([0, 1 << 30, 4096, 1, 0],
+                        mask=[False, True, False, True, False],
+                        dtype=np.int64)
+        lc = lk.LightCurve(time=t, flux=f, quality=q)
+        out = hunter._apply_quality_mask(lc, qf.DEEP_V2_MASK)
+        self.assertEqual(len(out), 3)
+        np.testing.assert_array_equal(
+            np.asarray(out.time.value), [0.0, 2.0, 4.0])
+
+    def test_none_quality_column_passes_through(self):
+        # DF-5 (Claude's edge case): a quality column of None
+        # carries no flag information — the curve passes through
+        # unchanged, like a curve with no quality column. (The
+        # pre-DF-5 code crashed here with TypeError.) Both
+        # constructor forms: an object array of Nones, and
+        # quality=None.
+        t = np.arange(4, dtype=float)
+        f = np.ones(4)
+        lc = lk.LightCurve(time=t, flux=f,
+                           quality=np.array([None] * 4,
+                                            dtype=object))
+        out = hunter._apply_quality_mask(lc, qf.DEEP_V2_MASK)
+        self.assertEqual(len(out), 4)
+        lc_none = lk.LightCurve(time=t, flux=f, quality=None)
+        out_none = hunter._apply_quality_mask(lc_none,
+                                              qf.DEEP_V2_MASK)
+        self.assertEqual(len(out_none), 4)
+
+    def test_nan_flux_with_valid_quality(self):
+        # DF-5 (Claude's edge case): NaN flux alongside valid
+        # quality — the mask drops flagged rows only; a NaN-flux
+        # cadence with clean quality is kept (NaN flux is the
+        # downstream finite filter's job, not the mask's).
+        t = np.arange(5, dtype=float)
+        f = np.array([1.0, np.nan, 1.0, 1.0, 1.0])
+        q = np.array([0, 0, 1 << 30, 0, 0], dtype=np.int64)
+        lc = lk.LightCurve(time=t, flux=f, quality=q)
+        out = hunter._apply_quality_mask(lc, qf.DEEP_V2_MASK)
+        self.assertEqual(len(out), 4)
+        np.testing.assert_array_equal(
+            np.asarray(out.time.value), [0.0, 1.0, 3.0, 4.0])
+        self.assertTrue(np.isnan(out.flux.value).any())
+
 
 class TestDeepQualityMaskPipeline(DeepCalibrationGuardCase):
     """Through the real _run_pipeline, via the fixture seam."""
@@ -308,6 +373,75 @@ class TestGauntletMaskGates(unittest.TestCase):
             tt_old, _f, _t = gcommon.load_tpf(
                 "fake.fits", quality_mask=0xFFFFFFFF)
         self.assertEqual(len(tt_old), 60)
+
+    def test_rawflux_uint16_quality(self):
+        # DF-5 through the rawflux site: a SPOC 16-bit QUALITY
+        # column must not crash the fetch filter (the int64 cast
+        # is the defence) and must drop exactly the masked rows.
+        # Same mocked-MAST pattern as the bit-12 test above.
+        from astropy.table import Table
+
+        n = 500
+        t = 1500.0 + np.arange(n) * (10.0 / 1440.0)
+        f = np.ones(n)
+        q = np.zeros(n, dtype=np.uint16)
+        q[0:100] = np.uint16(1)       # bit 0: masked
+        q[100:200] = np.uint16(4096)  # bit 12: kept
+        lc = lk.LightCurve(time=t, flux=f, quality=q)
+
+        class _Row:
+            def download(self):
+                return lc
+
+        class _SearchResult:
+            def __init__(self):
+                self.table = Table(
+                    {"sequence_number": [96], "exptime": [120.0]})
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, i):
+                return _Row()
+
+        prev_data = rfc.DATA
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                with mock.patch.object(
+                        lk, "search_lightcurve",
+                        return_value=_SearchResult()):
+                    got = rfc.download_author(
+                        "QLP", "qlp", tic="900000005",
+                        data_dir=td)
+                self.assertEqual(got, [96])
+                z = np.load(os.path.join(td, "qlp_s096.npz"))
+                # 500 - 100 bit-0 cadences; the 100 bit-12
+                # cadences stay.
+                self.assertEqual(len(z["time"]), 400)
+        finally:
+            rfc.DATA = prev_data
+
+    def test_load_tpf_uint16_quality(self):
+        # DF-5 through the load_tpf site: a SPOC 16-bit QUALITY
+        # column must not crash the pixel work and must drop
+        # exactly the masked cadences. Same stubbed-lk.read
+        # pattern as the bit-12 test above.
+        t = np.arange(100, dtype=float)
+        cube = np.ones((100, 5, 5))
+        q = np.zeros(100, dtype=np.uint16)
+        q[10:30] = np.uint16(4096)   # bit 12: kept
+        q[50:70] = np.uint16(1)      # bit 0: masked
+        fake_tpf = SimpleNamespace(
+            quality=q,
+            time=SimpleNamespace(value=t),
+            flux=SimpleNamespace(value=cube))
+        with mock.patch.object(lk, "read",
+                               return_value=fake_tpf):
+            tt, flux, _tpf = gcommon.load_tpf("fake.fits")
+        self.assertEqual(len(tt), 80)
+        self.assertEqual(flux.shape, (80, 5, 5))
+        np.testing.assert_array_equal(
+            np.asarray(tt), np.concatenate([t[:50], t[70:]]))
 
 
 if __name__ == "__main__":
