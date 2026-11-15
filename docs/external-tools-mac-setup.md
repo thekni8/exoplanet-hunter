@@ -8,10 +8,33 @@ the Mac, and on any host without them the tool stage reads
 UNMEASURED (`missing_venv`), never a crash.
 
 **Nothing here is run by the Phase 2 build.** These are
-Dev-visible commands to run on the Mac (or approve) once the
-Phase 2 vote ratifies the tools. The venvs live on the NVMe
+Dev-visible commands to run on the Mac (or approve) once a
+live candidate reaches review. The venvs live on the NVMe
 SSD alongside the pipeline — never on the Mac's internal
 disk, per Dev's rules.
+
+## Status (P-16, 2026-11-15 — vote follow-up)
+
+**Neither venv is built. No lockfile is built. No golden
+tool test exists. Zero tool executions have ever run under
+this pipeline (P-11).** This is the recorded state, not an
+oversight:
+
+| Piece | Status | Gate |
+|---|---|---|
+| LATTE venv (Python 3.8, Rosetta) | NOT BUILT | Do NOT build until a candidate reaches review — the Rosetta 3.8 setup is the main risk (3.8 may not install on current macOS at all), and there is no candidate to vet yet. The vote's fallback is to drop LATTE if setup proves impractical. |
+| TRICERATOPS venv (Python 3.11) | NOT BUILT | Build when a candidate reaches review (the lower-risk venv; build it first). |
+| Lockfiles (`requirements-latte.lock`, `requirements-triceratops.lock`) | NOT BUILT | Built on the Mac AFTER a verified install (platform-specific hashes — the VM cannot build them). See §3. |
+| Golden tool tests (real tool runs on the labelled population) | NOT WRITTEN | Hard Phase 3 entry gate — they need the venvs. When the venvs exist they run as a nightly Mac job (P-14), not in CI. |
+
+The Phase 2 vote (2026-11-15, unanimous GO WITH CHANGES)
+ratified the tools as evidence-only — LATTE report-only,
+TRICERATOPS with provisional Giacalone+2021 bars — but
+ratification is not a build order: the venvs are built when
+a candidate needs them, not before. The verification
+targets are already fixed (§1–§2): WASP-29b (TIC
+183537452, expect a DV report / FPP < 0.015) and the EB
+TIC 308851365 (expect FPP > 0.5).
 
 ## Paths (must match `calibration/external_tools_v1.yaml`)
 

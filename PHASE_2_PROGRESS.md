@@ -709,6 +709,35 @@ bar pinned; LATTE REPORT_ONLY.
   gained n_fold_points (1234 completed, null failed)
   for the new required schema field.
 
+### P-16 — Mac-side venvs / lockfiles / golden tool tests
+
+- **Mac-only step, recorded as blocked/unverified-live —
+  nothing built.** Neither venv exists (LATTE Python 3.8
+  under Rosetta, TRICERATOPS Python 3.11), no lockfile
+  exists, no golden tool test exists, and zero tool
+  executions have ever run (P-11). The status table is
+  recorded in docs/external-tools-mac-setup.md (§Status),
+  with the gates:
+  - **LATTE venv: do NOT build until a candidate
+    reaches review.** The Rosetta 3.8 setup is the main
+    risk (3.8 may not install on current macOS at all)
+    and there is no candidate to vet yet; the vote's
+    fallback is to drop LATTE if setup proves
+    impractical.
+  - TRICERATOPS venv: build when a candidate reaches
+    review (the lower-risk venv; build it first).
+  - Lockfiles: built on the Mac AFTER a verified
+    install (platform-specific hashes — the VM cannot
+    build them).
+  - Golden tool tests: a hard Phase 3 entry gate; when
+    the venvs exist they run as a nightly Mac job
+    (P-14), not in CI.
+- The vote ratified the tools as evidence-only, but
+  ratification is not a build order — the venvs are
+  built when a candidate needs them, not before. The
+  verification targets are fixed (WASP-29b + TIC
+  308851365).
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):
