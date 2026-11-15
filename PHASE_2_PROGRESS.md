@@ -606,6 +606,25 @@ bar pinned; LATTE REPORT_ONLY.
   the same misremembering — corrected in the same
   commit, marked as such.
 
+### P-11 — C-10 shipped as evidence plumbing, zero executions
+
+- Stated plainly, so no reader mistakes the plumbing for
+  a live integration: Phase 2's C-10 (TRICERATOPS /
+  LATTE) shipped as **evidence plumbing with ZERO tool
+  executions**. No TRICERATOPS run and no LATTE run has
+  ever executed under this pipeline — on any host. The
+  venvs do not exist yet (they must be built on the Mac
+  per docs/external-tools-mac-setup.md), no golden tool
+  test exists (a hard Phase 3 entry gate), and every
+  tool stage in every run so far has read UNMEASURED
+  (missing_venv). What C-10 built is the subprocess
+  plumbing, the adapters, the policy, the evidence
+  package fields, and the review-gate wiring — the
+  machinery that will carry a tool result the day a
+  venv exists. Until then the tools contribute nothing
+  to any verdict, by design and by test (P-2 verdict
+  invariance).
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):
