@@ -59,7 +59,7 @@ def fetch_sector(tic, sector, outdir, size=15, retries=(30, 60, 120, 300)):
         # a hung MAST call hangs the fetch. A timeout is NO-DATA
         # with a reason, never a hang.
         sr = _net.mast_call(
-            lambda: lk.search_tesscut(f'TIC {tic}', sector=sectortor),
+            lambda: lk.search_tesscut(f'TIC {tic}', sector=sector),
             name=f"TESSCut search TIC {tic} S{sector}")
     except _net.NetworkTimeout as e:
         return None, f'TESSCut search timed out: {e}'
