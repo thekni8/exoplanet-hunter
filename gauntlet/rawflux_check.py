@@ -370,6 +370,13 @@ def raw_measure(pfx, secs, P, T0, DUR):
 # T23/T14 -> 0 (423498314's formal fit: 0.25). So frac <= 0.30 is
 # firmly grazing territory and frac >= 0.50 requires a substantial
 # full-transit phase; the 0.30-0.50 band is genuinely ambiguous.
+# HOW T23 IS ESTIMATED (P-8): T23 is NOT fitted separately —
+# the trapezoid fit's `frac` parameter IS T23/T14 (the model
+# sets t23 = t14 * frac; see _trap_model), so T23_d = t14 *
+# frac is the derived flat-bottom duration and frac_err is the
+# fit's 1-sigma error on the fraction from the least-squares
+# covariance (None when the fit sits on a parameter bound and
+# the covariance is degenerate — see _fit_trap's sanitiser).
 # The density flag has two clauses, both bound arguments: (1)
 # rho_circ/rho_star < 0.80, i.e. the transit exceeds the rp->0
 # central maximum duration by >7.7% — a gross mismatch, any shape;
@@ -563,7 +570,9 @@ def trapezoid_shape_gate(t, f, P, T0, DUR, rho_star):
     (DUR) is several times the true duration (TOI-700 c: DUR
     0.183 d vs true T14 0.058 d — DUR/10 bins put only ~3 bins
     across the transit, which no fit can shape). Returns a
-    JSON-able dict."""
+    JSON-able dict. T23 is t14 * frac from the fit (frac IS
+    T23/T14; see the header comment) and frac_err is the fit's
+    1-sigma error on the fraction (None on a bound)."""
     out = {'method': 'symmetric trapezoid on binned raw fold'}
     ph = phase_days(t, P, T0)
     hw = min(3.5 * DUR, 0.30 * P)  # half-window; capped so the window

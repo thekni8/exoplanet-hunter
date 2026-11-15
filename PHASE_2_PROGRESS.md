@@ -517,6 +517,45 @@ bar pinned; LATTE REPORT_ONLY.
   prepared), and `_tool_extra` takes override paths so
   the missing-artifact case is drivable.
 
+### P-8 — Shape gate uncertainty-aware (F-8, vote tie-break)
+
+- **Rule** (`shape_result`): a V-shaped point estimate
+  FAILs ONLY when all four legs hold — V-shaped, `frac_err`
+  known, 1σ upper bound `frac + frac_err < 0.30`, and
+  `depth0_signif ≥ 5`. Any missing leg reads INCONCLUSIVE
+  with the gap named in the reason. The 0.30 bar itself
+  is UNCHANGED (the vote pinned it; do not nudge to
+  0.29). The density flag is a separate physical argument
+  and still FAILs unconditionally. The result now carries
+  evidence: value = T23/T14, uncertainty = frac_err,
+  threshold = the 0.30 V-shape (fail) bar.
+- **T23 documented:** T23 is not fitted separately — the
+  trapezoid fit's `frac` parameter IS T23/T14 (the model
+  sets t23 = t14 * frac), so T23_d = t14 * frac is
+  derived and frac_err is the fit's 1σ error on the
+  fraction (None on a parameter bound, where the
+  covariance is degenerate). Recorded in the gate's
+  header comment + docstring and the adapter docstring.
+- **Bar mirror:** the adapter carries
+  `SHAPE_V_MAX_T23_T14 = 0.30` (it cannot import the
+  gate's constant — rawflux_check imports lightkurve at
+  module scope), pinned equal by a test; the gate
+  constant is itself drift-tested against
+  gauntlet_v1.yaml.
+- **Measured on the labelled population** (harness re-run
+  2026-11-15): TOI-700 c reads INCONCLUSIVE, not FAIL —
+  frac 0.2925 ± 0.107, upper bound 0.40 above the bar,
+  at 18.6σ dip significance (the SNR leg holds; the
+  upper-bound leg does not). The EB still shape-FAILs —
+  via the DENSITY flag (rho_circ/rho_star < 0.80), not
+  the V-shape test, so P-8 leaves it untouched.
+- **DELIBERATE baseline update** (stated in the commit):
+  `tests/fixtures/toi_population/baseline.json` —
+  planets any_fail 1 → 0, TOI-700 c shape fail →
+  inconclusive; all_measured_pass stays 1 (inconclusive
+  is not a pass). The meaning test in
+  test_toi_population.py is updated to match.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):

@@ -362,6 +362,22 @@ class StageResult:
                    waiver_reason=d.get("waiver_reason"))
 
 
+# The shape gate's V-shape bar, mirroring
+# gauntlet/rawflux_check.py's V_SHAPE_MAX_T23_T14 — the adapter
+# cannot import it (rawflux_check imports lightkurve at module
+# scope). Pinned equal by
+# tests/test_stage_contract.py::test_shape_bar_matches_gate, and
+# the gate constant is itself drift-tested against
+# calibration/gauntlet_v1.yaml. The vote PINNED this bar at
+# 0.30 — do not nudge it to 0.29.
+SHAPE_V_MAX_T23_T14 = 0.30
+# P-8: a V-shape FAIL also needs an adequate dip
+# significance in the binned fold (the gate's
+# depth0_signif) — a V-shaped point estimate on a marginal
+# dip does not establish a fail.
+SHAPE_FAIL_MIN_DEPTH_SIGNIF = 5.0
+
+
 def _prov(prov):
     """Normalise the provenance argument: adapters accept the
     provenance.header() dict or None (tests pass explicit dicts)."""
@@ -375,15 +391,40 @@ def _prov(prov):
 def shape_result(gate, prov=None):
     """trapezoid_shape_gate output -> StageResult.
 
-    V-shaped or density-flagged -> FAIL (EB suspect). U-shaped
-    with no density flag -> PASS. Ambiguous -> INCONCLUSIVE (the
-    shape was measured but does not decide). Unmeasured (too few
-    bins, no dip) -> UNMEASURED.
+    T23 is estimated as t14 * frac from the symmetric-
+    trapezoid fit to the binned raw fold (the fit's frac
+    parameter IS T23/T14; T23_d = t14 * frac is the derived
+    flat-bottom duration, not a separately fitted quantity).
+
+    V-shaped or density-flagged -> FAIL (EB suspect), with
+    the P-8 uncertainty rule (Phase 2 vote, F-8): a
+    V-shaped point estimate FAILs ONLY when the 1-sigma
+    UPPER bound (frac + frac_err) is under the 0.30 bar AND
+    the dip significance is >= 5 — otherwise the shape was
+    measured but the fail is not established, and the stage
+    reads INCONCLUSIVE (TOI-700 c: frac 0.2925, upper bound
+    above the bar). The density flag is a separate physical
+    argument (fitted duration impossible for a planet on
+    this star) and still FAILs unconditionally. U-shaped
+    with no density flag -> PASS. Ambiguous -> INCONCLUSIVE
+    (the shape was measured but does not decide).
+    Unmeasured (too few bins, no dip) -> UNMEASURED.
+
+    Evidence: value is T23/T14, uncertainty its 1-sigma
+    fit error, threshold the 0.30 V-shape (fail) bar — not
+    the 0.50 U-shape pass bar, which the single threshold
+    field cannot also express.
     """
     shape = gate.get("shape_verdict")
     details = {k: gate.get(k) for k in
-               ("T23_T14", "T14_h", "density_flag", "depth_frac")
+               ("T23_T14", "frac_err", "depth0_signif", "T14_h",
+                "density_flag", "depth_frac")
                if gate.get(k) is not None}
+    frac = gate.get("T23_T14")
+    frac_err = gate.get("frac_err")
+    signif = gate.get("depth0_signif")
+    ev = {"value": frac, "uncertainty": frac_err,
+          "threshold": SHAPE_V_MAX_T23_T14}
     if gate.get("verdict") == "unmeasured" or shape == "unmeasured":
         return StageResult(
             "shape", STATUS_UNMEASURED,
@@ -395,24 +436,50 @@ def shape_result(gate, prov=None):
             gate.get("density_reason")
             or "density flag: fitted duration impossible for a "
                "planet on this star",
-            _prov(prov), details)
+            _prov(prov), details, **ev)
     if shape == "V-shaped":
+        gaps = []
+        if frac is None:
+            gaps.append("T23/T14 unknown")
+        elif frac_err is None:
+            gaps.append("frac_err unknown")
+        elif frac + frac_err >= SHAPE_V_MAX_T23_T14:
+            gaps.append(
+                f"1-sigma upper bound {frac + frac_err:.2f} "
+                f"not under the {SHAPE_V_MAX_T23_T14} bar")
+        if signif is None:
+            gaps.append("dip significance unknown")
+        elif signif < SHAPE_FAIL_MIN_DEPTH_SIGNIF:
+            gaps.append(
+                f"dip significance {signif:.1f} below "
+                f"{SHAPE_FAIL_MIN_DEPTH_SIGNIF}")
+        if not gaps:
+            return StageResult(
+                "shape", STATUS_FAIL,
+                f"V-shaped transit (T23/T14 {frac:.2f} ± "
+                f"{frac_err:.2f}; 1-sigma upper bound "
+                f"{frac + frac_err:.2f} under the "
+                f"{SHAPE_V_MAX_T23_T14} bar at "
+                f"{signif:.1f} sigma)",
+                _prov(prov), details, **ev)
+        frac_txt = (f"T23/T14 {frac:.2f}" if frac is not None
+                    else "T23/T14 unknown")
         return StageResult(
-            "shape", STATUS_FAIL,
-            f"V-shaped transit (T23/T14={gate.get('T23_T14'):.2f})"
-            if gate.get("T23_T14") is not None else "V-shaped",
-            _prov(prov), details)
+            "shape", STATUS_INCONCLUSIVE,
+            f"V-shaped point estimate ({frac_txt}) but the "
+            f"fail is not established: " + "; ".join(gaps),
+            _prov(prov), details, **ev)
     if shape == "U-shaped":
         return StageResult(
             "shape", STATUS_PASS,
             "U-shaped transit, no density flag",
-            _prov(prov), details)
+            _prov(prov), details, **ev)
     return StageResult(
         "shape", STATUS_INCONCLUSIVE,
         f"ambiguous trapezoid shape "
         f"(T23/T14={gate.get('T23_T14'):.2f})"
         if gate.get("T23_T14") is not None else "ambiguous shape",
-        _prov(prov), details)
+        _prov(prov), details, **ev)
 
 
 def clean_refold_result(fold, verdict, prov=None):

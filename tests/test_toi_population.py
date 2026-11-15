@@ -59,22 +59,23 @@ class TestToiPopulation(unittest.TestCase):
     def test_planets_pass_measured_stages(self):
         # The baseline diff above pins the exact counts; this
         # test pins the MEANING: WASP-126 b passes every
-        # measured stage; TOI-700 c fails ONLY shape — a
-        # marginal false-kill at the V/U boundary (T23/T14
-        # 0.2925 vs the 0.30 bar, triangle beats trapezoid by
-        # dchi2 1.6 on a shallow 0.32% transit), pinned in the
-        # baseline, not fixed here; the EB is killed by
+        # measured stage; TOI-700 c fails NO stage — its
+        # shape reads INCONCLUSIVE under the P-8
+        # uncertainty-aware gate (a V-shaped point estimate,
+        # T23/T14 0.2925, whose 1-sigma upper bound is above
+        # the 0.30 bar on a shallow 0.32% transit — the
+        # marginal false-kill the vote fixed, with the bar
+        # itself unchanged at 0.30); the EB is killed by
         # catalogue + shape.
         counts = _ARTIFACT["counts"]
         self.assertEqual(counts["planets"]["all_measured_pass"], 1)
-        self.assertEqual(counts["planets"]["any_fail"], 1)
+        self.assertEqual(counts["planets"]["any_fail"], 0)
         self.assertEqual(counts["fps"]["killed"],
                          counts["fps"]["n"])
         self.assertEqual(counts["fps"]["kill_stages"],
                          {"catalogue": 1, "shape": 1})
         by_tic = {s["tic"]: s for s in _ARTIFACT["stars"]}
-        self.assertEqual(by_tic["150428135"]["kill_stages"],
-                         ["shape"])
+        self.assertEqual(by_tic["150428135"]["kill_stages"], [])
         self.assertEqual(by_tic["25155310"]["kill_stages"], [])
 
 
