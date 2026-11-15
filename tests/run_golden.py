@@ -28,11 +28,11 @@ achieve speed):
   runs _run_pipeline on fixtures, ~2 min per module.
 * injection shard: test_injection + test_clip_grid (the
   injection-recovery harness + the clip grid, ~5 min).
-* rest shard: everything else offline (33 modules) — the
+* rest shard: everything else offline (34 modules) — the
   Phase 2 desk/tool/evidence/review modules live here
   (test_desk, test_desk_external_tools, test_external_tool,
   test_latte, test_triceratops, test_evidence, test_review,
-  test_pixel_check, test_concordance): they run fake tools
+  test_pixel_check, test_concordance, test_holdout): they run fake tools
   and fixtures, no downloads, no pipeline runs, so they
   belong in rest, not smoke (smoke stays the <=3 min PR
   check) and not golden (no _run_pipeline).

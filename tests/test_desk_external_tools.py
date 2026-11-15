@@ -161,7 +161,7 @@ class FakeDataSource(DeskDataSource):
         return tesscut_dir, path
 
     def holdout(self, tic, period, t0, duration_h,
-                star_radius=1.0):
+                star_radius=1.0, arrays=None):
         self.calls.append("holdout")
         return "HOLDOUT-PASS"
 

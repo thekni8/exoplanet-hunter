@@ -608,9 +608,16 @@ class DeskDataSource:
         census cone row or None."""
         raise NotImplementedError
 
-    def holdout(self, tic, period, t0, duration_h, star_radius=1.0):
+    def holdout(self, tic, period, t0, duration_h, star_radius=1.0,
+                arrays=None):
         """The holdout verdict string (HOLDOUT-PASS/FAIL/
-        INSUFFICIENT-DATA)."""
+        INSUFFICIENT-DATA). arrays (P-19) is the driver's
+        in-memory light curve — {"flat_t", "flat_f",
+        "raw_t", "raw_f", "ranges"} with ranges a list of
+        {"sector", "tmin", "tmax"} dicts — so the live
+        source can fold the arrays it already holds instead
+        of re-running the pipeline. None means the source
+        acquires the data itself."""
         raise NotImplementedError
 
     def diffimg(self, tic, period, t0, duration_d, workdir,
@@ -740,12 +747,21 @@ class LiveDataSource(DeskDataSource):
             return None
         return tesscut_dir, ident_path
 
-    def holdout(self, tic, period, t0, duration_h, star_radius=1.0):
+    def holdout(self, tic, period, t0, duration_h, star_radius=1.0,
+                arrays=None):
         import holdout_test
         try:
-            res = holdout_test.holdout_test(
-                tic, period, t0, duration_h,
-                star_radius=star_radius)
+            if arrays is not None:
+                # P-19: fold the driver's in-memory arrays —
+                # no pipeline re-run, no second detrend + BLS.
+                res = holdout_test.holdout_from_arrays(
+                    arrays["flat_t"], arrays["flat_f"],
+                    arrays["raw_t"], arrays["raw_f"],
+                    arrays["ranges"], tic, period, t0, duration_h)
+            else:
+                res = holdout_test.holdout_test(
+                    tic, period, t0, duration_h,
+                    star_radius=star_radius)
         except Exception:
             return "HOLDOUT-INSUFFICIENT-DATA"
         return res.get("verdict", "HOLDOUT-INSUFFICIENT-DATA")
@@ -1102,9 +1118,25 @@ def run_desk_gauntlet(survivor, workdir, source=None, policy=None,
             natives["holdout.native"] = "HOLDOUT-INSUFFICIENT-DATA"
         else:
             try:
+                # P-19: hand the source the arrays the desk
+                # already holds (stitched raw + flattened flux
+                # + sector spans) so the holdout folds them
+                # instead of re-running the pipeline. No spans
+                # (a source that does not report them) means
+                # arrays=None and the source acquires the data
+                # itself, as before.
+                spans = stitched.get("spans") or []
+                arrays = None
+                if spans:
+                    arrays = {
+                        "flat_t": t_raw, "flat_f": f_flat,
+                        "raw_t": t_raw, "raw_f": f_raw,
+                        "ranges": [{"sector": s, "tmin": lo,
+                                    "tmax": hi}
+                                   for s, lo, hi in spans]}
                 natives["holdout.native"] = source.holdout(
                     tic, p_ref, t0_ref, dur_h,
-                    star_radius=r_star or 1.0)
+                    star_radius=r_star or 1.0, arrays=arrays)
             except Exception as e:
                 extra["holdout_error"] = f"{type(e).__name__}: {e}"
         # diffimg: fetch the cutouts for the stitched sectors

@@ -176,6 +176,7 @@ class FakeDataSource(DeskDataSource):
         self.stitched_none = stitched_none
         self.discovery_none = discovery_none
         self.calls = []
+        self.holdout_arrays = None
 
     def census(self, tic, period, workdir):
         self.calls.append("census")
@@ -196,8 +197,13 @@ class FakeDataSource(DeskDataSource):
             return None
         n = self.stitched_kwargs.get("n_sectors", 3)
         t, f = _stitched(**self.stitched_kwargs)
+        # Real spans (P-19): _stitched builds 27 d sectors at
+        # 1500.0 + 30.0*i, so the driver can hand the holdout
+        # the arrays it already holds.
+        spans = [(96 + i, 1500.0 + 30.0 * i, 1527.0 + 30.0 * i)
+                 for i in range(n)]
         return {"pfx": "qlp", "sectors": [96 + i for i in range(n)],
-                "t": t, "f": f, "spans": [],
+                "t": t, "f": f, "spans": spans,
                 "sets": {"qlp": [96 + i for i in range(n)]}}
 
     def neighbour_lc(self, tic, workdir):
@@ -231,8 +237,10 @@ class FakeDataSource(DeskDataSource):
                  "w").close()
         return tesscut_dir, path
 
-    def holdout(self, tic, period, t0, duration_h, star_radius=1.0):
+    def holdout(self, tic, period, t0, duration_h, star_radius=1.0,
+                arrays=None):
         self.calls.append("holdout")
+        self.holdout_arrays = arrays
         return self.holdout_verdict
 
     def diffimg(self, tic, period, t0, duration_d, workdir,
@@ -297,6 +305,30 @@ class TestDeskDriver(unittest.TestCase):
                          "not_applicable")
         validate_verdict(verdict)
         self.assertEqual(verdict["final_verdict"], "CANDIDATE")
+
+    def test_holdout_receives_driver_arrays(self):
+        # P-19: the driver hands the holdout the arrays it
+        # already holds (stitched raw + flattened flux +
+        # sector spans) instead of letting the source re-run
+        # the pipeline.
+        src = FakeDataSource()
+        self._run(src, waivers={"pixel_check": "P 3.92 d < 8 d"})
+        self.assertIn("holdout", src.calls)
+        arrays = src.holdout_arrays
+        self.assertIsNotNone(arrays)
+        self.assertEqual(sorted(arrays),
+                         ["flat_f", "flat_t", "ranges", "raw_f",
+                          "raw_t"])
+        self.assertEqual(len(arrays["flat_t"]),
+                         len(arrays["raw_t"]))
+        self.assertEqual(len(arrays["flat_f"]),
+                         len(arrays["raw_f"]))
+        # 3 sectors x 27 d x 10-min cadence.
+        self.assertEqual(len(arrays["raw_t"]), 3 * 3888)
+        self.assertEqual([r["sector"] for r in arrays["ranges"]],
+                         [96, 97, 98])
+        self.assertTrue(all(r["tmin"] < r["tmax"]
+                            for r in arrays["ranges"]))
 
     def test_flagged_cadence_artifact_killed(self):
         # The 18-artifact regression: dip only in flagged

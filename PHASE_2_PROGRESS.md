@@ -848,6 +848,67 @@ bar pinned; LATTE REPORT_ONLY.
   (TestDeskNativesValidation); the 31 desk driver tests
   prove real payloads validate (14 → 4 → 0 errors as
   the schema was corrected against them).
+- **P-18 follow-up (b911089, found during P-19):**
+  `holdout_test`'s result dict carries
+  tic/period_days/t0_btjd/duration_hours on top and
+  `sigma_pct` on usable folds — none were in the
+  schema. No driver path writes the dict today (the
+  live source returns only the verdict string), so
+  nothing failed; the dict branch still has to describe
+  the real record. The fix also found the folds/criteria
+  shapes were inlined copies of the $defs, not $refs —
+  both now point at the defs (one source of truth).
+
+### P-19 — array-based holdout (vote item)
+
+- **`holdout_test.holdout_from_arrays(flat_t, flat_f,
+  raw_t, raw_f, ranges, tic_id, period_days, t0_days,
+  duration_hours, max_folds=5)` holds the whole fold
+  logic** (range merge, per-sector partition, fold loop,
+  verdict aggregation — moved verbatim). `holdout_test()`
+  is now a thin wrapper with the same signature: it
+  re-runs the pipeline, queries the sector ranges, and
+  calls `holdout_from_arrays`. Every existing caller
+  (CLI, `holdout_extended`, `holdout_supp`, the desk
+  driver) is unaffected.
+- **The driver hands the holdout the arrays it already
+  holds.** `run_desk_gauntlet` builds
+  `{"flat_t", "flat_f", "raw_t", "raw_f", "ranges"}`
+  from the stitched raw flux, the stage-2a flattened
+  flux, and `stitched["spans"]`, and passes it to
+  `source.holdout(..., arrays=...)`. `LiveDataSource`
+  folds the arrays instead of re-running the pipeline
+  (no second download, detrend, or BLS per candidate).
+  No spans (a source that does not report them) means
+  `arrays=None` and the old acquire-it-yourself path —
+  no regression for sources without spans.
+- **Judgment call — the training detrend differs.** The
+  array path trains its BLS refit on the driver's
+  flattened flux (`flatten_transit_masked` at the filed
+  ephemeris), not the pipeline's detrend. The measured
+  fold depths are on identical raw arrays either way,
+  and the refit is a narrow search around the filed
+  period, so the detrend difference is a data-input
+  difference, not a logic difference. The agreement
+  test proves the factorisation is exact given
+  identical inputs; a live A/B (array path vs pipeline
+  path on one real candidate) is still owed before
+  Phase 3 leans on the array path at scale.
+- Tests: 7 new in `tests/test_holdout.py` (pipeline/array
+  agreement by monkeypatch — the dicts are identical;
+  signal-in-all-4 PASSES; signal-in-2-of-4 FAILS with
+  exactly 2 folds above the bar; 2 sectors
+  INSUFFICIENT; duplicate product ranges merge to one
+  fold per sector; live-source routing both ways) +
+  1 wiring test in `tests/test_desk.py` (the driver
+  passes 5-key arrays with 3 ranges over 11,664
+  points). 39/39 across test_desk, test_desk_external_tools,
+  test_holdout. `test_holdout` joins the rest shard
+  (discovery-based; docstring count 33 → 34).
+  **Test-fixture change, stated:** the desk fake's
+  `stitched_lc` now returns real spans (it returned
+  `[]`), and both fake `holdout` overrides accept the
+  new `arrays` kwarg.
 
 ## Frozen v1 calibration (verify at the end)
 
