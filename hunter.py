@@ -630,7 +630,8 @@ def calibration_context(name):
         QUALITY_MASK = prev_mask
 
 
-def _apply_quality_mask(lc, quality_mask=None):
+def _apply_quality_mask(lc, quality_mask=None, require_quality=False,
+                        product_label=None):
     """The stitched (or single) light curve with masked cadences
     removed: rows whose QUALITY carries ANY bit in the mask are
     dropped. A curve without a `quality` column (offline fixtures
@@ -642,10 +643,29 @@ def _apply_quality_mask(lc, quality_mask=None):
 
     quality_mask defaults to the module QUALITY_MASK (the active
     deep profile's mask). Callers that know their own profile
-    pass it explicitly."""
+    pass it explicitly.
+
+    require_quality (DF-10): when True, a missing or unusable
+    quality column RAISES instead of passing through — a real
+    MAST product that must carry QUALITY arrived without it, so
+    the mask cannot be verified and silently proceeding would
+    stamp a record the mask never touched. The raise names the
+    product (product_label) and the missing column. BOUNDARY:
+    only the LIVE path passes require_quality=True, and only for
+    named-author products (SPOC/TESS-SPOC/QLP, read from the
+    input identity's author). Offline fixtures and the
+    unfiltered HLSP fallback keep the default False — fixtures
+    predate the seam, and HLSP products may legitimately lack
+    QUALITY."""
     if quality_mask is None:
         quality_mask = QUALITY_MASK
+    label = product_label or "light curve"
     if "quality" not in getattr(lc, "columns", ()):
+        if require_quality:
+            raise RuntimeError(
+                f"{label} has no QUALITY column — the quality mask "
+                "cannot be verified; refusing to proceed with an "
+                "unmasked curve (DF-10).")
         return lc
     q_raw = np.asarray(lc.quality)
     if q_raw.dtype == object:
@@ -653,6 +673,12 @@ def _apply_quality_mask(lc, quality_mask=None):
         # carries no flag information — nothing to mask, so the
         # curve passes through unchanged (DF-5). Real TESS
         # products always carry an integer QUALITY column.
+        if require_quality:
+            raise RuntimeError(
+                f"{label} has an unusable QUALITY column "
+                "(non-numeric values) — the quality mask cannot "
+                "be verified; refusing to proceed with an "
+                "unmasked curve (DF-10).")
         return lc
     # Cast to int64 BEFORE the bitwise AND: a bare
     # uint16 & 1610629823 raises OverflowError under numpy 2.x
@@ -1018,7 +1044,21 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         # after the search).
         lc_raw = lc_collection.stitch(corrector_func=_stitch_corrector)
         _n_pre_mask = len(lc_raw)
-        lc_raw = _apply_quality_mask(lc_raw)
+        # DF-10: a named-author product (SPOC/TESS-SPOC/QLP) MUST
+        # carry a QUALITY column — a missing column means the mask
+        # cannot be verified, and silently proceeding would stamp
+        # a record the mask never touched. The unfiltered HLSP
+        # fallback (author "mixed" or a single HLSP author) stays
+        # non-raising: HLSP products may legitimately lack
+        # QUALITY. An unreadable input identity ({}) fails open
+        # to non-raising, consistent with provenance never
+        # crashing the pipeline. Fixtures never reach this branch.
+        _require_quality = (
+            _input_identity.get("author") in _AUTHOR_PRIORITY)
+        lc_raw = _apply_quality_mask(
+            lc_raw, require_quality=_require_quality,
+            product_label=f"TIC {tic_id} "
+            f"({_input_identity.get('author', 'unknown')})")
         _n_masked_post = _n_pre_mask - len(lc_raw)
         lc_raw = lc_raw.remove_nans().remove_outliers(sigma=5.0)
 

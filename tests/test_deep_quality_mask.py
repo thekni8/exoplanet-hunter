@@ -196,6 +196,41 @@ class TestApplyQualityMask(unittest.TestCase):
             np.asarray(out.time.value), [0.0, 1.0, 3.0, 4.0])
         self.assertTrue(np.isnan(out.flux.value).any())
 
+    def test_require_quality_raises_without_column(self):
+        # DF-10: with require_quality=True, a curve with no
+        # quality column RAISES — and the message names the
+        # product and the missing column.
+        lc = lk.LightCurve(time=np.arange(4, dtype=float),
+                           flux=np.ones(4))
+        with self.assertRaises(RuntimeError) as cm:
+            hunter._apply_quality_mask(
+                lc, require_quality=True,
+                product_label="TIC 900000009 (SPOC)")
+        self.assertIn("TIC 900000009 (SPOC)", str(cm.exception))
+        self.assertIn("QUALITY", str(cm.exception))
+
+    def test_require_quality_raises_on_none_column(self):
+        # DF-10: an unusable (None) quality column is just as
+        # unverifiable as a missing one under require_quality.
+        t = np.arange(4, dtype=float)
+        lc = lk.LightCurve(time=t, flux=np.ones(4),
+                           quality=np.array([None] * 4,
+                                            dtype=object))
+        with self.assertRaises(RuntimeError):
+            hunter._apply_quality_mask(lc, require_quality=True,
+                                       product_label="TIC X (QLP)")
+
+    def test_require_quality_ok_with_column(self):
+        # DF-10: require_quality=True is a no-op when the column
+        # exists and is usable — the mask applies normally.
+        t = np.arange(3, dtype=float)
+        q = np.array([0, 1 << 30, 0], dtype=np.int64)
+        lc = lk.LightCurve(time=t, flux=np.ones(3), quality=q)
+        out = hunter._apply_quality_mask(
+            lc, qf.DEEP_V2_MASK, require_quality=True,
+            product_label="TIC X (SPOC)")
+        self.assertEqual(len(out), 2)
+
 
 class TestDeepQualityMaskPipeline(DeepCalibrationGuardCase):
     """Through the real _run_pipeline, via the fixture seam."""
@@ -502,6 +537,83 @@ class TestGauntletMaskGates(unittest.TestCase):
         self.assertEqual(flux.shape, (80, 5, 5))
         np.testing.assert_array_equal(
             np.asarray(tt), np.concatenate([t[:50], t[70:]]))
+
+
+class TestLivePathRequireQuality(unittest.TestCase):
+    """DF-10 live-path wiring: _run_pipeline passes
+    require_quality=True only for named-author products.
+
+    _select_products and _download_products are mocked (the
+    test_ingest.py precedent — _download_products' return type
+    is untouched); no MAST traffic. The fixture seam is forced
+    off so the live branch runs."""
+
+    def setUp(self):
+        self._prev_env = os.environ.pop("EXHUNT_FIXTURE_DIR", None)
+
+    def tearDown(self):
+        if self._prev_env is not None:
+            os.environ["EXHUNT_FIXTURE_DIR"] = self._prev_env
+
+    def _fake_search(self, author):
+        from astropy.table import Table
+
+        class _FakeSearch:
+            def __init__(self, table):
+                self.table = table
+
+            def __len__(self):
+                return len(self.table)
+
+        table = Table({"sequence_number": [96],
+                       "author": [author],
+                       "exptime": [120.0],
+                       "obsID": ["tess-s0096-0000000090000009-001"]})
+        return _FakeSearch(table)
+
+    def _quality_less_lc(self):
+        rng = np.random.default_rng(11)
+        t = _times()
+        f = 1.0 + rng.normal(0, 0.001, len(t))
+        return lk.LightCurve(time=t, flux=f)
+
+    def test_named_author_without_quality_raises(self):
+        # A SPOC product arriving without a QUALITY column raises
+        # before any search work — the message names the TIC, the
+        # author, and the missing column.
+        fake_search = self._fake_search("SPOC")
+        fake_collection = lk.LightCurveCollection(
+            [self._quality_less_lc()])
+        with mock.patch.object(hunter, "_select_products",
+                               return_value=fake_search), \
+                mock.patch.object(hunter, "_download_products",
+                                  return_value=fake_collection):
+            with self.assertRaises(RuntimeError) as cm:
+                hunter._run_pipeline("900000009", star_radius=0.9,
+                                     min_p=2.0, max_p=8.0,
+                                     bls_points=8000,
+                                     max_sectors=None)
+        self.assertIn("TIC 900000009 (SPOC)", str(cm.exception))
+        self.assertIn("QUALITY", str(cm.exception))
+
+    def test_hlsp_without_quality_passes_through(self):
+        # The unfiltered HLSP fallback stays non-raising: HLSP
+        # products may legitimately lack QUALITY. The run
+        # completes and stamps n_masked 0 honestly.
+        fake_search = self._fake_search("ELEANOR")
+        fake_collection = lk.LightCurveCollection(
+            [self._quality_less_lc()])
+        with mock.patch.object(hunter, "_select_products",
+                               return_value=fake_search), \
+                mock.patch.object(hunter, "_download_products",
+                                  return_value=fake_collection):
+            r = hunter._run_pipeline("900000010", star_radius=0.9,
+                                     min_p=2.0, max_p=8.0,
+                                     bls_points=8000,
+                                     max_sectors=None)
+        self.assertEqual(r["n_masked"], 0)
+        self.assertEqual(r["flagged_fraction"], 0.0)
+        self.assertEqual(r["quality_mask_applied"], 1610629823)
 
 
 if __name__ == "__main__":
