@@ -39,6 +39,18 @@ triceratops:
   tool_version: "1.1.0"
   venv_python: "/Volumes/NVME/pingu-jobs/exoplanet-hunter/venvs/triceratops/bin/python"
   wrapper: "gauntlet/tools/run_triceratops.py"
+  # P-10: the bars below are Giacalone et al. 2021's
+  # published validation criteria — full citation,
+  # verified 2026-11-15: Giacalone, S., Dressing, C. D.,
+  # Jensen, E. L. N., et al. 2021, AJ, 161, 24, "Vetting of
+  # 384 TESS Objects of Interest with TRICERATOPS and
+  # Statistical Validation of 12 Planet Candidates",
+  # doi:10.3847/1538-3881/abc6af, arXiv:2002.00691.
+  # Validated planets: FPP < 0.015 and NFPP < 1e-3; likely
+  # planets: FPP < 0.5 and NFPP < 1e-3; likely nearby FPs:
+  # NFPP > 1e-1. (C-10's "FPP < 0.01" was a misremembering
+  # — the paper's bar is 0.015.)
+  citation: "Giacalone, S., Dressing, C. D., Jensen, E. L. N., et al. 2021, AJ, 161, 24, doi:10.3847/1538-3881/abc6af, arXiv:2002.00691"
   # PROVISIONAL policy bars — the vote ratifies or replaces
   # them (C-10 open question 4). Until then the adapter
   # computes the policy-mapped status for the evidence record

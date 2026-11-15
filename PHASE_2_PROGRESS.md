@@ -585,6 +585,27 @@ bar pinned; LATTE REPORT_ONLY.
   stack). The 3-sigma bar and the 0.1 px floor stay
   judgment calls until then.
 
+### P-10 — Giacalone+2021 cited (vote item)
+
+- The full citation is now in
+  `calibration/external_tools_v1.yaml` as a
+  machine-readable `citation` field under `triceratops:`
+  plus a comment spelling out the paper's three
+  criteria: Giacalone, S., Dressing, C. D., Jensen,
+  E. L. N., et al. 2021, AJ, 161, 24, "Vetting of 384
+  TESS Objects of Interest with TRICERATOPS and
+  Statistical Validation of 12 Planet Candidates",
+  doi:10.3847/1538-3881/abc6af, arXiv:2002.00691 —
+  verified against the published abstract 2026-11-15.
+  Validated: FPP < 0.015 and NFPP < 1e-3; likely
+  planets: FPP < 0.5 and NFPP < 1e-3; likely nearby
+  FPs: NFPP > 1e-1. The registry entry's sha256 +
+  rationale were updated in the same commit (pre-merge
+  correction under the F-1 exception; no threshold
+  changed). The C-10 design doc's "FPP < 0.01" line was
+  the same misremembering — corrected in the same
+  commit, marked as such.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):

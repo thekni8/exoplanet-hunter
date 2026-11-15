@@ -45,9 +45,9 @@
     },
     {
       "calibration_id": "external_tools_v1",
-      "sha256": "9fc0862bd7aaac8a1a608989e7bcfa1af0c2756cb6332881b66e1d6b7f1c946e",
+      "sha256": "11109837358f80a91387bae7a94a13de8d90f99fd9e67c8a1d90dc9debee5a85",
       "status": "active",
-      "rationale": "External-tool configuration v1 (2026-11-15, Phase 2 2B): shared run settings (seed, timeout, memory cap) + per-tool venv paths and versions for LATTE and TRICERATOPS, + PROVISIONAL TRICERATOPS FPP/NFPP bars. The venv paths point at the Mac (/Volumes/NVME/...); on any host without them the tool stage reads UNMEASURED (missing_venv), never a crash. The FPP bars are PROVISIONAL — the Giacalone et al. 2021 validation bars (FPP < 0.015, NFPP < 0.001) and a 0.5 refute bar — and do not gate promotion until the Phase 2 vote ratifies them (see PHASE_2_PROGRESS.md, 2B/2C judgment call 3).",
+      "rationale": "External-tool configuration v1 (2026-11-15, Phase 2 2B): shared run settings (seed, timeout, memory cap) + per-tool venv paths and versions for LATTE and TRICERATOPS, + PROVISIONAL TRICERATOPS FPP/NFPP bars. The venv paths point at the Mac (/Volumes/NVME/...); on any host without them the tool stage reads UNMEASURED (missing_venv), never a crash. The FPP bars are PROVISIONAL — the Giacalone et al. 2021 validation bars (FPP < 0.015, NFPP < 0.001) and a 0.5 refute bar — and do not gate promotion until the Phase 2 vote ratifies them (see PHASE_2_PROGRESS.md, 2B/2C judgment call 3). P-10 (2026-11-15, pre-merge correction under the F-1 exception): added the full Giacalone et al. 2021 citation (AJ 161, 24, doi:10.3847/1538-3881/abc6af, arXiv:2002.00691) for the provisional FPP/NFPP bars; no threshold changed.",
       "supersedes": null
     }
   ]
