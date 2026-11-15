@@ -17,11 +17,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np  # noqa: E402
 
 import bulk_screen as bs  # noqa: E402
-from bulk.inject_campaign import (GRID_PERIODS, RECOVERY_TOL,  # noqa: E402
-                                  assign_split, check_recovery,
-                                  definition_sha,
-                                  effective_n_summary, host_out_path,
-                                  host_rng, inject_eb,
+from bulk.inject_campaign import (ALT_HARMONIC_RATIOS,  # noqa: E402
+                                  ALT_HARMONIC_TOL, GRID_PERIODS,
+                                  RECOVERY_TOL, assign_split,
+                                  check_recovery, definition_sha,
+                                  distinct_alts, effective_n_summary,
+                                  host_out_path, host_rng, inject_eb,
                                   inject_flagged_dip, inject_sinusoid,
                                   inject_trial, load_definition,
                                   plan_trials, resolve_hosts,
@@ -29,7 +30,7 @@ from bulk.inject_campaign import (GRID_PERIODS, RECOVERY_TOL,  # noqa: E402
                                   sample_period_loguniform,
                                   validate_definition)
 from bulk.inject_real_s96 import load_real_fits  # noqa: E402
-from synth_fits import make_qlp_fits  # noqa: E402
+from synth_fits import make_qlp_fits, screen_job  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFINITION_PATH = ROOT / "bulk" / "inject_campaign_definition.json"
@@ -323,6 +324,46 @@ class TestHostResolution(unittest.TestCase):
                 resolve_hosts(d, Path(tmp) / "cache")
 
 
+class TestDistinctAlts(unittest.TestCase):
+    """The alternate-peak filter: harmonics of the primary are the
+    same signal, not a second one -- only independent peaks
+    survive into `alts`."""
+
+    def test_harmonics_dropped_unrelated_kept(self):
+        rec = {"period_days": 5.0, "alt_peaks": [
+            {"period_days": 10.0, "sde": 8.0, "depth_percent": 1.0},
+            {"period_days": 2.5, "sde": 7.0, "depth_percent": 1.0},
+            {"period_days": 3.7, "sde": 6.0, "depth_percent": 0.5},
+        ]}
+        self.assertEqual(distinct_alts(rec),
+                         [{"period_days": 3.7, "sde": 6.0}])
+
+    def test_tolerance_boundary(self):
+        # 10.05 d is 0.5% off 2P (ratio 2.01) -> dropped; 10.1 d is
+        # exactly 1% off (ratio 2.02, |2.02-2|/2 == 0.01, not <)
+        # -> kept.
+        rec = {"period_days": 5.0, "alt_peaks": [
+            {"period_days": 10.05, "sde": 8.0},
+            {"period_days": 10.1, "sde": 7.0},
+        ]}
+        self.assertEqual([a["period_days"] for a in distinct_alts(rec)],
+                         [10.1])
+
+    def test_no_alt_peaks_returns_empty(self):
+        self.assertEqual(distinct_alts({"period_days": 5.0}), [])
+        self.assertEqual(distinct_alts({}), [])
+
+    def test_no_primary_returns_trimmed_unfiltered(self):
+        # Defensive path (unreachable from _screen_one, which sets
+        # period_days before computing alt_peaks): without a primary
+        # there is nothing to filter against, so the peaks pass
+        # through trimmed to {period_days, sde}.
+        rec = {"alt_peaks": [{"period_days": 10.0, "sde": 8.0,
+                              "depth_percent": 1.0}]}
+        self.assertEqual(distinct_alts(rec),
+                         [{"period_days": 10.0, "sde": 8.0}])
+
+
 class TestResumeAndEndToEnd(unittest.TestCase):
     def setUp(self):
         self._previous = bs.CALIBRATION_VERSION
@@ -412,6 +453,77 @@ class TestResumeAndEndToEnd(unittest.TestCase):
         self.assertLess(
             abs(trial["screen"]["period_days"] - trial["period_d"])
             / trial["period_d"], RECOVERY_TOL)
+
+    def test_screen_record_carries_rs_fields_and_alts(self):
+        # P3-10 instrumentation: the campaign screen record
+        # persists the refine-stage fields the tier gates read
+        # (n_events_found / n_strong_events / max_event_snr) plus
+        # harmonic-filtered alternate peaks. Values are checked
+        # against a direct _screen_one call on the same injected
+        # FITS -- the campaign record must faithfully copy the
+        # screen record.
+        d = self._tiny_definition()
+        d["trial_templates"][0] = dict(d["trial_templates"][0],
+                                       depth_frac=0.01)
+        job = self._host_job(d)
+        res = run_host(job)
+        self.assertEqual(res["status"], "done")
+        rec = json.loads(host_out_path(
+            Path(job["out_dir"]), job["tic"], 96).read_text())
+        trial = rec["trials"][0]
+        self.assertTrue(trial["recovered"], trial["screen"])
+        scr = trial["screen"]
+        # rs fields present with tier-A-consistent values.
+        self.assertIsInstance(scr["n_events_found"], int)
+        self.assertGreaterEqual(scr["n_events_found"], 3)
+        self.assertIsInstance(scr["n_strong_events"], int)
+        self.assertGreaterEqual(scr["n_strong_events"], 2)
+        self.assertIsInstance(scr["max_event_snr"], float)
+        self.assertGreater(scr["max_event_snr"], 0.0)
+        # alts: a list of {period_days, sde} only, harmonic-free
+        # against the primary (possibly empty -- a clean strong
+        # signal need not have a second peak >= 3.0).
+        self.assertIsInstance(scr["alts"], list)
+        for alt in scr["alts"]:
+            self.assertEqual(set(alt), {"period_days", "sde"})
+            ratio = alt["period_days"] / scr["period_days"]
+            for h in ALT_HARMONIC_RATIOS:
+                self.assertGreaterEqual(abs(ratio - h) / h,
+                                        ALT_HARMONIC_TOL)
+        # Cross-check against the screen itself: re-screen the
+        # injected FITS and compare field for field.
+        inj_path = (Path(job["out_dir"]) / "injected" /
+                    f"{job['tic']}_s0096_{trial['trial_id']}.fits")
+        r = bs._screen_one(screen_job(inj_path, tic=job["tic"],
+                                      sector=96))
+        self.assertEqual(scr["n_events_found"], r.get("n_events"))
+        self.assertEqual(scr["n_strong_events"],
+                         r.get("n_strong_events"))
+        self.assertEqual(scr["max_event_snr"], r.get("max_event_snr"))
+        self.assertEqual(scr["alts"], distinct_alts(r))
+
+    def test_rs_fields_present_iff_mes_present(self):
+        # The rs fields and mes_pink come from the same dict
+        # (bulk_screen rec.update(rs)): either all are present or
+        # none is. The weak-signal path may land in either arm
+        # depending on the draw -- the coupling is what this test
+        # proves, whichever arm it lands in.
+        d = self._tiny_definition()
+        job = self._host_job(d)
+        res = run_host(job)
+        self.assertEqual(res["status"], "done")
+        rec = json.loads(host_out_path(
+            Path(job["out_dir"]), job["tic"], 96).read_text())
+        scr = rec["trials"][0]["screen"]
+        if scr["mes_pink"] is None:
+            self.assertIsNone(scr["n_events_found"])
+            self.assertIsNone(scr["n_strong_events"])
+            self.assertIsNone(scr["max_event_snr"])
+        else:
+            self.assertIsNotNone(scr["n_events_found"])
+            self.assertIsNotNone(scr["n_strong_events"])
+            self.assertIsNotNone(scr["max_event_snr"])
+        self.assertIsInstance(scr["alts"], list)
 
     def test_resume_skips_completed_host(self):
         d = self._tiny_definition()

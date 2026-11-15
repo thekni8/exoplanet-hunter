@@ -411,6 +411,52 @@ def check_recovery(screen_rec, period_d):
                 and abs(found - period_d) / period_d < RECOVERY_TOL)
 
 
+# Alternate-peak filter for the campaign screen record (P3-10
+# instrumentation, 2026-11-16). _screen_one already returns up to
+# two distinct alternate peaks as `alt_peaks` (hunter-v2 pattern:
+# +-2% exclusion around the primary and around each picked peak,
+# SDE >= 3.0; computed before the record-floor check, so
+# below-floor records carry them too). The campaign persists them
+# as `alts`, trimmed to {period_days, sde} and with harmonics /
+# aliases of the PRIMARY removed -- an alt at 2P or P/2 is the
+# same signal, not a second one, and the first-failing-gate table
+# wants independent signals. Tolerance is 1% on the period ratio
+# (the same 1% as RECOVERY_TOL); the ratio set is Claude's
+# (1/3, 1/2, 2/3, 3/2, 2, 3, plus 1 for completeness). NOTE: a
+# trial whose injected period
+# IS a harmonic of the primary will not show it in `alts` -- that
+# case is already detectable from the primary period alone
+# (P_found / P_inj in {1/2, 2, 3/2, ...}).
+ALT_HARMONIC_RATIOS = (1.0 / 3.0, 0.5, 2.0 / 3.0, 1.0, 1.5, 2.0, 3.0)
+ALT_HARMONIC_TOL = 0.01
+
+
+def distinct_alts(screen_rec):
+    """Harmonic-filtered alternate peaks for the campaign record.
+
+    `screen_rec` is the _screen_one return dict. Returns a list of
+    {period_days, sde} (at most the two alt_peaks the screen
+    computed), dropping any alt whose period ratio to the primary
+    is within ALT_HARMONIC_TOL of a small-integer harmonic.
+    [] when the screen recorded no alternates (or never reached
+    the alt block: search_invalid / too_few_points / error)."""
+    alts = screen_rec.get("alt_peaks") or []
+    primary = screen_rec.get("period_days")
+    out = []
+    for alt in alts:
+        p = alt.get("period_days")
+        s = alt.get("sde")
+        if p is None or s is None:
+            continue
+        if primary:
+            ratio = p / primary
+            if any(abs(ratio - h) / h < ALT_HARMONIC_TOL
+                   for h in ALT_HARMONIC_RATIOS):
+                continue
+        out.append({"period_days": float(p), "sde": float(s)})
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Per-host run (the parallel unit of work)
 # ---------------------------------------------------------------------------
@@ -494,6 +540,19 @@ def run_host(job):
                     "flags": r.get("flags", []),
                     "odd_even_ratio": r.get("odd_even_ratio"),
                     "search_health": r.get("search_health"),
+                    # P3-10 instrumentation (first-failing-gate
+                    # table): the refine-stage fields the tier
+                    # gates read. All three come from the rs dict
+                    # _screen_one already attaches (bulk_screen
+                    # rec.update(rs)); None when _rescore returned
+                    # None (no rescore -> no tier -> "recorded").
+                    "n_events_found": r.get("n_events"),
+                    "n_strong_events": r.get("n_strong_events"),
+                    "max_event_snr": r.get("max_event_snr"),
+                    # Harmonic-filtered alternate peaks (see
+                    # distinct_alts): independent second signals
+                    # in the same periodogram, [] when none.
+                    "alts": distinct_alts(r),
                 },
                 "recovered": check_recovery(r, spec["period_d"]),
             })
