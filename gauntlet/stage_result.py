@@ -203,7 +203,12 @@ class StageResult:
     (e.g. TRICERATOPS FPP/NFPP — preserved, never reduced to a
     bare PASS/FAIL), `artifacts` the paths/ids of evidence
     files, `tool_version` / `config_hash` / `input_hashes` the
-    reproducibility of the measurement itself.
+    reproducibility of the measurement itself. `policy_version`
+    (P-4) names the decision policy that produced this
+    result's disposition (e.g. "external_tools_v1") — the raw
+    evidence (value, metrics) is policy-free, so a policy-only
+    edit re-derives the disposition without re-running the
+    tool; None for stages with no policy-mapped disposition.
     """
     stage: str
     status: str
@@ -220,6 +225,7 @@ class StageResult:
     artifacts: list = field(default_factory=list)
     tool_version: str | None = None
     config_hash: str | None = None
+    policy_version: str | None = None
     input_hashes: dict = field(default_factory=dict)
     warnings: list = field(default_factory=list)
     execution_status: str = EXEC_COMPLETED
@@ -308,7 +314,8 @@ class StageResult:
              "warnings": list(self.warnings)}
         for k in ("value", "uncertainty", "threshold",
                   "detection_limit", "n_transits", "tool_version",
-                  "config_hash", "waiver_code", "waiver_reason"):
+                  "config_hash", "policy_version", "waiver_code",
+                  "waiver_reason"):
             v = getattr(self, k)
             if v is not None:
                 d[k] = v
@@ -332,6 +339,7 @@ class StageResult:
                    artifacts=list(d.get("artifacts") or []),
                    tool_version=d.get("tool_version"),
                    config_hash=d.get("config_hash"),
+                   policy_version=d.get("policy_version"),
                    input_hashes=dict(d.get("input_hashes") or {}),
                    warnings=list(d.get("warnings") or []),
                    execution_status=d.get("execution_status",
@@ -871,6 +879,47 @@ def latte_result(native, prov=None):
         _prov(prov), details, **ev)
 
 
+def triceratops_disposition(fpp, nfpp, degenerate, policy):
+    """Pure policy mapping: raw TRICERATOPS numbers + a policy
+    -> (status, reason). P-4 (Phase 2 vote follow-up).
+
+    No I/O, no global state: the adapter calls this, and a
+    policy-only edit re-derives the disposition from a stored
+    raw record (FPP/NFPP/degenerate) WITHOUT re-running the
+    tool — the raw numbers are the evidence, the disposition
+    is a reading of them under one policy version. `policy`
+    is the external-tools policy dict (its ["triceratops"]
+    section carries the bars). The reason is the policy
+    sentence only; the adapter appends the per-run story
+    (most-likely false positive, contrast-curve note).
+    A NaN FPP fails both policy comparisons and reads
+    inconclusive (the grey zone) — it is not a pass and not
+    a refutation.
+    """
+    tri = policy["triceratops"]
+    fpp_max = tri["fpp_validate_max"]
+    nfpp_max = tri["nfpp_validate_max"]
+    fpp_refute = tri["fpp_refute_min"]
+    if degenerate:
+        return (STATUS_UNMEASURED,
+                "TRICERATOPS computation degenerate: every MC "
+                "draw was geometrically invalid, so FPP=1.0 "
+                "reflects a failed computation, not a confident "
+                "false positive")
+    if fpp >= fpp_refute:
+        return (STATUS_FAIL,
+                f"FPP {fpp:.4f} clears the refute bar "
+                f"{fpp_refute} — likely false positive.")
+    if fpp <= fpp_max and nfpp <= nfpp_max:
+        return (STATUS_PASS,
+                f"FPP {fpp:.4f} and NFPP {nfpp:.4f} clear the "
+                f"validation bars ({fpp_max}, {nfpp_max}).")
+    return (STATUS_INCONCLUSIVE,
+            f"FPP/NFPP in the grey zone between the validation "
+            f"bars ({fpp_max}, {nfpp_max}) and the refute bar "
+            f"{fpp_refute} — a human decides.")
+
+
 def triceratops_result(native, prov=None, policy=None):
     """TRICERATOPS false-positive probability (Phase 2, 2C) ->
     StageResult.
@@ -882,13 +931,16 @@ def triceratops_result(native, prov=None, policy=None):
 
     The status comes from the POLICY thresholds (the
     external_tools_v1 profile; PROVISIONAL until the Phase 2
-    vote ratifies them), never from the tool: PASS when FPP
-    and NFPP both clear the validation bars, FAIL when FPP
-    clears the refute bar, INCONCLUSIVE in the grey zone
-    (including a low FPP blocked by a high NFPP — NFPP alone
-    never refutes in v1, since without a contrast curve it
-    is an upper bound). A DEGENERATE computation (every MC
-    draw geometrically invalid, FPP=1.0) reads UNMEASURED +
+    vote ratifies them), never from the tool — via the pure
+    triceratops_disposition() mapping, so a policy-only edit
+    re-derives the status from the stored raw numbers without
+    re-running the tool (P-4). PASS when FPP and NFPP both
+    clear the validation bars, FAIL when FPP clears the
+    refute bar, INCONCLUSIVE in the grey zone (including a
+    low FPP blocked by a high NFPP — NFPP alone never
+    refutes in v1, since without a contrast curve it is an
+    upper bound). A DEGENERATE computation (every MC draw
+    geometrically invalid, FPP=1.0) reads UNMEASURED +
     EXEC_ERROR: FPP=1.0 there reflects a failed computation,
     not a confident false positive. A failed / timed-out run
     reads UNMEASURED + EXEC_ERROR.
@@ -897,9 +949,22 @@ def triceratops_result(native, prov=None, policy=None):
     validation bar, metrics carry the full per-scenario
     breakdown + seed + most-likely false positive —
     preserved, never reduced to a bare PASS/FAIL.
-    Uncertainty is None in v1: a single seeded run carries
-    no Monte Carlo error bar (a repeat-run harness is future
-    work; the seed makes a re-run reproducible).
+    policy_version records which policy produced the
+    disposition. Uncertainty is None in v1: a single seeded
+    run carries no Monte Carlo error bar (a repeat-run
+    harness is future work; the seed makes a re-run
+    reproducible).
+
+    Limitation, recorded honestly (P-4): TRICERATOPS fetches
+    neighbour-star data and TRILEGAL simulations from remote
+    catalogs at run time, inside the tool — the wrapper
+    cannot hash what it does not download through its own
+    code path, so input_hashes cover only the files the
+    pipeline handed the tool (light curve + census). The
+    seed + tool_version + policy_version make the run
+    reproducible in principle, but a remote catalog change
+    could move the number; the record does not pretend
+    otherwise.
     """
     if not native:
         return StageResult(
@@ -915,10 +980,6 @@ def triceratops_result(native, prov=None, policy=None):
             execution_status=EXEC_ERROR)
     if policy is None:
         policy = load_external_tools_policy()
-    tri = policy["triceratops"]
-    fpp_max = tri["fpp_validate_max"]
-    nfpp_max = tri["nfpp_validate_max"]
-    fpp_refute = tri["fpp_refute_min"]
     metrics = native["metrics"]
     ev = {"metrics": {
         "fpp": metrics["fpp"], "nfpp": metrics["nfpp"],
@@ -938,10 +999,12 @@ def triceratops_result(native, prov=None, policy=None):
         "artifacts": list(native["artifacts"]),
         "tool_version": native["tool_version"],
         "config_hash": native["config_hash"],
+        "policy_version": policy.get("version"),
         "input_hashes": dict(native["input_hashes"]),
         "warnings": list(native["warnings"]),
         "n_transits": native.get("n_transits"),
-        "value": metrics["fpp"], "threshold": fpp_max}
+        "value": metrics["fpp"],
+        "threshold": policy["triceratops"]["fpp_validate_max"]}
     details = {
         "fpp": metrics["fpp"], "nfpp": metrics["nfpp"],
         "most_likely_false_positive":
@@ -954,15 +1017,6 @@ def triceratops_result(native, prov=None, policy=None):
             f"computed",
             _prov(prov), details, execution_status=EXEC_ERROR,
             **ev)
-    if metrics["fpp_degenerate"]:
-        return StageResult(
-            "triceratops", STATUS_UNMEASURED,
-            "TRICERATOPS computation degenerate: every MC "
-            "draw was geometrically invalid, so FPP=1.0 "
-            "reflects a failed computation, not a confident "
-            "false positive",
-            _prov(prov), details, execution_status=EXEC_ERROR,
-            **ev)
     fpp = metrics["fpp"]
     nfpp = metrics["nfpp"]
     story = (f"FPP {fpp:.4f}, NFPP {nfpp:.4f}; most likely "
@@ -970,24 +1024,15 @@ def triceratops_result(native, prov=None, policy=None):
              f"{metrics['most_likely_false_positive']}")
     if not metrics["contrast_curve_used"]:
         story += " (no contrast curve: NFPP is an upper bound)"
-    if fpp >= fpp_refute:
-        return StageResult(
-            "triceratops", STATUS_FAIL,
-            f"FPP {fpp:.4f} clears the refute bar "
-            f"{fpp_refute} — likely false positive. {story}",
-            _prov(prov), details, **ev)
-    if fpp <= fpp_max and nfpp <= nfpp_max:
-        return StageResult(
-            "triceratops", STATUS_PASS,
-            f"FPP {fpp:.4f} and NFPP {nfpp:.4f} clear the "
-            f"validation bars ({fpp_max}, {nfpp_max}). {story}",
-            _prov(prov), details, **ev)
+    status, reason = triceratops_disposition(
+        fpp, nfpp, metrics["fpp_degenerate"], policy)
+    if status != STATUS_UNMEASURED:
+        reason = f"{reason} {story}"
     return StageResult(
-        "triceratops", STATUS_INCONCLUSIVE,
-        f"FPP/NFPP in the grey zone between the validation "
-        f"bars ({fpp_max}, {nfpp_max}) and the refute bar "
-        f"{fpp_refute} — a human decides. {story}",
-        _prov(prov), details, **ev)
+        "triceratops", status, reason, _prov(prov), details,
+        execution_status=EXEC_ERROR
+        if metrics["fpp_degenerate"] else EXEC_COMPLETED,
+        **ev)
 
 
 # ---------------------------------------------------------------------------

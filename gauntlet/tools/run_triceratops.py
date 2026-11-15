@@ -58,6 +58,15 @@ TRICERATOPS specifics, verified against the 1.1.0 source:
   is a blocking in-process call, so the RUNNER's timeout
   (1800 s) is the enforcement — the wrapper is killed, and
   the stage reads UNMEASURED.
+* PROVENANCE LIMIT (P-4): inside calc_probs the tool
+  fetches neighbour-star data and TRILEGAL simulations
+  from remote catalogs — the wrapper cannot hash what it
+  does not download through its own code path, so
+  input_hashes cover only the files the pipeline handed
+  the tool (light curve + census). The seed +
+  tool_version + policy_version make the run reproducible
+  in principle, but a remote catalog change could move
+  the number; the record does not pretend otherwise.
 * The per-scenario probability table is saved as
   triceratops_probs.csv in the run workdir (evidence
   artifact). No corner plot in v1.

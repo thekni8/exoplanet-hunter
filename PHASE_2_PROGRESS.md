@@ -408,6 +408,31 @@ bar pinned; LATTE REPORT_ONLY.
   False on macOS, with `memory_mb=0`, and when no process
   was spawned at all.
 
+### P-4 — Raw evidence vs dispositions (TRICERATOPS)
+
+- **Pure mapping:** `triceratops_disposition(fpp, nfpp,
+  degenerate, policy)` in `gauntlet/stage_result.py` is
+  the single source of truth for the status — no I/O, no
+  global state. The adapter calls it; a policy-only edit
+  re-derives the disposition from a stored raw record
+  without re-running the tool. Tested: FPP 0.01 passes
+  under the default bars (0.015) and is inconclusive
+  under a stricter policy (0.005); NaN → inconclusive
+  (grey zone); degenerate → unmeasured.
+- **Policy version:** `StageResult.policy_version`
+  (new field, in both the stage-result and verdict
+  schemas) records which policy produced the
+  disposition — "external_tools_v1" under the default
+  profile. LATTE carries none: it has no disposition to
+  version (report-only).
+- **Limitation, recorded honestly:** TRICERATOPS fetches
+  neighbour-star data and TRILEGAL simulations from
+  remote catalogs inside the tool, so the wrapper cannot
+  hash them — `input_hashes` cover only the files the
+  pipeline handed the tool. Seed + tool_version +
+  policy_version make the run reproducible in principle;
+  a remote catalog change could move the number.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):

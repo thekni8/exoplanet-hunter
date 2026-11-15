@@ -35,9 +35,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from gauntlet.external_tool import build_tool_input  # noqa: E402
-from gauntlet.stage_result import triceratops_result  # noqa: E402
+from gauntlet.stage_result import (  # noqa: E402
+    triceratops_disposition, triceratops_result)
 from validation import (  # noqa: E402
-    RecordValidationError, validate_triceratops_output,
+    RecordValidationError, validate_stage_result,
+    validate_triceratops_output,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -199,6 +201,63 @@ class TestTriceratopsResult(unittest.TestCase):
         res = triceratops_result(_output())
         self.assertEqual(res.status, "pass")
         self.assertEqual(res.threshold, 0.015)
+
+    def test_policy_version_recorded(self):
+        # P-4: the result names the policy that produced its
+        # disposition — the raw numbers are policy-free, so a
+        # policy-only edit re-derives the disposition without
+        # re-running the tool.
+        res = triceratops_result(_output())
+        self.assertEqual(res.policy_version, "external_tools_v1")
+        self.assertEqual(res.to_dict()["policy_version"],
+                         "external_tools_v1")
+        # The new field passes the stage-result schema
+        # (additionalProperties: false would reject an
+        # undeclared field).
+        validate_stage_result(res.to_dict())
+        # An explicit policy's version is recorded verbatim.
+        pol = dict(_POLICY, version="external_tools_v9")
+        res = triceratops_result(_output(), policy=pol)
+        self.assertEqual(res.policy_version, "external_tools_v9")
+
+    def test_disposition_is_pure_policy_mapping(self):
+        # P-4: the same raw numbers read differently under a
+        # different policy — the disposition is a reading of
+        # the evidence, not the evidence itself. FPP 0.01
+        # passes under the default bars (0.015) but is
+        # inconclusive under a stricter policy (0.005).
+        status, _reason = triceratops_disposition(
+            0.01, 0.0008, False, {"version": "external_tools_v1",
+                                  "triceratops": {
+                                      "fpp_validate_max": 0.015,
+                                      "nfpp_validate_max": 0.001,
+                                      "fpp_refute_min": 0.5}})
+        self.assertEqual(status, "pass")
+        status, _reason = triceratops_disposition(
+            0.01, 0.0008, False, {"version": "external_tools_v2",
+                                  "triceratops": {
+                                      "fpp_validate_max": 0.005,
+                                      "nfpp_validate_max": 0.001,
+                                      "fpp_refute_min": 0.5}})
+        self.assertEqual(status, "inconclusive")
+
+    def test_disposition_nan_is_inconclusive(self):
+        # P-4: a NaN FPP fails both policy comparisons — it
+        # is not a pass and not a refutation.
+        status, reason = triceratops_disposition(
+            float("nan"), 0.0008, False,
+            {"version": "external_tools_v1",
+             "triceratops": _POLICY["triceratops"]})
+        self.assertEqual(status, "inconclusive")
+        self.assertIn("grey zone", reason)
+
+    def test_disposition_degenerate_is_unmeasured(self):
+        status, reason = triceratops_disposition(
+            1.0, 0.5, True,
+            {"version": "external_tools_v1",
+             "triceratops": _POLICY["triceratops"]})
+        self.assertEqual(status, "unmeasured")
+        self.assertIn("degenerate", reason)
 
 
 FAKE_TRI = textwrap.dedent("""\
