@@ -555,6 +555,17 @@ bar pinned; LATTE REPORT_ONLY.
   inconclusive; all_measured_pass stays 1 (inconclusive
   is not a pass). The meaning test in
   test_toi_population.py is updated to match.
+- **P-8 follow-up (9f3b2fc, found by the smoke tier at
+  the end of the build):** four V-shaped fixtures in
+  the runner tests still fed bare natives (no frac_err,
+  no depth0_signif) — the smoke tier was not re-run
+  after P-8, so the breakage sat unnoticed: 3 smoke
+  failures (shape read INCONCLUSIVE instead of FAIL).
+  The fixtures now supply frac_err 0.02 +
+  depth0_signif 10.0; no assertion was weakened (the
+  assertions — shape=FAIL, verdict=EB, gating, cache
+  behaviour — are unchanged). Lesson: run smoke after
+  EVERY P-item, not just while iterating.
 
 ### P-9 — diffimg offset with a sigma (F-9, vote item)
 
@@ -909,6 +920,121 @@ bar pinned; LATTE REPORT_ONLY.
   `stitched_lc` now returns real spans (it returned
   `[]`), and both fake `holdout` overrides accept the
   new `arrays` kwarg.
+
+### Claims ledger (vote follow-up P-1…P-19)
+
+Each claim with its verifying command and result. All
+commands run from the repo root with the main clone's
+venv (`~/workspace/exoplanet-hunter/.venv/bin/python`).
+
+- **P-1:** the 3σ pixel bar applies to the 3×3 aperture
+  (9 px), not the 225-px cutout; measured false-fail
+  5/300 (1.7%) on clean targets with a real dip, 0/300
+  on pure noise; tests bound the rate at <5%.
+  (`-m unittest tests.test_pixel_check` — PASS.)
+- **P-2:** the verdict is invariant under all five tool
+  failure modes (NaN FPP, FPP 1.5, hang, malformed
+  output, crash) — final verdict + verdict stages
+  identical, tool never in the stages.
+  (`-m unittest tests.test_desk_external_tools.TestVerdictInvariance`
+  — PASS.)
+- **P-3:** RLIMIT_AS installs on Linux only; a timeout
+  kills the whole process group (Popen +
+  start_new_session + killpg); `memory_cap_applied`
+  records whether the cap was installed.
+  (`-m unittest tests.test_external_tool` — 24/24.)
+- **P-4:** `triceratops_disposition` is the single
+  source of truth for the tool status; `policy_version`
+  rides on every StageResult.
+  (`-m unittest tests.test_triceratops tests.test_stage_contract`
+  — PASS.)
+- **P-5:** LATTE reads REPORT_ONLY — aggregation-neutral,
+  never a pass/fail, never waivable.
+  (`-m unittest tests.test_latte tests.test_desk_external_tools
+  tests.test_evidence` — PASS.)
+- **P-6:** the review gate refuses approval when reviewer
+  == operator, when the reviewer claims an agent
+  identity, or without the evidence attestation;
+  rejection needs none of these.
+  (`-m unittest tests.test_review` — 25/25.)
+- **P-7:** the evidence package hashes the actual tool
+  artifacts (LATTE PDF, TRICERATOPS CSV); a null hash
+  blocks approval automatically.
+  (`-m unittest tests.test_evidence tests.test_review` —
+  9/9 + 25/25.)
+- **P-8:** TOI-700 c reads INCONCLUSIVE (frac 0.2925 ±
+  0.107, upper bound 0.40 above the 0.30 bar, at 18.6σ);
+  the EB still shape-FAILs via the density flag.
+  (`scripts/toi_population.py` re-run 2026-11-15 +
+  `-m unittest tests.test_toi_population` — 2/2.)
+- **P-9:** the 0.06 px TIC 423498314 case passes under
+  any scatter; a 0.5 px offset on tight scatter (5σ)
+  now reads off-target.
+  (`-m unittest tests.test_stage_contract tests.test_desk`
+  — 90/90 at the time.)
+- **P-10:** Giacalone+2021 cited with DOI + arXiv in
+  the policy file; validation bars FPP ≤ 0.015 +
+  NFPP ≤ 0.001 (the C-10 "0.01" corrected).
+  (`-m unittest tests.test_registry tests.test_triceratops`
+  — 34/34.)
+- **P-11:** zero tool executions under this pipeline;
+  C-10 is evidence plumbing, stated plainly.
+  (Documentation; verified by the venvs not existing
+  — see P-16.)
+- **P-12:** the 5-lead live concordance subset: 4/5
+  agree, 0 disagree, 1 mismatch-recorded (TIC
+  307433122, the expected mismatch). The full 25-lead
+  replay is a Mac/live-CI job.
+  (`scripts/concordance_replay.py`, 2026-11-15 +
+  `-m unittest tests.test_concordance` — 6/6.)
+- **P-13:** fault injection covers signal-kill (returncode
+  -9), malformed stdout, spawn failure, and non-object
+  output JSON.
+  (`-m unittest tests.test_external_tool` — 24/24.)
+- **P-14:** suite tiering documented; pytest-xdist is
+  BLOCKED (not in requirements.lock — adding it needs
+  a lockfile regeneration + full re-run).
+  (Documentation in tests/run_golden.py.)
+- **P-15:** TRICERATOPS phase-bins to ~200 bins within
+  ±3 durations; flux_err stays the unbinned
+  out-of-transit MAD scatter.
+  (`-m unittest tests.test_triceratops
+  tests.test_desk_external_tools tests.test_evidence
+  tests.test_review` — 70/70.)
+- **P-16:** Mac venvs, lockfiles, and golden tool tests
+  are blocked/unverified-live; LATTE builds only when
+  a candidate reaches review (Rosetta 3.8 is the main
+  risk); golden tool tests are a hard Phase 3 entry
+  gate. (Documentation in
+  docs/external-tools-mac-setup.md.)
+- **P-17:** every Phase 3 design doc cites its external
+  facts and spikes its external dependencies before
+  acceptance. (Rule recorded in this file.)
+- **P-18:** every `desk_natives.json` validates against
+  `schema/desk-natives-schema.json` before either
+  record is written; a malformed record raises and is
+  never written.
+  (`-m unittest tests.test_schema` — 18/18;
+  desk driver modules — 32/32.)
+- **P-19:** the pipeline path and the array path return
+  identical holdout dicts on identical inputs; the
+  driver passes its in-memory arrays to the holdout.
+  (`-m unittest tests.test_holdout` — 7/7;
+  `-m unittest tests.test_desk` — 20/20 incl. the
+  wiring test.)
+- **Rebase:** frozen v1 calibration untouched —
+  bulk_v1 d1778465…, deep_v1 ac2e3857…,
+  gauntlet_v1 348f98b3… match the baseline.
+  (`md5sum calibration/bulk_v1.yaml
+  calibration/deep_v1.yaml calibration/gauntlet_v1.yaml`
+  — verified 2026-11-15, after the full build.)
+- **Full suite:** `tests/run_golden.py --fast` on the
+  rebased tip (HEAD 9f3b2fc, 2026-11-15): **PASS, 589
+  tests in 982.7 s (~16.4 min), OK (expected
+  failures=1)**. (Base 4acbc16 was 499 offline PASS;
+  the count grew by the mask-fix M-items, the P-items,
+  and the new test_holdout/test_schema tests.) Smoke
+  tier: 199/199 PASS (~95 s).
 
 ## Frozen v1 calibration (verify at the end)
 
