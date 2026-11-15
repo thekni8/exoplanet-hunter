@@ -498,11 +498,15 @@ x 2 calibrations; full table in
   star's own ~6% dips at 5.78 d dominate BLS under both masks
   (v2 finds them at SDE ~40; v1 finds nothing).
 - 382069441 trial B under v2 finds P=10.864 d at SDE 19.2 —
-  not a harmonic of the injected 3.317 d; likely the star's own
-  variability or a window-function alias after 29.5% of
-  cadences are masked. Unresolved — a vote question if the
-  reviewers want it chased (it is a 29%-flagged host, not a
-  typical one).
+  not a harmonic of the injected 3.317 d. **RESOLVED (P3-3 /
+  DF-18, 2026-11-15):** 10.864 d is the near-2:1 alias of the
+  host's own persistent ~5.50 d variability (un-injected
+  baseline: 5.4856 d, SDE 41.9; shifted epochs return to the
+  5.50 d fundamental; the injected signal survives the mask
+  and folds at its full 0.95% depth but is outranked). A
+  host-dominated miss, not a mask failure — the mask is
+  exonerated. Do NOT pin 10.864 d in CI. Full record in
+  SENSITIVITY_MAP.md + `phase3-vote/df18-triage.md`.
 - Pin test: `tests/test_inject_deep_real_s96.py` (3 tests)
   pins trial B on 31852076 — v1 not recovered, v2 recovered
   (P=3.3165, SDE 48.1 measured) — and trial A as a RECOVERY
@@ -1327,11 +1331,23 @@ brief). WASP-29 (TOI-192) already has two curves on ExoFOP
 with the Zorro curve is the immediate 3D(A) calibration
 test and is step 0 of the panel job.
 
-**Known-planet panel (Mac job — commands being prepared).**
-~10 confirmed planets, no-contrast configuration: the 9
-recovered TOIs + TOI-700 c. Per-target FPP/NFPP/scenario
-split + disposition under (A). The panel measures the
-false-refute rate that n=1 cannot.
+**Known-planet panel (Mac job — commands READY, 2026-11-15).**
+`phase3-vote/p3-9-panel-mac-commands.md` (1,412 lines, §§0–10):
+10 targets (the 9 recovered TOIs + TOI-700 c), no-contrast
+configuration, seed 20261114, N = 1,000,000 — per-target
+FPP/NFPP/scenario split + disposition under (A). The panel
+measures the false-refute rate that n=1 cannot. Step 0 is the
+WASP-29b + Zorro 832 nm curve re-run (the immediate 3D(A)
+test; the curve is fetched from ExoFOP-TESS and converted to
+TRICERATOPS format — the raw file will not load). §5 extracts
+the C-10 inputs/outputs to complete the P3-7 fixtures (true
+hashes + splits). §7 adds the five-seed runs (seeds 20261114–
+20261118, C-10 seed first; §7 total 9,510 s ≈ 2.6 h) and §8
+the runtime + memory measurement (`/usr/bin/time -l` per run;
+sets the P3-8 timeout budget — no timeout changes until the
+measurements land). Session total ≈ 4.6–8.5 h (panel timing
+dominates the range). The parent runs it; results return as
+the panel verdicts + the P3-7 bands + the P3-8 measurements.
 
 **(D) DATED REVISIT (recorded).** Trigger for the Gaia-path
 re-run (WASP-29b verification): Gaia TAP back — the watch
@@ -1476,3 +1492,170 @@ real nightly run (on the Mac, after the C-10 inputs are
 extracted) is still owed, as is the scheduling itself
 (cron/launchd + caffeinate; the job must be LOUD on
 failure — non-zero exit + issue + FAILURE marker).
+
+## P3-2 — DF-19: historical RAW-REFUTED re-runs — MAC JOB READY 2026-11-15
+
+**Prepared, NOT run.** `phase3-vote/df19-mac-commands.md`
+(432 lines): the 29 TICs whose historical desk verdict is
+RAW-REFUTED, re-run under the fixed gauntlet (mask-consistent
+clean fold M-8 + DF-1) on `origin/main` 004f0c7 via
+`scripts/desk_gauntlet.py --no-expensive` (the DF-19 question
+is answered by the cheap stages). The doc carries the sync +
+md5 gate (all 5 md5s verified against origin/main by the
+coordinator: hunter.py 85771824…, bulk_screen.py 484dbea8…,
+desk.py fc09cb99…, rawflux_check.py c7f8050d…,
+desk_gauntlet.py 0766ccf0…), the filed ephemerides
+(cross-checked against leads25.json), the verdict-extraction
+script, and the reporting format. **The 4 overlap TICs run
+FIRST, one by one (41361938, 142087258, 294665553, 382256433):
+if DF-19 revives ANY of the four, STOP and report immediately
+— Phase 3 becomes vetting those (Claude's flip condition).**
+Revival is read off the `clean_refold` stage, NOT
+`final_verdict` (a revived TIC reads INCONCLUSIVE under
+--no-expensive). Priors recorded in the doc: the 18
+flagged-cadence artifacts are expected not-revived; the 4
+amplified weak dips carry a small real clean dip (a pass
+there revives a weak dip, not a planet); 272431317 is already
+superseded (a period error, closed as an EB); 300384822's
+sector (1) is inferred from its t0 epoch and its T0 differs
+between the cluster matrix and rawflux_results.json (the
+commands use the rawflux value). The parent runs it; the
+outcome (per TIC: REVIVED / not-revived / UNMEASURED) lands
+in this file when it returns.
+
+## P3-3 — DF-18: TIC 382069441 trial B triage — DONE 2026-11-15
+
+**RESOLVED — 10.864 d is the near-2:1 alias of the host's own
+persistent ~5.50 d variability, not a mask failure and not the
+injected signal.** Full record:
+`phase3-vote/df18-triage.md`. Un-injected baseline under
+deep_v2: P = 5.4856 d, SDE 41.9, depth 1.95% — the 5.50 d
+signal is in the host with no injection at all. At shifted
+injection epochs the headline returns to the 5.50 d
+fundamental (5.5015 / 5.5128 d, SDE 36.7 / 35.6); 10.864 d
+appears only at the original epoch and never reappears. The
+injected 3.317 d signal survives the mask (6 of 8 events
+fully intact, 323/430 in-transit cadences kept) and folds at
+its full 0.95% depth (SNR 38.5) — it is present in the masked
+data but outranked by the host signal (SDE ~36–42). The
+10.864 d dip exists in un-injected, unmasked data (~2%, same
+dip events as the 5.50 d fold, best-phase t0 within 0.04 d);
+dilating the mask changes nothing (10.8726 d, SDE 19.4).
+Per-sector: 5.497–5.498 d in S96/S97/S98 with halving depth
+(1.91% → 0.97% → 1.07%) — persistent, evolving amplitude:
+stellar variability, not a transit. Trial B v2 and v1
+reproduce the committed summary bit-identically. Miss
+accounting for the 7/12 headline: 2 harmonic-alias
+detections (31852076 A, 382069441 A), 2 host-dominated
+(231852754 A+B), 1 host-dominated via alias (382069441 B).
+**Do NOT pin 10.864 d in CI** (epoch-dependent alias). Logged
+in `bulk/SENSITIVITY_MAP.md` + the sensitivity section above.
+Recommendation recorded for future sensitivity runs:
+"host-dominated" as a miss category, and/or exclude hosts
+whose un-injected baseline SDE exceeds the injected signal's
+expected SDE. What the 5.50 d host signal IS (spotted rotator?
+blended EB?) is vetting work, out of scope here.
+
+## P3-4 — DF-17: Tier-2 ledger replay — MAC JOB READY 2026-11-15
+
+**Prepared, NOT run.** `phase3-vote/df17-mac-commands.md`
+(427 lines) + driver `df17_replay_driver.py` (stdlib only,
+parses OK) + `df17_replay_tics.json` (760 TICs, latest v1
+record per TIC; input hashes verified against the census
+before and after — byte-identical) + generator
+`df17_tic_list.py`. Tier 1 found 37 `discoveries.csv` files,
+1,644 rows, 760 unique TICs, 867 analyses. Tier 2 replays
+those stars under deep_v2; the stored records carry no
+quality arrays or sector lists, so the replay self-partitions
+(every run stamps the DF-9 fields). Order: priority-4 first
+(149499477, 294754384, 300442835, 370040864 — the 4
+blind-census TICs with periods near the 25 d ceiling),
+verify the deep_v2 proof on those 4, then the full 760-TIC
+replay as an overnight job (~2–4 GB free needed for 760
+JSONs + PNGs). Annotation procedure (VM side, after results
+return): v1 records are ANNOTATED as superseded, never
+edited; byte-identical verification of the originals before
+AND after annotation. The parent runs it (copies the driver
++ lists to the Mac, syncs to 004f0c7 with the hunter.py md5
+check, runs priority-4, then the overnight full replay).
+
+## P3-5 — Close the 3 INCONCLUSIVE gauntlet leads — DONE 2026-11-15
+
+**All three REFUTED. The S96 v3 rescore gauntlet is closed:
+256/256 refuted (247 refuted + 9 TOI recoveries), 0 survivors,
+0 planets, 0 inconclusive remaining.** Full record:
+`phase3-vote/p3-5-inconclusives.md`; verdicts folded into
+`rescore-v3-gauntlet/LEDGER.md` (final tally + the 3 lead
+rows + batch rows; the per-lead verdict files keep their
+at-completion INCONCLUSIVE text as run records — the ledger
+closure supersedes them). TIC 150246959 (rank 71): density —
+rho_circ/rho_star = 0.0011 vs the 0.80 bar, T14 13.7 h vs
+T14max 1.47 h, a/R★ ≈ 1.04; sine fits better than a
+trapezoid; phase-0.5 brightening −0.14% @ −38σ. TIC 55387764
+(rank 13): density (ratio 0.0006) AND phase incoherence —
+the dip sits at phase 0.00 in s01–13 but 0.66 in s61–69 (both
+pipelines), returning to 0.06 in s87–98; a planet cannot
+wander in phase by 2/3 of a cycle and back. TIC 149445580
+(rank 21): density, mass-independent (passing the bar would
+need M★ < 0.0018–0.0057 M☉ at R★ = 0.72 R☉ — substellar, so
+the missing TIC mass does not block the verdict; the TIC
+genuinely has no mass/logg, confirmed live via MAST) + a
+V-shape fail from the unbinned fit (T23/T14 = 0.185 ± 0.035,
+1σ UB 0.220 < 0.30 bar). Root cause of the original
+INCONCLUSIVE: all three dips are ~half their own period wide,
+so the shape gate's pass-2 binning (T14/12) gave only 14 fine
+bins against the 15-bin floor — a binning artefact, not a
+weak signal (dips are 33–146σ in raw flux). **Gate-hardening
+follow-up (recorded, not done):** a bin-width cap or
+minimum-bin-count retry in the shape gate would have measured
+all three in the gauntlet run — a 3B/3.1 item. The 3 leads are
+now closed and eligible for the negative training pool as
+labelled astrophysical FPs per the brief's "until closed"
+rule; labelling is a P3-17 decision (circular-label rules
+apply). No step failed on network; Gaia TAP was not attempted
+(down) and not needed.
+
+## P3-13 — 13.1–13.3 d family spike — DONE 2026-11-15
+
+**COMPLETE. The family is a sector-wide scattered-light
+systematic, characterised — not merely suspected. Claude's
+flip condition 2 FIRES: 568/568 F13 members carry
+`near_systematic=True` (100%).** Full record:
+`phase3-vote/p3-13-spike.md`; scripts
+`p3-13-scripts/p3-13-spike{,2,3,4}.py`. F13 count is 568 in
+the full [13.1, 13.3] d window (the brief's 534 = the seven
+BLS grid points 13.101–13.271; +34 at P = 13.2997). All 568
+are tier B, 0 tier A; the whole [12.7, 14.3] d window is
+1,055 survivors, all tier B, all flagged. Mechanism: BLS
+pairs glitch epochs ~13.2 d apart (G0→G4, Δ = 13.16 d;
+G2→G8, Δ = 13.32 d) — the sector start, the orbit 199/200
+boundary/downlink gap, and the sector end; 318 stars share
+T0 inside a single 3 h window; 559/568 (98.4%) in
+SECTOR_EPOCH_CLUSTERs by shared event times. Cross-checks:
+flagged_in_transit_frac median 0.509 vs 0.210 baseline; the
+only unmasked bit in transit is bit 11 (predicted Earth/Moon
+stray light, deliberately unmasked); F13 spans all four
+cameras and the full sector footprint (no spatial
+concentration). F9 (9.3–9.6 d, 111, 70 tier A): 0/111 flagged
+— a G1→G5→G8 triple glitch at 9.46 d spacings, which is why
+70 are 3-event tier-A hits. F6 (6.2–6.4 d, 64): 45/64
+flagged; a five-epoch comb at ~6.3 d. **Disposition: DEMOTE,
+never exclude** — (1) `near_systematic` window demotion
+(3B(3), the one-line policy change: removes all 568 F13 +
+33/40 tier-B F6, costs nothing from tier A) + (2)
+SECTOR_EPOCH_CLUSTER veto (catches F13 + F9 + F6 = 743
+stars, 15.8% of survivors, with no period exclusion at
+all). No blanket period exclusion (a real 13.2 d planet
+with ≥3 events would not share the glitch epochs); no
+deletion from the ledger (demoted members keep a
+disposition and remain queryable). Still owed: 13.2 d
+injection pricing (P3-10); cross-sector repeat check
+(S95/S97/S98 rescores); camera + momentum-dump tests (need
+light-curve headers/QUALITY columns). **Two pipeline
+findings routed to 3B/3C:** (a) t0 is a FITTED epoch, not
+the first observed event — downstream code assuming
+"events = t0 + kP, k < n_events" misplaces events (461
+computed events past the sector end in the spike's first
+pass); (b) n_events overstates the evidence at sector edges
+— 114 of the 120-star G3 subgroup have only ONE fully
+in-span event yet carry n_events = 2.

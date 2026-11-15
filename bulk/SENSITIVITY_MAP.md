@@ -222,6 +222,34 @@ injection never wins on those hosts). Pinned in CI by
 `tests/test_inject_real_s96.py` on the committed 31852076
 substrate (v2 demoted, v3 recovered, both trials).
 
+**DF-18 resolution (P3-3, 2026-11-15):** the deep-pipeline
+trial B on 382069441 (1.0% @ 3.317 d; deep_v2 finds 10.864 d
+at SDE 19.2) is RESOLVED — 10.864 d is the near-2:1 alias of
+the host's own persistent ~5.50 d variability, not a mask
+failure and not the injected signal. Evidence: the
+un-injected baseline under deep_v2 finds 5.4856 d at SDE
+41.9 (depth 1.95%); at shifted injection epochs the headline
+returns to the 5.50 d fundamental (5.5015 / 5.5128 d, SDE
+36.7 / 35.6) and 10.864 d never reappears; the injected
+signal survives the mask (6 of 8 events fully intact,
+323/430 in-transit cadences kept) and folds at its full
+0.95% depth — it is present but outranked by the host
+signal; the 10.864 d dip exists in un-injected, unmasked
+data (~2%, same dip events as the 5.50 d fold); dilating the
+mask changes nothing (10.8726 d, SDE 19.4); the 5.50 d
+signal persists in S96/S97/S98 at the same period with
+halving depth (1.91% → 0.97% → 1.07%) — stellar variability,
+not a transit. Miss accounting for the 7/12 headline: of the
+5 v2 misses, 2 are harmonic-alias detections (31852076 A,
+382069441 A), 2 are host-dominated (231852754 A+B), and 1 is
+host-dominated via alias (382069441 B). **Do NOT pin 10.864 d
+in CI** — it is an epoch-dependent alias, not a stable
+expected answer. Full record:
+`phase3-vote/df18-triage.md`. Recommendation for future
+sensitivity runs: record "host-dominated" as a miss category,
+and/or exclude hosts whose un-injected baseline SDE exceeds
+the injected signal's expected SDE.
+
 Artifact rejection is pinned in `tests/test_quality_mask.py`:
 five synthetic cells at real gauntlet periods/depths (bits 29/30,
 flag fractions 0.7/1.0) promote under v2 and fall below the
