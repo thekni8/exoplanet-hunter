@@ -1619,28 +1619,48 @@ whose un-injected baseline SDE exceeds the injected signal's
 expected SDE. What the 5.50 d host signal IS (spotted rotator?
 blended EB?) is vetting work, out of scope here.
 
-## P3-4 — DF-17: Tier-2 ledger replay — MAC JOB READY 2026-11-15
+## P3-4 — DF-17: Tier-2 ledger replay — PRIORITY-4 DONE 2026-11-15, full replay NOT run
 
-**Prepared, NOT run.** `phase3-vote/df17-mac-commands.md`
-(427 lines) + driver `df17_replay_driver.py` (stdlib only,
-parses OK) + `df17_replay_tics.json` (760 TICs, latest v1
-record per TIC; input hashes verified against the census
-before and after — byte-identical) + generator
-`df17_tic_list.py`. Tier 1 found 37 `discoveries.csv` files,
-1,644 rows, 760 unique TICs, 867 analyses. Tier 2 replays
-those stars under deep_v2; the stored records carry no
-quality arrays or sector lists, so the replay self-partitions
-(every run stamps the DF-9 fields). Order: priority-4 first
-(149499477, 294754384, 300442835, 370040864 — the 4
-blind-census TICs with periods near the 25 d ceiling),
-verify the deep_v2 proof on those 4, then the full 760-TIC
-replay as an overnight job (~2–4 GB free needed for 760
-JSONs + PNGs). Annotation procedure (VM side, after results
-return): v1 records are ANNOTATED as superseded, never
-edited; byte-identical verification of the originals before
-AND after annotation. The parent runs it (copies the driver
-+ lists to the Mac, syncs to 004f0c7 with the hunter.py md5
-check, runs priority-4, then the overnight full replay).
+**Priority-4 DONE 2026-11-15 ~19:55 IST: 4/4 ok, gate PASSED
+(4/4 `mask_ok=true`, calibration deep_v2, mask 1610629823),
+1 verdict change (null→hit). The full 760-TIC replay was
+NOT run — separate dispatch after the parent reviews this
+proof.** `phase3-vote/df17-mac-commands.md`
+(427 lines) + driver `df17_replay_driver.py` (stdlib only)
++ `df17_replay_tics.json` (760 TICs, latest v1 record per
+TIC; input hashes verified against the census before and
+after — byte-identical) + generator `df17_tic_list.py`.
+Tier 1 found 37 `discoveries.csv` files, 1,644 rows, 760
+unique TICs, 867 analyses. Tier 2 replays those stars
+under deep_v2; the stored records carry no quality arrays
+or sector lists, so the replay self-partitions (every run
+stamps the DF-9 fields).
+
+Priority-4 results (Mac, origin/main 004f0c7, hunter.py md5
+85771824…, wall 893.6 s; outcomes in
+`phase3-vote/df17-priority4-outcomes.jsonl`):
+
+| TIC | v1 P / SDE | v2 P / SDE | verdict |
+|---|---|---|---|
+| 149499477 | 24.93384 / 4.56 (null) | 23.86507 / 29.13 | **null→hit** (period off the ceiling) |
+| 294754384 | 25.01218 / 30.18 | 12.63201 / 15.41 | stable_hit (period off the ceiling, ~half) |
+| 300442835 | 24.97282 / 37.04 | 24.63035 / 132.63 | stable_hit (SDE 3.6× stronger) |
+| 370040864 | 24.90690 / 18.60 | 24.90721 / 18.91 | stable_hit (period unchanged; n_masked=0, ff=0.0 — mask applied, nothing flagged in its 12 sectors) |
+
+The Tier-1 question gets a mixed answer: 2 of 4 periods
+moved clearly off the 25 d ceiling, 2 stayed near it — but
+all 4 now carry real measured SDEs (none degenerate), and
+the weakest v1 null became a strong hit. **Timing
+re-estimate: per-star wall was 191–280 s (avg ~223 s), ~5×
+the doc's 44 s/star estimate — the full 760-TIC replay is
+~47 h at this pace, NOT an overnight job.** The full replay
+needs a scheduling decision, not just a dispatch.
+Annotation procedure (VM side, after results return): v1
+records are ANNOTATED as superseded, never edited;
+byte-identical verification of the originals before AND
+after annotation. §4 annotation for the priority-4 is still
+owed (the doc's §4 is written for the full replay; the
+parent decides whether to annotate 4 now or 760 later).
 
 ## P3-5 — Close the 3 INCONCLUSIVE gauntlet leads — DONE 2026-11-15
 
