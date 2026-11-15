@@ -651,6 +651,37 @@ bar pinned; LATTE REPORT_ONLY.
   two stdout modes, the spawn failure, and the
   non-object output (24 tests in the module, was 19).
 
+### P-14 — Suite tiering documented (vote item)
+
+- No code change to the tiers themselves: the F-10 tiers
+  (smoke / golden / injection / rest / live) already
+  exist and already cover the Phase 2 modules. P-14
+  documents the placement in tests/run_golden.py's
+  docstring: the verdict machinery (test_runner,
+  test_runner_e2e, test_stage_contract) is smoke; the
+  labelled-population harness (test_toi_population) is
+  golden; the desk/tool/evidence/review modules
+  (test_desk, test_desk_external_tools,
+  test_external_tool, test_latte, test_triceratops,
+  test_evidence, test_review, test_pixel_check,
+  test_concordance) are rest; test_desk_live and
+  test_concordance_live are live (DOWNLOAD_TESTS).
+- **pytest-xdist is BLOCKED, recorded as such:** xdist is
+  not in requirements.lock, and adding a dependency
+  means a lockfile regeneration (pip-compile + hashes)
+  plus a full suite re-run — out of scope for this
+  build. The shards already parallelise in CI
+  (golden.yml runs four jobs); the suite stays unittest
+  + the shard split. The full suite (--fast) stays the
+  required merge check for this branch.
+- **Mac-nightly tools tier** (a P-16 step, not built
+  here): the golden tool tests — real LATTE /
+  TRICERATOPS runs on the labelled population — cannot
+  run in CI (the venvs live on the Mac; LATTE needs
+  Rosetta Python 3.8). When the venvs exist they run as
+  a nightly Mac job, not a CI shard, and their results
+  are recorded, not gated on.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):
