@@ -40,7 +40,7 @@ ALLOWLIST = {
         "Diagnostic: records the any-flag fraction of the substrate "
         "in the injection report, not a clean/flagged split.",
     ),
-    ("bulk/inject_deep_real_s96.py", 117): (
+    ("bulk/inject_deep_real_s96.py", 123): (
         "frac_any_flag",
         "Diagnostic: records the any-flag fraction of the substrate "
         "in the injection report, not a clean/flagged split.",
