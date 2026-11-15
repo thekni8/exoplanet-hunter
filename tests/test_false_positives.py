@@ -16,9 +16,11 @@ through the real screen and gauntlet code:
     14.4 d pile-up is real, and 14.4 d falls outside the 13.7 d
     systematic family's +-3% window, so near_systematic is False).
     The recalibration step is the defense, not the screen.
-  * flagged-cadence spike (TIC 344334378 class) — the screen
-    promotes it (its 17087 bitmask keeps bit-30 cadences) and
-    the clean-data re-fold gate FAILs it.
+  * flagged-cadence spike (TIC 344334378 class) — under bulk_v2
+    the screen promotes it (its 17087 bitmask keeps bit-30
+    cadences) and the clean-data re-fold gate FAILs it; under
+    bulk_v3 the screen does NOT promote it (the v3 mask excludes
+    bits 29/30 at screen input, so the dip never reaches BLS).
   * pure noise — the screen must not promote noise.
 
 Where the pinned behaviour is a LIMITATION rather than a kill,
@@ -191,22 +193,79 @@ class TestFalsePositives(unittest.TestCase):
 
     def test_flagged_cadence_signal_gate_fails(self):
         # TIC 344334378 class: the dip exists only on quality-bit-30
-        # cadences. The screen's 17087 bitmask keeps those cadences,
+        # cadences. BEHAVIOUR CHANGE (bulk_v3, 2026-11-15): under
+        # bulk_v2 the screen's 17087 bitmask keeps those cadences,
         # so the screen PROMOTES the signal — and the clean-data
-        # re-fold gate (quality==0 only) must FAIL it.
+        # re-fold gate (v3 mask excludes bit 30) FAILs it. Under
+        # bulk_v3 the screen mask excludes bits 29/30 at input, so
+        # the screen itself rejects the signal (below the record
+        # floor) and the gate is never needed. The gate's FAIL
+        # verdict is still pinned on the v2-promoted signal: the
+        # gate is the second line of defence, unchanged by v3.
         with tempfile.TemporaryDirectory() as td:
             p = make_qlp_fits(Path(td) / "flag.fits", period_d=2.0,
                               depth_frac=0.01, duration_d=0.15,
                               noise_pct=0.003, seed=42,
                               flagged_only_frac=0.7)
-            r = _screen(p)
-            self.assertEqual(r["status"], "survivor")
+            previous = bs.CALIBRATION_VERSION
+            try:
+                bs.set_calibration("bulk_v2")
+                r = _screen(p)
+                self.assertEqual(r["status"], "survivor")
+                bs.set_calibration("bulk_v3")
+                r3 = _screen(p)
+                self.assertEqual(r3["status"], "below_floor")
+                self.assertLess(r3["sde"], 6.0)
+            finally:
+                bs.set_calibration(previous)
             t, f, q, _col = load_fits(str(p))
             fold = clean_fold(t, f, q, r["period_days"],
                               r["t0_btjd"], r["duration_hours"])
             self.assertGreaterEqual(fold["n_in"], 20)
             self.assertGreaterEqual(fold["n_events"], 2)
             self.assertEqual(verdict_for(fold, 3.0), "FAIL")
+
+    def test_bit12_transit_passes_gate(self):
+        # M-2 (ChatGPT's catch, 2026-11-15 vote): a genuine transit
+        # whose in-transit cadences ALL carry quality bit 12
+        # (Straylight2, 4096 -- the TOI-700 c lesson). The screen
+        # keeps bit-12 cadences under every calibration, so it
+        # promotes the signal; the gate must then PASS it, not
+        # stall it. Under the gate's old quality==0 definition of
+        # "clean" this fixture folded to zero clean in-transit
+        # cadences (INSUFFICIENT -> UNMEASURED at the clean_refold
+        # stage, promotion-blocking). The all-bits control below
+        # pins that old behaviour so the regression stays visible.
+        with tempfile.TemporaryDirectory() as td:
+            p = make_qlp_fits(Path(td) / "bit12.fits", period_d=2.0,
+                              depth_frac=0.01, duration_d=0.15,
+                              noise_pct=0.003, seed=42,
+                              quality=lambda t, in_tr: np.where(
+                                  in_tr, 4096, 0))
+            previous = bs.CALIBRATION_VERSION
+            try:
+                bs.set_calibration("bulk_v3")
+                r = _screen(p)
+            finally:
+                bs.set_calibration(previous)
+            self.assertEqual(r["status"], "survivor")
+            t, f, q, _col = load_fits(str(p))
+            fold = clean_fold(t, f, q, r["period_days"],
+                              r["t0_btjd"], r["duration_hours"])
+            self.assertGreaterEqual(fold["n_in"], 20)
+            self.assertGreaterEqual(fold["n_events"], 2)
+            self.assertEqual(verdict_for(fold, 3.0), "PASS")
+            # Control: quality==0 semantics (every flag drops the
+            # cadence) collapse the fold -- the old failure. n_in
+            # is not exactly 0: the BLS duration is approximate,
+            # so the fold window catches a couple of unflagged edge
+            # cadences outside the true transit. The point is it
+            # collapses from ~90 to a handful, far below MIN_IN.
+            fold_old = clean_fold(t, f, q, r["period_days"],
+                                  r["t0_btjd"], r["duration_hours"],
+                                  quality_mask=0xFFFFFFFF)
+            self.assertLess(fold_old["n_in"], 20)
+            self.assertEqual(verdict_for(fold_old, 3.0), "INSUFFICIENT")
 
     def test_pure_noise_not_promoted(self):
         # Control: pure noise must not reach the survivor bar on

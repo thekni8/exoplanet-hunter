@@ -1,18 +1,19 @@
-"""Clean-data re-fold gate for bulk-screen handoffs (v1.4).
+"""Clean-data re-fold gate for bulk-screen handoffs (v1.5).
 
 Lesson (S97 gauntlet, 2026-11-14): TIC 344334378's "detection" lived
 entirely in quality-bit-30 flagged cadences that the screen's 17087
-bitmask keeps and a quality==0 mask drops -- in clean data there was
+bitmask keeps and the v3 mask drops -- in clean data there was
 no signal at any phase. The gauntlet raw-refuted it after the handoff;
 this gate catches that class BEFORE handoff.
 
 Method: for each recalibrated candidate, load its sector FITS from the
 cache, take the raw (unflattened) flux column the screen used
-(KSPSAP_FLUX -> SYS_RM_FLUX -> DET_FLUX), keep ONLY quality==0
-cadences, and fold at the candidate ephemeris (period, t0_btjd,
-duration). Depth is median-based (robust to the raw-flux outliers
-that explode mean-based folds); noise is the MAD-based scatter of
-out-of-transit points. Verdicts:
+(KSPSAP_FLUX -> SYS_RM_FLUX -> DET_FLUX), keep only the cadences the
+screen's quality mask keeps (default bulk_v3; --calibration selects
+another profile's mask), and fold at the candidate ephemeris
+(period, t0_btjd, duration). Depth is median-based (robust to the
+raw-flux outliers that explode mean-based folds); noise is the
+MAD-based scatter of out-of-transit points. Verdicts:
   PASS         clean dip SNR >= --sigma-min (default 3) with enough
                clean in-transit cadences (>= 20, >= 2 events)
   FAIL         enough clean data but no dip -- artifact, dropped
@@ -25,6 +26,20 @@ Validation (2026-11-14, S97 FITS):
     clean -0.041% @ SNR -2.4 -> FAIL (gate catches it)
   TIC 139526205 (real signal, blend): clean 0.593% @ SNR 66.6 -> PASS
   TIC 382069441 (real persistent signal): clean 1.266% @ SNR 71.7 -> PASS
+  (Measured under the gate's original quality==0 definition of
+  "clean". The verdicts are unchanged under the v3 mask -- bit 30
+  is in both -- and the bit-30 FAIL is pinned by
+  test_flagged_cadence_signal_gate_fails.)
+
+"Clean" definition (M-2, 2026-11-15): the gate used to keep ONLY
+quality==0 cadences. That is incompatible with the bit-12 lesson
+(a real transit can live on Straylight2-flagged cadences, TOI-700
+c): a genuine bit-12 transit folded to zero clean in-transit
+cadences, INSUFFICIENT, and stalled at the clean_refold stage as
+UNMEASURED -- promotion-blocking. "Clean" now means "kept by the
+screen's quality mask" (default bulk_v3), the same definition the
+screen itself uses, so a bit-12 transit passes the gate. The
+bit-12 regression test is test_bit12_transit_passes_gate.
 
 Usage: python clean_refold_gate.py --survivors run_s0096/recalibrated/survivors_v13.jsonl \
     --sector 96 --out run_s0096/recalibrated/survivors_gated.jsonl
@@ -32,9 +47,18 @@ Usage: python clean_refold_gate.py --survivors run_s0096/recalibrated/survivors_
 import argparse
 import json
 import os
+import sys
+from pathlib import Path
 
 import numpy as np
 from astropy.io import fits
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from calibration import load_profile  # noqa: E402
+from quality_flags import BULK_V3_MASK  # noqa: E402
+from quality_flags import SPOC_DEFAULT_MASK  # noqa: E402
 
 FLUX_COLS = ("KSPSAP_FLUX", "SYS_RM_FLUX", "DET_FLUX")
 MIN_IN = 20          # min clean in-transit cadences for a testable verdict
@@ -56,13 +80,27 @@ def load_fits(path):
     raise ValueError(f"no flux column in {path}")
 
 
-def clean_fold(t, f, q, period, t0, dur_h):
-    """Fold raw flux on quality==0 cadences only. Returns dict."""
-    m = (q == 0) & np.isfinite(t) & np.isfinite(f) & (f > 0)
+def clean_fold(t, f, q, period, t0, dur_h, quality_mask=None):
+    """Fold raw flux on the cadences the screen's quality mask
+    keeps. Returns dict (including the mask used, so a gated
+    record is self-documenting).
+
+    quality_mask defaults to the bulk_v3 mask (the current screen
+    mask). Pass a profile's mask explicitly when the survivors
+    were screened under another calibration -- the CLI does this
+    via --calibration. quality==0 is NOT the definition of clean:
+    it drops genuine bit-12 transits (TOI-700 c lesson; see the
+    module docstring).
+    """
+    if quality_mask is None:
+        quality_mask = BULK_V3_MASK
+    m = ((np.asarray(q, dtype=np.int64) & int(quality_mask)) == 0) \
+        & np.isfinite(t) & np.isfinite(f) & (f > 0)
     tt, ff = t[m], f[m]
     if len(tt) == 0:
         return {"n_clean": 0, "n_in": 0, "n_events": 0,
-                "depth_percent": None, "snr": None}
+                "depth_percent": None, "snr": None,
+                "quality_mask": int(quality_mask)}
     ff = ff / np.median(ff)
     phase = ((tt - t0) / period + 0.5) % 1.0 - 0.5
     dur_frac = dur_h / 24.0 / period
@@ -72,7 +110,8 @@ def clean_fold(t, f, q, period, t0, dur_h):
         if n_in else []
     out = {"n_clean": int(len(tt)), "n_in": n_in,
            "n_events": int(len(ev)),
-           "depth_percent": None, "snr": None}
+           "depth_percent": None, "snr": None,
+           "quality_mask": int(quality_mask)}
     if n_in < 2 or (~in_tr).sum() < 10:
         return out
     depth = 1 - np.median(ff[in_tr]) / np.median(ff[~in_tr])
@@ -97,9 +136,20 @@ def main():
     ap.add_argument("--cache-dir", default=None,
                     help="default: bulk/cache next to this script")
     ap.add_argument("--sigma-min", type=float, default=3.0)
+    ap.add_argument("--calibration", default="bulk_v3",
+                    help="profile whose quality_mask defines 'clean' "
+                         "(default bulk_v3, the current screen mask)")
     ap.add_argument("--out", required=True,
                     help="gated survivors jsonl (PASS/INSUFFICIENT/MISSING)")
     args = ap.parse_args()
+
+    # The gate's mask is explicit and profile-driven, matching the
+    # screen that produced the survivors. v1/v2 profiles predate
+    # the field and mean the lightkurve default (17087).
+    prof = load_profile(args.calibration)
+    quality_mask = prof.get("quality_mask", SPOC_DEFAULT_MASK)
+    print(f"gate: calibration {args.calibration}, "
+          f"quality_mask {quality_mask}")
 
     root = os.path.dirname(os.path.abspath(__file__))
     cache = args.cache_dir or os.path.join(root, "cache")
@@ -117,9 +167,11 @@ def main():
         else:
             t, f, q, col = load_fits(path)
             fold = clean_fold(t, f, q, r["period_days"], r["t0_btjd"],
-                              r["duration_hours"])
+                              r["duration_hours"],
+                              quality_mask=quality_mask)
             v = {"tic": tic, "verdict": verdict_for(fold, args.sigma_min),
-                 "flux_col": col, "fold": fold}
+                 "flux_col": col, "calibration": args.calibration,
+                 "fold": fold}
             r["clean_gate"] = v["verdict"]
             r["clean_fold"] = fold
             if v["verdict"] != "FAIL":

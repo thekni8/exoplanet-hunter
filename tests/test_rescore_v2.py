@@ -110,3 +110,48 @@ class TestRescoreV2(unittest.TestCase):
             self.assertEqual(summary["n_rescreened"], 2)
             self.assertEqual(summary["n_survivors"], 1)
             self.assertEqual(summary["n_errors"], 0)
+
+    def test_default_profile_pins_v2_mask(self):
+        # M-3: with no --profile the tool rescores under bulk_v2
+        # and records the v2 mask (17087) explicitly -- it never
+        # silently follows whatever the default profile is.
+        with tempfile.TemporaryDirectory() as td:
+            cache = _make_cache(td)
+            out = Path(td) / "out"
+            rc = rescore_v2.main(["--sector", "96",
+                                  "--cache", cache,
+                                  "--out", str(out),
+                                  "--dry-run"])
+            self.assertEqual(rc, 0)
+            summary = json.loads((out / "summary.json").read_text())
+            self.assertEqual(summary["calibration_version"], "bulk_v2")
+            self.assertEqual(summary["quality_mask"], 17087)
+
+    def test_profile_flag_runs_v3_and_pins_mask(self):
+        # M-3: --profile bulk_v3 rescores under v3 (the future
+        # acceptance rescore): the v3 mask is pinned, records
+        # carry superseded_by bulk_v3, and the output file is
+        # named rescore_v3_... -- never rescore_v2_....
+        with tempfile.TemporaryDirectory() as td:
+            cache = _make_cache(td)
+            out = Path(td) / "out"
+            rc = rescore_v2.main(["--sector", "96",
+                                  "--cache", cache,
+                                  "--out", str(out),
+                                  "--profile", "bulk_v3"])
+            self.assertEqual(rc, 0)
+            self.assertTrue((out / "rescore_v3_s0096.jsonl").exists())
+            self.assertFalse((out / "rescore_v2_s0096.jsonl").exists())
+            rows = [json.loads(line) for line in
+                    (out / "rescore_v3_s0096.jsonl")
+                    .read_text().splitlines() if line.strip()]
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["tic"], DEEP_TIC)
+            self.assertEqual(rows[0]["status"], "survivor")
+            self.assertEqual(rows[0]["calibration_version"],
+                             {"bulk": "v3"})
+            self.assertEqual(rows[0]["superseded_by"], "bulk_v3")
+            summary = json.loads((out / "summary.json").read_text())
+            self.assertEqual(summary["calibration_version"], "bulk_v3")
+            self.assertEqual(summary["quality_mask"], 1610629823)
+            self.assertEqual(summary["n_survivors"], 1)

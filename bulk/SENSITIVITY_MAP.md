@@ -111,3 +111,111 @@ systematic windows (hard-coded from the S96–S98 recalibration
 notes, not from the grid), and the default (v1 stays the default
 until a run opts into v2 — new sectors screen under v2, and the
 v1 gate refuses v1 on any sector outside 96–98).
+
+## v3: the quality mask (2026-11-15)
+
+The v2 rescore gauntlet (S96, 25 NEW tier-A leads, 0 planets)
+found 18/25 were flagged-cadence artifacts — dips of 1.5–9.3%
+present ONLY on quality bit-29/30 cadences (TESS scattered
+light), with zero clean cadences in transit. v2's 10% clip floor
+preserves those deep flagged dropouts, so the screen promoted
+them. v3 (`calibration/bulk_v3.yaml`) masks bits 29/30 at screen
+input: `quality_mask` 1610629823 = lightkurve default 17087 +
+bits 29/30. All v2 thresholds carried over unchanged.
+
+Grid re-run under v3 (`EXHUNT_BULK_CALIBRATION=bulk_v3`, the
+`floor_10pct` option, 60 runs): the grid fixtures have
+quality==0 everywhere, so the mask is a no-op and v3 reproduces
+v2's numbers EXACTLY — deep-quiet 16/16, overall 35/48, null
+false alarms 0/12, 0 monotonicity violations. The mask changes
+nothing on clean data (also pinned in CI by
+`test_monotonicity_under_v3`, which asserts v3's headline-pair
+SDEs equal v2's).
+
+Sensitivity cost of the mask, measured by a flag-fraction sweep
+(WASP-29b-equivalent transit, P 3.9227 d, 1.14%, 0.3% noise;
+bit-29 flags on 5/10/20% of cadences). Script:
+`bulk/flag_fraction_sweep.py` (committed, seeded, re-runnable;
+`--quick` runs the 3-cell CI subset). The first version lived
+in /tmp and was lost to a VM replacement; this table is from
+the committed rewrite (M-5, 2026-11-15), whose numbers are
+close to the original's (clean cell identical; random cells
+within ~2 SDE) but not bit-identical — the original flag seeds
+are unrecoverable. Conclusions unchanged.
+
+| Cell | v2 SDE / MES | v3 SDE / MES | v3 status |
+|---|---|---|---|
+| clean | 50.0 / 17.5 | 50.0 / 17.5 | survivor A |
+| random 5% all | 50.0 / 17.5 | 45.8 / 17.6 | survivor A |
+| random 10% all | 50.0 / 17.5 | 42.9 / 18.0 | survivor A |
+| random 20% all | 50.0 / 17.5 | 41.6 / 18.6 | survivor A |
+| random 10% off-transit | 50.0 / 17.5 | 46.5 / 18.7 | survivor A |
+| random 20% off-transit | 50.0 / 17.5 | 40.6 / 18.3 | survivor A |
+| blocks 10% all | 50.0 / 17.5 | 40.4 / 16.2 | survivor A |
+| blocks 20% all | 50.0 / 17.5 | 28.7 / 13.8 | survivor A |
+| blocks 10% off-transit | 50.0 / 17.5 | 45.5 / 17.5 | survivor A |
+| blocks 20% off-transit | 50.0 / 17.5 | 42.6 / 17.7 | survivor A |
+| marginal 0.5% clean | 18.9 / 8.5 | 18.9 / 8.5 | recorded |
+| marginal 0.5% random 10% all | 18.9 / 8.5 | 16.3 / 9.2 | survivor A |
+| marginal 0.5% random 20% all | 18.9 / 8.5 | 16.6 / 9.1 | survivor A |
+
+Random flags: the mask costs SDE (up to ~20% at 20% flagging —
+fewer cadences in the fold) but MES is preserved or slightly
+improved in every cell, and no real transit was lost at any
+flag fraction tested. One marginal shallow cell (0.5% depth,
+MES 8.5 under v2, just below the tier-A bar of 9.0) crossed the
+OTHER way under v3 at 10–20% flagging (MES 9.2, survivor A) —
+at the boundary the mask's effect on MES can go either way;
+the sweep does not claim a systematic sensitivity gain.
+
+Contiguous blocks (Gemini's topology critique, 2026-11-15 vote:
+real bits 29/30 come in 0.5–2.5-day blocks, not random
+sprinkles) cost MORE than random flags at the same fraction: at
+20% block flagging the v3 SDE falls 43% (50.0 → 28.7) and MES
+21% (17.5 → 13.8) — a 2-day block can swallow whole transits.
+The transit still survives as tier A (MES 13.8 vs the 9.0 bar)
+with margin, and blocks that avoid the transit cost no more
+than random flags. The block variant is the harsher, more
+realistic bound on the mask's cost.
+
+Injection into REAL S96 light curves (M-6, 2026-11-15; Claude's
+item (d)): trapezoid transits injected into the six S96 files
+on the VM — all carrying bit 30 (9–13%), two carrying bit 29
+(~28%) — and screened under v2 vs v3. Script:
+`bulk/inject_real_s96.py`; summary:
+`bulk/inject_real_s96_summary.json`. Trials: A = 2.0% @ 5.123 d,
+B = 1.0% @ 3.317 d. Recovery = survivor + period within 1%.
+
+| TIC | bit29 / bit30 | v2 recovered | v3 recovered |
+|---|---|---|---|
+| 231011325 | 0% / 9.4% | 0/2 (demoted) | 2/2 |
+| 231852754 | 0% / 10.1% | 0/2 (demoted) | 0/2 (demoted) |
+| 234510264 | 0% / 10.1% | 1/2 | 2/2 |
+| 237911080 | 0% / 10.1% | 1/2 | 2/2 |
+| 31852076 | 28.0% / 9.9% | 0/2 (demoted) | 2/2 |
+| 382069441 | 28.2% / 12.8% | 0/2 (recorded) | 0/2 (survivor, wrong P) |
+| **total** | | **2/12** | **8/12** |
+
+**v3 lost 0/12 relative to v2** — it recovered everything v2
+recovered, plus six more. The v2 failures are instructive: on
+231011325, 237911080 (trial B) and 31852076, v2's BLS finds a
+deep (>3%) ~13.1 d systematic — the flagged-cadence dropouts
+themselves — and the DEPTH_EB veto demotes the star. Masking
+the flagged cadences removes the systematic and the injected
+transit recovers (31852076: v2 SDE 15–16 demoted → v3 SDE
+33–44 recovered). The four v3 non-recoveries are host-confusion,
+not mask losses: on 231852754 BLS finds the host's own 5.78 d
+5.8% dipper signal (DEPTH_EB, identical under v2 and v3), and
+on 382069441 it finds the host's own 5.50 d 1.3% persistent
+signal (same period in both trials, both calibrations — the
+injection never wins on those hosts). Pinned in CI by
+`tests/test_inject_real_s96.py` on the committed 31852076
+substrate (v2 demoted, v3 recovered, both trials).
+
+Artifact rejection is pinned in `tests/test_quality_mask.py`:
+five synthetic cells at real gauntlet periods/depths (bits 29/30,
+flag fractions 0.7/1.0) promote under v2 and fall below the
+record floor under v3. The clean-data re-fold gate is unchanged
+and remains the second line of defence (still pinned in
+`test_flagged_cadence_signal_gate_fails` on the v2-promoted
+signal).

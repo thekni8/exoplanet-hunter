@@ -1,0 +1,757 @@
+{
+  "tool": "replay_s96_leads",
+  "sector": 96,
+  "n_leads": 25,
+  "v2_survivors": 25,
+  "v3_survivors": 6,
+  "v3_survivor_tics": [
+    "183537452",
+    "101945781",
+    "41361938",
+    "142087258",
+    "294665553",
+    "382256433"
+  ],
+  "artifacts_gone_v3": 18,
+  "tier_b_residue_v3": [
+    "101945781",
+    "41361938",
+    "142087258",
+    "294665553",
+    "382256433"
+  ],
+  "gates_passed": true,
+  "failures": [],
+  "records": [
+    {
+      "tic": "183537452",
+      "group": "wasp29b",
+      "ledger": {
+        "sde": 29.21218871521459,
+        "period_days": 3.9226519337016574,
+        "depth_percent": 0.8302371579870713,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 29.21218867122606,
+        "mes_pink": 13.103491295984034,
+        "period_days": 3.9226519337016574,
+        "depth_percent": 0.830237157909192,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 59.14653820355265,
+        "mes_pink": 37.91430412182204,
+        "period_days": 3.9226519337016574,
+        "depth_percent": 0.8149960407356127,
+        "flags": []
+      }
+    },
+    {
+      "tic": "355401152",
+      "group": "artifact",
+      "ledger": {
+        "sde": 26.46201179224713,
+        "period_days": 6.513761467889909,
+        "depth_percent": 2.9091715453547646,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 26.46201175757133,
+        "mes_pink": 24.343826059243554,
+        "period_days": 6.513761467889909,
+        "depth_percent": 2.9091715453322924,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 10.210659359813011,
+        "mes_pink": 7.340726134860061,
+        "period_days": 12.144736842105264,
+        "depth_percent": 0.5431721557992756,
+        "flags": []
+      }
+    },
+    {
+      "tic": "382571558",
+      "group": "artifact",
+      "ledger": {
+        "sde": 25.350355960159273,
+        "period_days": 12.290279627163782,
+        "depth_percent": 2.03472735333588,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 25.35035599612589,
+        "mes_pink": 10.314495161279257,
+        "period_days": 12.290279627163782,
+        "depth_percent": 2.034727353942364,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "below_floor",
+        "tier": null,
+        "sde": 5.7683313833153145,
+        "mes_pink": null,
+        "period_days": 10.955489614243323,
+        "depth_percent": 0.21403317572379582,
+        "flags": []
+      }
+    },
+    {
+      "tic": "101945781",
+      "group": "real_signal",
+      "ledger": {
+        "sde": 25.23517325788443,
+        "period_days": 12.364367046215675,
+        "depth_percent": 0.968032425784688,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 25.235173286384423,
+        "mes_pink": 15.779857342835198,
+        "period_days": 12.364367046215675,
+        "depth_percent": 0.9680324263814852,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "survivor",
+        "tier": "B",
+        "sde": 24.21646641315888,
+        "mes_pink": 19.160502932554984,
+        "period_days": 13.386511965192168,
+        "depth_percent": 0.9092375996406227,
+        "flags": []
+      }
+    },
+    {
+      "tic": "307433122",
+      "group": "real_signal",
+      "ledger": {
+        "sde": 24.499576657497183,
+        "period_days": 8.76959619952494,
+        "depth_percent": 2.2333553587210924,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 24.499576618593235,
+        "mes_pink": 11.587431882052755,
+        "period_days": 8.76959619952494,
+        "depth_percent": 2.233355359172786,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "demoted",
+        "tier": null,
+        "sde": 55.18129408070014,
+        "mes_pink": 67.72418729217625,
+        "period_days": 8.76959619952494,
+        "depth_percent": 5.445259587384639,
+        "flags": [
+          "DEPTH_EB"
+        ]
+      }
+    },
+    {
+      "tic": "140599833",
+      "group": "artifact",
+      "ledger": {
+        "sde": 21.56000318151958,
+        "period_days": 12.540760869565217,
+        "depth_percent": 1.0692851680037871,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 21.56000315655169,
+        "mes_pink": 9.50209517720607,
+        "period_days": 12.540760869565217,
+        "depth_percent": 1.06928516857695,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "below_floor",
+        "tier": null,
+        "sde": 4.725905941162352,
+        "mes_pink": null,
+        "period_days": 8.682972718720603,
+        "depth_percent": 0.1318193754334609,
+        "flags": []
+      }
+    },
+    {
+      "tic": "149307626",
+      "group": "artifact",
+      "ledger": {
+        "sde": 21.13586669574865,
+        "period_days": 12.515254237288136,
+        "depth_percent": 0.6635504698839796,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 21.13586675881958,
+        "mes_pink": 11.423153957484246,
+        "period_days": 12.515254237288136,
+        "depth_percent": 0.6635504704850206,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "below_floor",
+        "tier": null,
+        "sde": 5.732891104629964,
+        "mes_pink": null,
+        "period_days": 8.047079337401918,
+        "depth_percent": 0.13498665059275894,
+        "flags": []
+      }
+    },
+    {
+      "tic": "141865558",
+      "group": "artifact",
+      "ledger": {
+        "sde": 19.58434091593645,
+        "period_days": 6.281047975501871,
+        "depth_percent": 0.4880045392098785,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 19.584341002247744,
+        "mes_pink": 9.383795722273218,
+        "period_days": 6.281047975501871,
+        "depth_percent": 0.4880045395426529,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 6.218041943567063,
+        "mes_pink": 5.49818303043541,
+        "period_days": 2.324058919803601,
+        "depth_percent": 0.1979930774950661,
+        "flags": []
+      }
+    },
+    {
+      "tic": "41361938",
+      "group": "amplified_weak",
+      "ledger": {
+        "sde": 19.471173032306904,
+        "period_days": 6.268251273344652,
+        "depth_percent": 0.41161337562759354,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 19.471173038941952,
+        "mes_pink": 9.370151623369688,
+        "period_days": 6.268251273344652,
+        "depth_percent": 0.41161337596636327,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "survivor",
+        "tier": "B",
+        "sde": 7.554318838247638,
+        "mes_pink": 8.900391765904908,
+        "period_days": 10.633640552995393,
+        "depth_percent": 0.12013552193681759,
+        "flags": []
+      }
+    },
+    {
+      "tic": "33836426",
+      "group": "artifact",
+      "ledger": {
+        "sde": 18.949039292272353,
+        "period_days": 12.643835616438356,
+        "depth_percent": 1.1308556915721242,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 18.949039359781015,
+        "mes_pink": 9.41778442587131,
+        "period_days": 12.643835616438356,
+        "depth_percent": 1.130855692051194,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 9.033281568289674,
+        "mes_pink": 5.563784067636685,
+        "period_days": 2.294592914853947,
+        "depth_percent": 0.09732391865690969,
+        "flags": []
+      }
+    },
+    {
+      "tic": "389501533",
+      "group": "artifact",
+      "ledger": {
+        "sde": 18.944589537218402,
+        "period_days": 12.66986959505834,
+        "depth_percent": 0.786638249288802,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 18.94458954113862,
+        "mes_pink": 10.571806030301627,
+        "period_days": 12.66986959505834,
+        "depth_percent": 0.7866382497358156,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 6.059250629484327,
+        "mes_pink": 5.45031891768369,
+        "period_days": 6.378714581893574,
+        "depth_percent": 0.11960916245199295,
+        "flags": []
+      }
+    },
+    {
+      "tic": "141708967",
+      "group": "amplified_weak",
+      "ledger": {
+        "sde": 18.866523648650436,
+        "period_days": 6.2874659400544965,
+        "depth_percent": 0.5723121441951128,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 18.86652363958657,
+        "mes_pink": 9.488968596950745,
+        "period_days": 6.2874659400544965,
+        "depth_percent": 0.5723121445368551,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 8.861872447236834,
+        "mes_pink": 6.729564101734661,
+        "period_days": 10.801638385020478,
+        "depth_percent": 0.15047812905719635,
+        "flags": []
+      }
+    },
+    {
+      "tic": "142087258",
+      "group": "amplified_weak",
+      "ledger": {
+        "sde": 18.763858383337464,
+        "period_days": 6.268251273344652,
+        "depth_percent": 0.4494333252226323,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 18.763858478073864,
+        "mes_pink": 10.393081069647879,
+        "period_days": 6.268251273344652,
+        "depth_percent": 0.4494333255604596,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "survivor",
+        "tier": "B",
+        "sde": 9.10246179413843,
+        "mes_pink": 14.099254275419826,
+        "period_days": 10.261256253474153,
+        "depth_percent": 0.16880834454327528,
+        "flags": []
+      }
+    },
+    {
+      "tic": "294665553",
+      "group": "artifact",
+      "ledger": {
+        "sde": 18.285075588929224,
+        "period_days": 12.617908407382092,
+        "depth_percent": 0.906956406113805,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 18.285075636320215,
+        "mes_pink": 9.275048305046496,
+        "period_days": 12.617908407382092,
+        "depth_percent": 0.9069564065916482,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "survivor",
+        "tier": "B",
+        "sde": 10.891139608348093,
+        "mes_pink": 9.105004484485521,
+        "period_days": 13.271028037383179,
+        "depth_percent": 0.2790253421510713,
+        "flags": []
+      }
+    },
+    {
+      "tic": "176959220",
+      "group": "artifact",
+      "ledger": {
+        "sde": 17.457387462799236,
+        "period_days": 12.643835616438356,
+        "depth_percent": 1.0960634590603777,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 17.45738744235458,
+        "mes_pink": 9.052349129999037,
+        "period_days": 12.643835616438356,
+        "depth_percent": 1.0960634594290823,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 10.377226616095639,
+        "mes_pink": 5.6213316872883325,
+        "period_days": 20.0,
+        "depth_percent": 0.24187413401305818,
+        "flags": []
+      }
+    },
+    {
+      "tic": "381951178",
+      "group": "artifact",
+      "ledger": {
+        "sde": 16.641446322466656,
+        "period_days": 12.643835616438356,
+        "depth_percent": 1.7092997933548177,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 16.641446311637587,
+        "mes_pink": 9.548939039259706,
+        "period_days": 12.643835616438356,
+        "depth_percent": 1.7092997937736343,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 11.288802418946224,
+        "mes_pink": 7.702359800318451,
+        "period_days": 20.0,
+        "depth_percent": 0.46555726681090354,
+        "flags": []
+      }
+    },
+    {
+      "tic": "149060820",
+      "group": "artifact",
+      "ledger": {
+        "sde": 16.306048055233372,
+        "period_days": 12.540760869565217,
+        "depth_percent": 0.9226631203011142,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 16.30604806867829,
+        "mes_pink": 9.665661267252592,
+        "period_days": 12.540760869565217,
+        "depth_percent": 0.9226631208931765,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 6.299138428068497,
+        "mes_pink": 4.533000903115322,
+        "period_days": 0.5596143935489739,
+        "depth_percent": 0.08307952327473929,
+        "flags": []
+      }
+    },
+    {
+      "tic": "260004306",
+      "group": "artifact",
+      "ledger": {
+        "sde": 16.10237720291943,
+        "period_days": 12.592087312414735,
+        "depth_percent": 1.6142387036531185,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 16.102377230527605,
+        "mes_pink": 9.58219509701879,
+        "period_days": 12.592087312414735,
+        "depth_percent": 1.6142387042774604,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "demoted",
+        "tier": null,
+        "sde": 6.233346623112438,
+        "mes_pink": 7.681682111015636,
+        "period_days": 1.015625,
+        "depth_percent": 0.04763181491152484,
+        "flags": [
+          "HARMONIC_P2_SUSPECT"
+        ]
+      }
+    },
+    {
+      "tic": "382256433",
+      "group": "artifact",
+      "ledger": {
+        "sde": 15.886284462028465,
+        "period_days": 12.643835616438356,
+        "depth_percent": 2.9012810719300566,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 15.886284471853765,
+        "mes_pink": 10.394616583267762,
+        "period_days": 12.643835616438356,
+        "depth_percent": 2.901281072502933,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "survivor",
+        "tier": "B",
+        "sde": 12.19740622430779,
+        "mes_pink": 8.451912982940613,
+        "period_days": 20.0,
+        "depth_percent": 0.35254668574693204,
+        "flags": []
+      }
+    },
+    {
+      "tic": "370220679",
+      "group": "artifact",
+      "ledger": {
+        "sde": 15.866893706227279,
+        "period_days": 12.643835616438356,
+        "depth_percent": 1.1620853874639414,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 15.866893765795766,
+        "mes_pink": 9.064585215383731,
+        "period_days": 12.643835616438356,
+        "depth_percent": 1.1620853879318793,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 7.6640600849787415,
+        "mes_pink": 6.0218926924749505,
+        "period_days": 6.756954612005856,
+        "depth_percent": 0.14385662669641178,
+        "flags": []
+      }
+    },
+    {
+      "tic": "370228465",
+      "group": "artifact",
+      "ledger": {
+        "sde": 15.42548211149448,
+        "period_days": 12.617908407382092,
+        "depth_percent": 1.3490948517032952,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 15.425482108336391,
+        "mes_pink": 9.196012427463463,
+        "period_days": 12.617908407382092,
+        "depth_percent": 1.3490948520971446,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "below_floor",
+        "tier": null,
+        "sde": 5.654134497774102,
+        "mes_pink": null,
+        "period_days": 14.627575277337558,
+        "depth_percent": 0.15269288999096584,
+        "flags": []
+      }
+    },
+    {
+      "tic": "55402407",
+      "group": "artifact",
+      "ledger": {
+        "sde": 15.157203731321166,
+        "period_days": 12.592087312414735,
+        "depth_percent": 1.4680127787942583,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 15.157203724209085,
+        "mes_pink": 9.221515919636257,
+        "period_days": 12.592087312414735,
+        "depth_percent": 1.468012779304003,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 8.572673629502097,
+        "mes_pink": 9.774362902711076,
+        "period_days": 10.615296147211042,
+        "depth_percent": 0.2822405810698948,
+        "flags": []
+      }
+    },
+    {
+      "tic": "141680194",
+      "group": "amplified_weak",
+      "ledger": {
+        "sde": 14.768170781190893,
+        "period_days": 6.268251273344652,
+        "depth_percent": 0.5328895912120307,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 14.768170834310158,
+        "mes_pink": 10.325301109511232,
+        "period_days": 6.268251273344652,
+        "depth_percent": 0.532889591551835,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "below_floor",
+        "tier": null,
+        "sde": 5.863112526927033,
+        "mes_pink": null,
+        "period_days": 9.342105263157896,
+        "depth_percent": 0.2441123511595063,
+        "flags": []
+      }
+    },
+    {
+      "tic": "207213492",
+      "group": "artifact",
+      "ledger": {
+        "sde": 14.017478760378797,
+        "period_days": 12.696011004126548,
+        "depth_percent": 2.9591173845715724,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 14.017478757180127,
+        "mes_pink": 12.37994058628387,
+        "period_days": 12.696011004126548,
+        "depth_percent": 2.9591173848176875,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "recorded",
+        "tier": null,
+        "sde": 6.04453139160234,
+        "mes_pink": 4.897019702374704,
+        "period_days": 0.5014260491647426,
+        "depth_percent": 0.04015165295081858,
+        "flags": []
+      }
+    },
+    {
+      "tic": "38635773",
+      "group": "artifact",
+      "ledger": {
+        "sde": 11.534589637964249,
+        "period_days": 12.389261744966444,
+        "depth_percent": 1.0643512865616394,
+        "status": "survivor",
+        "tier": "A"
+      },
+      "bulk_v2": {
+        "status": "survivor",
+        "tier": "A",
+        "sde": 11.534589604789783,
+        "mes_pink": 9.189625138047019,
+        "period_days": 12.389261744966444,
+        "depth_percent": 1.0643512871654623,
+        "flags": []
+      },
+      "bulk_v3": {
+        "status": "below_floor",
+        "tier": null,
+        "sde": 5.7598099265285345,
+        "mes_pink": null,
+        "period_days": 2.9889896373057,
+        "depth_percent": 0.22840511128845373,
+        "flags": []
+      }
+    }
+  ],
+  "wall_seconds": 54.07928156852722
+}

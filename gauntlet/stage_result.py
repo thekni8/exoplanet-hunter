@@ -401,7 +401,7 @@ def clean_refold_result(fold, verdict, prov=None):
     if verdict == "FAIL":
         return StageResult(
             "clean_refold", STATUS_FAIL,
-            "no dip in clean (quality==0) flux at the filed "
+            "no dip in clean (screen-mask) flux at the filed "
             "ephemeris — signal lives only in flagged cadences",
             _prov(prov), details, **ev)
     if verdict == "PASS":
