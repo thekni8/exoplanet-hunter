@@ -249,7 +249,9 @@ FAKE_TRI_WRAPPER = textwrap.dedent("""\
                     "fpp_degenerate": False,
                     "dilution_corrected":
                         inp.get("dilution_corrected", False),
-                    "contrast_curve_used": False},
+                    "contrast_curve_used": False,
+
+                    "n_fold_points": 1234},
         "input_hashes": {
             "lightcurve": inp["lightcurve"]["input_hash"],
             "neighbours": inp["neighbours"]["input_hash"]},
@@ -297,7 +299,9 @@ FAKE_TRI_MODES = textwrap.dedent("""\
                         "EB on TIC 999999999",
                     "fpp_degenerate": False,
                     "dilution_corrected": False,
-                    "contrast_curve_used": False},
+                    "contrast_curve_used": False,
+
+                    "n_fold_points": 1234},
         "input_hashes": {
             "lightcurve": inp["lightcurve"]["input_hash"],
             "neighbours": inp["neighbours"]["input_hash"]},

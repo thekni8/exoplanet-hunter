@@ -1107,6 +1107,7 @@ def triceratops_result(native, prov=None, policy=None):
         "dilution_corrected": metrics["dilution_corrected"],
         "contrast_curve_used":
             metrics["contrast_curve_used"],
+        "n_fold_points": metrics["n_fold_points"],
         "seed": native["seed"]},
         "artifacts": list(native["artifacts"]),
         "tool_version": native["tool_version"],

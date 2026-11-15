@@ -682,6 +682,33 @@ bar pinned; LATTE REPORT_ONLY.
   a nightly Mac job, not a CI shard, and their results
   are recorded, not gated on.
 
+### P-15 — TRICERATOPS phase-binning (vote item)
+
+- The wrapper passed the FULL phase-folded curve (every
+  cadence — tens of thousands of points) to calc_probs.
+  It now bins the fold to ~200 bins (per-bin median
+  flux, median phase as the bin centre) within a ±3-
+  duration window around mid-transit; empty bins are
+  dropped, so the count is approximate. flux_err stays
+  the UNBINNED out-of-transit MAD scatter — conservative
+  (binned fluxes have smaller errors, so the unbinned
+  scalar overstates the noise and can only make the
+  tool's fits more cautious, never more confident).
+- metrics.n_fold_points records the number of input
+  cadences inside the window (635 of 3888 in the test
+  fixture); the schema gained the field (integer/null,
+  required) and the adapter passes it through to the
+  StageResult metrics. Failure records carry the count
+  when the run reached binning, else null.
+- TEST CHANGE, STATED: test_success_planet's fold
+  assertions described the unbinned behaviour (span
+  [-P/2, P/2], >1000 points) and are replaced by the
+  binned ones (span ±3 durations, ≤200 points). The
+  canned TRICERATOPS metrics in test_triceratops /
+  test_desk_external_tools / test_evidence / test_review
+  gained n_fold_points (1234 completed, null failed)
+  for the new required schema field.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):

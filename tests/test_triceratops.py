@@ -57,7 +57,8 @@ def _metrics(**over):
          "prob_hierarchical_eb": 0.0002, "n_samples": 1000000,
          "most_likely_false_positive": "EB on TIC 423498314",
          "fpp_degenerate": False, "dilution_corrected": False,
-         "contrast_curve_used": False}
+         "contrast_curve_used": False,
+         "n_fold_points": 1234}
     m.update(over)
     return m
 
@@ -90,7 +91,8 @@ def _failed_metrics():
             "most_likely_false_positive": None,
             "fpp_degenerate": False,
             "dilution_corrected": False,
-            "contrast_curve_used": False}
+            "contrast_curve_used": False,
+            "n_fold_points": None}
 
 
 class TestTriceratopsResult(unittest.TestCase):
@@ -105,6 +107,7 @@ class TestTriceratopsResult(unittest.TestCase):
         self.assertEqual(res.metrics["nfpp"], 0.0008)
         self.assertEqual(res.metrics["prob_eb_target"], 0.0021)
         self.assertEqual(res.metrics["n_samples"], 1000000)
+        self.assertEqual(res.metrics["n_fold_points"], 1234)
         self.assertEqual(res.metrics["seed"], 20261114)
         self.assertEqual(res.metrics["most_likely_false_positive"],
                          "EB on TIC 423498314")
@@ -403,8 +406,9 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
     def test_success_planet(self):
         with tempfile.TemporaryDirectory() as tmp:
             fakevenv = self._fake_tri(tmp)
+            inp = _input_dict(tmp)
             work, out, obs = self._run_wrapper(
-                tmp, fakevenv, _input_dict(tmp))
+                tmp, fakevenv, inp)
             self.assertEqual(out["status"], "completed")
             self.assertEqual(out["value"], 0.0032)
             self.assertEqual(out["seed"], 20261114)
@@ -447,10 +451,23 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
             self.assertFalse(obs["dilution_corrected"])
             self.assertFalse(obs["dilution_corrected_calc"])
             self.assertGreater(obs["flux_err"], 0.0)
-            # Phase-folded time spans [-P/2, P/2].
-            self.assertGreaterEqual(obs["time_min"], -3.9227 / 2)
-            self.assertLessEqual(obs["time_max"], 3.9227 / 2)
-            self.assertGreater(obs["n_points"], 1000)
+            # P-15 (TEST CHANGE, stated): the fold is BINNED
+            # before calc_probs — ~200 bins in a ±3-duration
+            # window, not the full 3888-cadence curve. The
+            # old assertions (span [-P/2, P/2], >1000 points)
+            # described the unbinned behaviour and are
+            # replaced by the binned ones below.
+            z = np.load(inp["lightcurve"]["path"])
+            ph_in = ((z["time"] - 1500.5 + 0.5 * 3.9227)
+                     % 3.9227) - 0.5 * 3.9227
+            expected_n = int(
+                (np.abs(ph_in) <= 3 * 0.105).sum())
+            self.assertEqual(m["n_fold_points"], expected_n)
+            self.assertGreater(m["n_fold_points"], 100)
+            self.assertLessEqual(obs["n_points"], 200)
+            self.assertGreaterEqual(obs["n_points"], 100)
+            self.assertGreaterEqual(obs["time_min"], -3 * 0.105)
+            self.assertLessEqual(obs["time_max"], 3 * 0.105)
 
     def test_same_seed_reproduces(self):
         # Seeded determinism: the same input + seed gives the
@@ -515,6 +532,53 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
             self.assertEqual(out["status"], "failed")
             self.assertTrue(any("not importable" in w
                                 for w in out["warnings"]))
+
+
+class TestBinFold(unittest.TestCase):
+    """P-15: the phase-fold binning, unit-tested."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "run_triceratops", str(WRAPPER))
+        cls.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.mod)
+
+    def test_bins_to_about_200_in_window(self):
+        rng = np.random.default_rng(3)
+        ph = rng.uniform(-1.96, 1.96, 4000)
+        f = 1.0 + rng.normal(0, 0.001, 4000)
+        centres, fluxes, n = self.mod._bin_fold(
+            ph, f, duration_d=0.105)
+        # ~16% of the phase range is inside ±3 durations.
+        self.assertGreater(n, 400)
+        self.assertLess(n, 900)
+        self.assertLessEqual(len(centres), 200)
+        self.assertGreaterEqual(len(centres), 150)
+        self.assertTrue(np.all(np.abs(centres) <= 3 * 0.105))
+        # Bins are ordered by phase and the fluxes are
+        # medians (finite, near unity).
+        self.assertTrue(np.all(np.diff(centres) > 0))
+        self.assertTrue(np.all(np.isfinite(fluxes)))
+        self.assertTrue(np.all(np.abs(fluxes - 1.0) < 0.01))
+
+    def test_median_flux_resists_outliers(self):
+        ph = np.linspace(-0.3, 0.3, 2000)
+        f = np.ones_like(ph)
+        f[1000] = 100.0  # one wild outlier
+        _c, fluxes, _n = self.mod._bin_fold(
+            ph, f, duration_d=0.105, n_bins=10)
+        self.assertTrue(np.all(np.abs(fluxes - 1.0) < 1e-9))
+
+    def test_empty_window_returns_empty(self):
+        ph = np.array([1.0, 1.5, -1.2])
+        f = np.ones_like(ph)
+        centres, fluxes, n = self.mod._bin_fold(
+            ph, f, duration_d=0.105)
+        self.assertEqual(n, 0)
+        self.assertEqual(len(centres), 0)
+        self.assertEqual(len(fluxes), 0)
 
 
 if __name__ == "__main__":

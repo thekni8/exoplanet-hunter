@@ -155,7 +155,9 @@ class TestEvidencePackage(unittest.TestCase):
                         "EB on TIC 999999999",
                     "fpp_degenerate": False,
                     "dilution_corrected": False,
-                    "contrast_curve_used": False},
+                    "contrast_curve_used": False,
+
+                    "n_fold_points": 1234},
                 "input_hashes": {"lightcurve": "a" * 64,
                                  "neighbours": "b" * 64},
                 "artifacts": ["/tmp/work/triceratops_probs.csv"],
@@ -291,7 +293,9 @@ class TestEvidencePackage(unittest.TestCase):
                                 "EB on TIC 999999999",
                             "fpp_degenerate": False,
                             "dilution_corrected": False,
-                            "contrast_curve_used": False},
+                            "contrast_curve_used": False,
+
+                            "n_fold_points": 1234},
                 "input_hashes": {"lightcurve": "a" * 64,
                                  "neighbours": "b" * 64},
                 "artifacts": [str(csv)],

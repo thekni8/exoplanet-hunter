@@ -7,7 +7,8 @@ gauntlet/external_tool.py as:
     python run_triceratops.py --input <input.json> --output <output.json>
 
 Reads the C-10 input JSON, phase-folds the stitched light
-curve at the refined ephemeris, and runs the tool's API
+curve at the refined ephemeris, bins the fold to ~200 bins
+within a ±3-duration window (P-15), and runs the tool's API
 (TRICERATOPS 1.1.0, verified against the source):
 
     np.random.seed(seed)                     # no seed parameter exists
@@ -31,6 +32,20 @@ TRICERATOPS specifics, verified against the 1.1.0 source:
   days from transit midpoint) and a scalar flux error.
   flux_err is the robust (MAD) scatter of the out-of-transit
   folded flux.
+* P-15 BINNING: the folded curve is binned to ~200 bins
+  (per-bin median flux, median phase as the bin centre)
+  within a ±3-duration window around mid-transit before
+  calc_probs — the full curve is tens of thousands of
+  cadences, and the fit cost scales with the point count.
+  The out-of-transit baseline beyond ±3 durations carries
+  no transit information. flux_err stays the UNBINNED
+  out-of-transit MAD scatter — conservative: binned fluxes
+  have smaller errors, so the unbinned scalar overstates
+  the noise and can only make the tool's fits more
+  cautious, never more confident. The number of input
+  cadences inside the window is recorded as
+  metrics.n_fold_points; empty bins are dropped, so the
+  bin count is approximate ("about 200", not exactly 200).
 * Seeding is via np.random.seed(): the MC draws from the
   global generator and calc_probs takes no seed. The seed
   is set before target construction so the whole run is
@@ -87,6 +102,10 @@ N_SAMPLES = 1_000_000
 # TESS pixels from the target to search for nearby stars
 # (10 px x 20.25 arcsec/px ~ 200 arcsec > the 180" rule).
 SEARCH_RADIUS_PX = 10
+# P-15: phase-fold bins for calc_probs, within a ±3-duration
+# window around mid-transit.
+N_FOLD_BINS = 200
+FOLD_WINDOW_DURATIONS = 3.0
 # Planet scenarios in the tool's naming (FPP = 1 - their sum,
 # per the tool's own definition).
 PLANET_SCENARIOS = ("TP", "PTP", "DTP")
@@ -113,6 +132,40 @@ def _robust_sigma(values):
     import numpy as np
     med = float(np.median(values))
     return float(np.median(np.abs(values - med))) * 1.4826
+
+
+def _bin_fold(ph, f, duration_d, n_bins=N_FOLD_BINS,
+              window=FOLD_WINDOW_DURATIONS):
+    """Bin the phase-folded curve (P-15).
+
+    Keeps the cadences within ±`window` durations of
+    mid-transit and bins them into ~`n_bins` equal-width
+    bins (per-bin median flux, median phase as the bin
+    centre — the points are not uniformly distributed, so
+    the median phase is more honest than the geometric
+    centre). Returns (bin_phase, bin_flux, n_points):
+    the bin centres, the per-bin median fluxes, and the
+    number of input cadences inside the window. Empty bins
+    are dropped, so the bin count is approximate.
+    """
+    import numpy as np
+    window_d = window * duration_d
+    in_window = np.abs(ph) <= window_d
+    n_points = int(in_window.sum())
+    if n_points == 0:
+        return (np.asarray([]), np.asarray([]), 0)
+    edges = np.linspace(-window_d, window_d, n_bins + 1)
+    pw = ph[in_window]
+    fw = f[in_window]
+    idx = np.clip(np.digitize(pw, edges) - 1, 0, n_bins - 1)
+    centres, fluxes = [], []
+    for b in range(n_bins):
+        m = idx == b
+        if not m.any():
+            continue
+        centres.append(float(np.median(pw[m])))
+        fluxes.append(float(np.median(fw[m])))
+    return (np.asarray(centres), np.asarray(fluxes), n_points)
 
 
 def _scenario_sum(probs, scenarios):
@@ -161,7 +214,8 @@ def _output(tool_version, seed, config_hash, status, value,
     }
 
 
-def _null_metrics(dilution_corrected, contrast_curve_used):
+def _null_metrics(dilution_corrected, contrast_curve_used,
+                  n_fold_points=None):
     return {
         "fpp": None, "nfpp": None, "prob_planet": None,
         "prob_eb_target": None, "prob_eb_neighbour": None,
@@ -170,6 +224,7 @@ def _null_metrics(dilution_corrected, contrast_curve_used):
         "fpp_degenerate": False,
         "dilution_corrected": dilution_corrected,
         "contrast_curve_used": contrast_curve_used,
+        "n_fold_points": n_fold_points,
     }
 
 
@@ -207,13 +262,17 @@ def run(input_path, output_path):
         warnings.append("no contrast curve: NFPP is an upper "
                         "bound")
     start = time.monotonic()
+    # P-15: the fold-point count, known once the curve is
+    # binned; failure records carry it when it is known.
+    n_fold_points = None
 
     def _failed(reason):
         warnings.append(reason)
         return _output(
             tool_version, seed, config_hash, "failed", None,
             _null_metrics(dilution_corrected,
-                          contrast_curve_used),
+                          contrast_curve_used,
+                          n_fold_points),
             input_hashes, [], warnings,
             time.monotonic() - start, n_transits)
 
@@ -238,6 +297,13 @@ def run(input_path, output_path):
     if not np.isfinite(flux_err) or flux_err <= 0:
         return _failed("flux error is zero or non-finite "
                        "(out-of-transit scatter unmeasurable)")
+    # P-15: bin the fold before calc_probs (~200 bins in a
+    # ±3-duration window). flux_err above is the UNBINNED
+    # scatter — conservative for the binned fluxes.
+    ph_bin, f_bin, n_fold_points = _bin_fold(ph, f, duration_d)
+    if n_fold_points == 0:
+        return _failed("no folded cadences within "
+                       "±3 durations of mid-transit")
     cadence_s = float(inp["lightcurve"]["cadence_s"])
     sectors = [int(s) for s in inp["lightcurve"]["sectors"]]
 
@@ -253,7 +319,7 @@ def run(input_path, output_path):
                      search_radius=SEARCH_RADIUS_PX)
         tgt.calc_depths(tdepth=depth_frac,
                         dilution_corrected=dilution_corrected)
-        tgt.calc_probs(ph, f, flux_err, P_orb=period,
+        tgt.calc_probs(ph_bin, f_bin, flux_err, P_orb=period,
                        contrast_curve_file=cc_path,
                        N=N_SAMPLES, exptime=cadence_s / 86400.0,
                        nsamples=20, verbose=0,
@@ -293,6 +359,7 @@ def run(input_path, output_path):
         "fpp_degenerate": degenerate,
         "dilution_corrected": dilution_corrected,
         "contrast_curve_used": contrast_curve_used,
+        "n_fold_points": n_fold_points,
     }
     return _output(tool_version, seed, config_hash, "completed",
                    fpp, metrics, input_hashes, artifacts,
