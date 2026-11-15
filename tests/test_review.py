@@ -14,6 +14,7 @@ test_evidence.py, replicated — test files stand alone).
 """
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -41,6 +42,30 @@ IMAGING_ON = {"on_target": True, "offset_px": 0.3,
               "offset_arcsec": 6.0, "blend_host_tic": None}
 FILED = {"period_days": 3.9227, "depth_pct": 1.0, "sde": 29.2}
 
+# P-7: the tool-artifact files the fixtures cite must really
+# exist — the evidence package hashes them, and the review
+# gate blocks on a null hash. One module-lived temp dir
+# holds them (the per-test tempdirs in _package are deleted
+# before the review is prepared).
+_ARTIFACT_DIR = None
+LATTE_PDF = None
+TRI_CSV = None
+
+
+def setUpModule():
+    global _ARTIFACT_DIR, LATTE_PDF, TRI_CSV
+    _ARTIFACT_DIR = tempfile.mkdtemp(prefix="review-artifacts-")
+    LATTE_PDF = os.path.join(_ARTIFACT_DIR, "DV_report.pdf")
+    TRI_CSV = os.path.join(_ARTIFACT_DIR,
+                           "triceratops_probs.csv")
+    Path(LATTE_PDF).write_bytes(b"%PDF-fake-latte-report")
+    Path(TRI_CSV).write_text("scenario,prob\nplanet,0.9968\n")
+
+
+def tearDownModule():
+    import shutil
+    shutil.rmtree(_ARTIFACT_DIR, ignore_errors=True)
+
 
 def _pass_results(exclude=(), overrides=None):
     results = []
@@ -55,33 +80,35 @@ def _pass_results(exclude=(), overrides=None):
     return results
 
 
-def _package(results, waivers=None, extra=None):
+def _package(results, waivers=None, extra=None,
+             write_sources=True):
     verdict = build_verdict(
         "999999999", FILED, results, imaging=IMAGING_ON,
         ephemeris_used={"period_d": 3.9227, "t0": 1500.5,
                         "duration_d": 0.105, "source": "refined"},
         run_id="test-run-1", waivers=waivers)
     with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / "verdict_record.json").write_text(
-            json.dumps(verdict))
-        (Path(tmp) / "desk_natives.json").write_text(
-            json.dumps({"natives": {}, "extra_evidence": {}}))
+        if write_sources:
+            (Path(tmp) / "verdict_record.json").write_text(
+                json.dumps(verdict))
+            (Path(tmp) / "desk_natives.json").write_text(
+                json.dumps({"natives": {}, "extra_evidence": {}}))
         return build_evidence_package(
             "999999999", verdict, extra or {}, tmp)
 
 
-def _tool_extra():
+def _tool_extra(latte_pdf=None, tri_csv=None):
     latte = latte_result({
         "tool": "latte", "tool_version": "1.0.21",
         "seed": 20261114, "config_hash": "c" * 64,
         "status": "completed", "value": None,
-        "metrics": {"report_pdf": "/tmp/work/DV_report.pdf",
-                    "output_dir": "/tmp/work",
-                    "latte_indir": "/tmp/latte-out",
+        "metrics": {"report_pdf": latte_pdf or LATTE_PDF,
+                    "output_dir": _ARTIFACT_DIR,
+                    "latte_indir": _ARTIFACT_DIR,
                     "n_artifacts": 3},
         "input_hashes": {"lightcurve": "a" * 64,
                          "neighbours": "b" * 64},
-        "artifacts": ["/tmp/work/DV_report.pdf"],
+        "artifacts": [latte_pdf or LATTE_PDF],
         "warnings": [], "wall_time_s": 123.0,
         "n_transits": 7}).to_dict()
     tri = triceratops_result({
@@ -101,7 +128,7 @@ def _tool_extra():
                     "contrast_curve_used": False},
         "input_hashes": {"lightcurve": "a" * 64,
                          "neighbours": "b" * 64},
-        "artifacts": ["/tmp/work/triceratops_probs.csv"],
+        "artifacts": [tri_csv or TRI_CSV],
         "warnings": [], "wall_time_s": 412.5,
         "n_transits": 7}).to_dict()
     return {"external_tools": {"latte": latte,
@@ -154,6 +181,12 @@ class TestPrepareFilingReview(unittest.TestCase):
     def test_prepare_with_tools_checklist(self):
         pkg = _package(_pass_results(), extra=_tool_extra())
         review = prepare_filing_review(pkg, "pingu")
+        # The tool artifacts are real files (module temp
+        # dir), so their hashes are present and the review
+        # is eligible (P-7).
+        self.assertTrue(review["eligible"])
+        self.assertTrue(
+            review["eligibility"]["source_hashes_present"])
         by_item = {i["item"]: i
                    for i in review["checklist"]}
         latte = by_item["read_latte_report"]
@@ -420,6 +453,64 @@ class TestReviewIndependence(unittest.TestCase):
                 review, "Dev", "approved", "looks good",
                 reviewer_examined_evidence=True)
         self.assertIn("no operator", str(ctx.exception))
+
+
+class TestSourceHashGate(unittest.TestCase):
+    """P-7 (Phase 2 vote follow-up): the review binds to
+    evidence whose bytes were actually hashed. A null hash
+    — a missing source file, or a cited tool artifact whose
+    file is gone — makes the review ineligible, and the
+    existing decision gate refuses approval automatically."""
+
+    def test_hashes_present_eligible(self):
+        pkg = _package(_pass_results(), extra=_tool_extra())
+        review = prepare_filing_review(pkg, "pingu")
+        self.assertTrue(
+            review["eligibility"]["source_hashes_present"])
+        self.assertTrue(review["eligible"])
+
+    def test_missing_source_hash_blocks(self):
+        pkg = _package(_pass_results(), write_sources=False)
+        review = prepare_filing_review(pkg, "pingu")
+        self.assertFalse(
+            review["eligibility"]["source_hashes_present"])
+        self.assertFalse(review["eligible"])
+        blockers = review["eligibility"]["blockers"]
+        self.assertTrue(any("inputs.verdict_record" in b
+                            for b in blockers))
+        self.assertTrue(any("inputs.desk_natives" in b
+                            for b in blockers))
+        with self.assertRaises(ValueError) as ctx:
+            record_review_decision(
+                review, "Dev", "approved", "looks good",
+                reviewer_examined_evidence=True)
+        self.assertIn("source hash missing", str(ctx.exception))
+
+    def test_missing_artifact_hash_blocks(self):
+        missing = "/tmp/does-not-exist/DV_report.pdf"
+        pkg = _package(_pass_results(),
+                       extra=_tool_extra(latte_pdf=missing))
+        review = prepare_filing_review(pkg, "pingu")
+        self.assertFalse(
+            review["eligibility"]["source_hashes_present"])
+        self.assertFalse(review["eligible"])
+        blockers = review["eligibility"]["blockers"]
+        self.assertTrue(any(missing in b for b in blockers))
+        with self.assertRaises(ValueError) as ctx:
+            record_review_decision(
+                review, "Dev", "approved", "looks good",
+                reviewer_examined_evidence=True)
+        self.assertIn("source hash missing", str(ctx.exception))
+
+    def test_rejection_allowed_despite_missing_hash(self):
+        # The gate blocks APPROVAL, not rejection — a
+        # reviewer can still close a broken record.
+        pkg = _package(_pass_results(), write_sources=False)
+        review = prepare_filing_review(pkg, "pingu")
+        decided = record_review_decision(
+            review, "Dev", "rejected",
+            "Evidence incomplete — re-run the desk gauntlet.")
+        self.assertEqual(decided["status"], "rejected")
 
 
 if __name__ == "__main__":

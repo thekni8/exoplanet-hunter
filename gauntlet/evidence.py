@@ -21,14 +21,25 @@ it:
 * the hashes of the two source files
   (verdict_record.json, desk_natives.json) — a missing file
   hashes to null and is visible, never silently skipped;
+* the hashes of the actual external-tool ARTIFACTS (P-7) —
+  the LATTE report PDF, the TRICERATOPS probabilities CSV —
+  hashed from the files the tool results cite, not just the
+  JSON records that describe them. A cited artifact whose
+  file is gone hashes to null, and the 2E review gate
+  refuses to approve a package with a null hash (see
+  gauntlet/review.py: the review binds to evidence whose
+  bytes were actually hashed);
 * a completeness checklist — per-status counts, required
   stages that never ran, and the check_report_ready filing
   precondition (persistence + diffimg + blend pass; a
   waived candidate needs a second-eyes review marker).
 
 Built by build_evidence_package, validated against
-schema/evidence-schema.json before it is returned. The desk
-driver writes it as evidence_package.json next to
+schema/evidence-schema.json before it is returned. The
+builder NEVER raises for a missing file — a hash reads
+null and the gap is visible (the review gate, not the
+builder, is where a null hash blocks). The desk driver
+writes it as evidence_package.json next to
 verdict_record.json and desk_natives.json. 2E consumes it
 for the filing review.
 """
@@ -54,6 +65,28 @@ def _file_sha256(path):
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
     except OSError:
         return None
+
+
+def _tool_artifact_hashes(extra_evidence):
+    """sha256 of every external-tool artifact file (P-7).
+
+    The artifact paths come from the tool StageResults'
+    `artifacts` lists — the LATTE report PDF, the
+    TRICERATOPS probabilities CSV — and are hashed from
+    the files themselves, as given (absolute paths from
+    the tool run). A file that cannot be read hashes to
+    null: the builder never raises, and the null is what
+    the 2E review gate blocks on. Sorted by (tool, path)
+    so the package is deterministic.
+    """
+    tools = (extra_evidence or {}).get("external_tools") or {}
+    entries = []
+    for tool in sorted(tools):
+        for path in (tools[tool] or {}).get("artifacts") or []:
+            entries.append({"tool": tool, "path": path,
+                            "sha256": _file_sha256(path)})
+    entries.sort(key=lambda e: (e["tool"], e["path"]))
+    return entries
 
 
 def _scores(extra_evidence):
@@ -156,6 +189,8 @@ def build_evidence_package(tic, verdict, extra_evidence, workdir):
                 "path": "desk_natives.json",
                 "sha256": _file_sha256(
                     workdir / "desk_natives.json")},
+            "tool_artifacts": _tool_artifact_hashes(
+                extra_evidence),
         },
         "completeness": {
             "n_stages": len(results),

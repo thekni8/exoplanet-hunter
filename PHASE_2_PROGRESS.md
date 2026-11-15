@@ -490,6 +490,33 @@ bar pinned; LATTE REPORT_ONLY.
   the denylist is a tripwire against the lazy failure,
   not a guarantee.
 
+### P-7 — Evidence provenance: hash the actual artifacts
+
+- **Package hashes the files** (`inputs.tool_artifacts`,
+  new in the evidence schema): every path in the tool
+  StageResults' `artifacts` lists — the LATTE report
+  PDF, the TRICERATOPS probabilities CSV — hashed from
+  the file bytes, sorted by (tool, path). A file that
+  cannot be read hashes to null; the builder NEVER
+  raises for a missing file (that stays the rule).
+- **Null-hash block at the review gate:** `_eligibility`
+  gains `source_hashes_present` (new in the review
+  schema): both source files must hash non-null, AND
+  every artifact the record cites must appear in
+  `tool_artifacts` with a non-null hash — the coverage
+  check also catches a pre-P-7 package that never hashed
+  its artifacts. A null hash is a blocker, so
+  `record_review_decision` refuses approval
+  automatically (rejection still allowed). The driver
+  already writes verdict_record.json + desk_natives.json
+  before building the package, so real runs hash
+  present.
+- **Test fixtures now use real files:** the review
+  tests' tool artifacts live in a module temp dir (the
+  per-test tempdirs are deleted before the review is
+  prepared), and `_tool_extra` takes override paths so
+  the missing-artifact case is drivable.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):

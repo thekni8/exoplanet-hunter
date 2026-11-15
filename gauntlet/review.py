@@ -136,10 +136,39 @@ def _eligibility(package):
             # The missing/failed stage is already a blocker
             # above; do not double-report it.
             break
-    return (verdict_ok and all_ok and data_ok, {
+    # P-7: the review binds to evidence whose bytes were
+    # actually hashed. Every source file (verdict_record,
+    # desk_natives) must hash non-null, and every artifact
+    # the record cites (LATTE PDF, TRICERATOPS CSV) must
+    # appear in inputs.tool_artifacts with a non-null hash
+    # — a cited artifact whose file is gone, or a package
+    # built before P-7 that never hashed its artifacts,
+    # blocks approval. The builder never raises for a
+    # missing file; THIS gate is where a null hash blocks.
+    inputs = package.get("inputs") or {}
+    missing_hashes = []
+    for key in ("verdict_record", "desk_natives"):
+        if (inputs.get(key) or {}).get("sha256") is None:
+            missing_hashes.append(f"inputs.{key}")
+    hashed = {e.get("path")
+              for e in (inputs.get("tool_artifacts") or [])
+              if e.get("sha256")}
+    for _tool, result in \
+            (package.get("external_tools") or {}).items():
+        for path in (result or {}).get("artifacts") or []:
+            if path not in hashed:
+                missing_hashes.append(path)
+    source_hashes_present = not missing_hashes
+    if missing_hashes:
+        blockers.append(
+            "source hash missing for: "
+            + ", ".join(sorted(set(missing_hashes))))
+    return (verdict_ok and all_ok and data_ok
+            and source_hashes_present, {
         "verdict_is_candidate": verdict_ok,
         "all_stages_pass_or_waived": all_ok,
         "persistence_diffimg_blend_pass": data_ok,
+        "source_hashes_present": source_hashes_present,
         "waivers": list(verdict.get("waivers") or []),
         "blockers": blockers,
     })

@@ -255,6 +255,96 @@ class TestEvidencePackage(unittest.TestCase):
             # never files anything.
             self.assertTrue(comp["report_ready"])
 
+    def test_tool_artifacts_hashed_from_files(self):
+        # P-7: the package hashes the ACTUAL artifact files
+        # the tool results cite (LATTE PDF, TRICERATOPS CSV),
+        # not just the JSON records describing them.
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "DV_report.pdf"
+            csv = Path(tmp) / "triceratops_probs.csv"
+            pdf.write_bytes(b"%PDF-fake-latte-report")
+            csv.write_text("scenario,prob\nplanet,0.9968\n")
+            latte = latte_result({
+                "tool": "latte", "tool_version": "1.0.21",
+                "seed": 20261114, "config_hash": "c" * 64,
+                "status": "completed", "value": None,
+                "metrics": {"report_pdf": str(pdf),
+                            "output_dir": tmp,
+                            "latte_indir": tmp,
+                            "n_artifacts": 1},
+                "input_hashes": {"lightcurve": "a" * 64,
+                                 "neighbours": "b" * 64},
+                "artifacts": [str(pdf)],
+                "warnings": [], "wall_time_s": 123.0,
+                "n_transits": 7}).to_dict()
+            tri = triceratops_result({
+                "tool": "triceratops", "tool_version": "1.1.0",
+                "seed": 20261114, "config_hash": "c" * 64,
+                "status": "completed", "value": 0.0032,
+                "metrics": {"fpp": 0.0032, "nfpp": 0.0008,
+                            "prob_planet": 0.9968,
+                            "prob_eb_target": 0.0021,
+                            "prob_eb_neighbour": 0.0009,
+                            "prob_hierarchical_eb": 0.0002,
+                            "n_samples": 1000000,
+                            "most_likely_false_positive":
+                                "EB on TIC 999999999",
+                            "fpp_degenerate": False,
+                            "dilution_corrected": False,
+                            "contrast_curve_used": False},
+                "input_hashes": {"lightcurve": "a" * 64,
+                                 "neighbours": "b" * 64},
+                "artifacts": [str(csv)],
+                "warnings": [], "wall_time_s": 412.5,
+                "n_transits": 7}).to_dict()
+            verdict = _verdict(_pass_results())
+            _write_sources(tmp, verdict)
+            pkg = build_evidence_package(
+                "999999999", verdict,
+                {"external_tools": {"latte": latte,
+                                    "triceratops": tri}},
+                tmp)
+            arts = pkg["inputs"]["tool_artifacts"]
+            self.assertEqual(
+                [(a["tool"], a["path"]) for a in arts],
+                [("latte", str(pdf)),
+                 ("triceratops", str(csv))])
+            self.assertEqual(
+                arts[0]["sha256"],
+                hashlib.sha256(pdf.read_bytes()).hexdigest())
+            self.assertEqual(
+                arts[1]["sha256"],
+                hashlib.sha256(csv.read_bytes()).hexdigest())
+
+    def test_missing_artifact_hashes_null_without_raising(self):
+        # P-7: the builder never raises for a missing
+        # artifact file — the hash reads null and the gap is
+        # visible. (The 2E review gate is where a null hash
+        # blocks; see tests/test_review.py.)
+        with tempfile.TemporaryDirectory() as tmp:
+            latte = latte_result({
+                "tool": "latte", "tool_version": "1.0.21",
+                "seed": 20261114, "config_hash": "c" * 64,
+                "status": "completed", "value": None,
+                "metrics": {"report_pdf": "/tmp/nope/DV.pdf",
+                            "output_dir": "/tmp/nope",
+                            "latte_indir": "/tmp/nope",
+                            "n_artifacts": 1},
+                "input_hashes": {"lightcurve": "a" * 64,
+                                 "neighbours": "b" * 64},
+                "artifacts": ["/tmp/nope/DV.pdf"],
+                "warnings": [], "wall_time_s": 123.0,
+                "n_transits": 7}).to_dict()
+            verdict = _verdict(_pass_results())
+            _write_sources(tmp, verdict)
+            pkg = build_evidence_package(
+                "999999999", verdict,
+                {"external_tools": {"latte": latte}}, tmp)
+            arts = pkg["inputs"]["tool_artifacts"]
+            self.assertEqual(len(arts), 1)
+            self.assertEqual(arts[0]["tool"], "latte")
+            self.assertIsNone(arts[0]["sha256"])
+
     def test_schema_validation_direct(self):
         with tempfile.TemporaryDirectory() as tmp:
             verdict = _verdict(_pass_results())
