@@ -262,6 +262,53 @@ FAKE_TRI_WRAPPER = textwrap.dedent("""\
     """)
 
 
+# P-2 (Phase 2 vote follow-up): a TRICERATOPS wrapper whose
+# behaviour is selected by FAKE_TRI_MODE, so the verdict-
+# invariance test can drive every pathological tool outcome
+# through the real desk driver: a NaN FPP, an FPP above 1, a
+# hang past the timeout, malformed output JSON, and a crash.
+FAKE_TRI_MODES = textwrap.dedent("""\
+    import argparse, json, os, sys, time
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", required=True)
+    ap.add_argument("--output", required=True)
+    args = ap.parse_args()
+    inp = json.load(open(args.input))
+    mode = os.environ.get("FAKE_TRI_MODE", "clean")
+    if mode == "timeout":
+        time.sleep(30)
+    if mode == "crash":
+        sys.exit(3)
+    if mode == "malformed":
+        open(args.output, "w").write("this is not json")
+        sys.exit(0)
+    fpp = {"nan": float("nan"), "over_one": 1.5}.get(mode, 0.0032)
+    json.dump({
+        "tool": "triceratops", "tool_version": "1.1.0",
+        "seed": inp["seed"], "config_hash": inp["config_hash"],
+        "status": "completed", "value": fpp,
+        "metrics": {"fpp": fpp, "nfpp": 0.0008,
+                    "prob_planet": 0.9968,
+                    "prob_eb_target": 0.0021,
+                    "prob_eb_neighbour": 0.0009,
+                    "prob_hierarchical_eb": 0.0002,
+                    "n_samples": 1000000,
+                    "most_likely_false_positive":
+                        "EB on TIC 999999999",
+                    "fpp_degenerate": False,
+                    "dilution_corrected": False,
+                    "contrast_curve_used": False},
+        "input_hashes": {
+            "lightcurve": inp["lightcurve"]["input_hash"],
+            "neighbours": inp["neighbours"]["input_hash"]},
+        "artifacts": ["/tmp/fake/triceratops_probs.csv"],
+        "warnings": [],
+        "wall_time_s": 412.5,
+        "n_transits": inp["signal"]["n_transits"],
+    }, open(args.output, "w"))
+    """)
+
+
 class TestDeskExternalTools(unittest.TestCase):
 
     def _configs(self, tmp, python=sys.executable):
@@ -437,6 +484,83 @@ class TestDeskExternalTools(unittest.TestCase):
                           result.extra_evidence["latte_error"])
             self.assertNotIn("external_tools",
                              result.extra_evidence)
+
+
+class TestVerdictInvariance(unittest.TestCase):
+    """P-2 (Phase 2 vote follow-up): the verdict is invariant
+    to the tool outcome. The same clean-planet desk run is
+    driven once with no tools (baseline) and once per
+    pathological TRICERATOPS outcome — NaN FPP, FPP above 1
+    (a tool FAIL), a hang past the timeout, malformed output,
+    a crash — and the final verdict AND the verdict record's
+    stages must be identical every time. The per-mode tool
+    status is also asserted, so the test proves the modes
+    actually exercised distinct adapter paths rather than
+    silently skipping the tool."""
+
+    def _mode_configs(self, tmp, mode, timeout_s=30):
+        wrapper = Path(tmp) / "fake_tri_modes.py"
+        wrapper.write_text(FAKE_TRI_MODES)
+        os.environ["FAKE_TRI_MODE"] = mode
+        self.addCleanup(os.environ.pop, "FAKE_TRI_MODE", None)
+        return {"triceratops": ToolConfig(
+            tool="triceratops", python=sys.executable,
+            wrapper=str(wrapper), timeout_s=timeout_s,
+            memory_mb=2048, seed=20261114,
+            tool_version="1.1.0", config_hash="c" * 64)}
+
+    def _run_verdict(self, configs):
+        with tempfile.TemporaryDirectory() as wd:
+            result = run_desk_gauntlet(
+                _survivor(), wd, source=FakeDataSource(),
+                waivers={"pixel_check": "P 3.92 d < 8 d"},
+                external_tools=configs)
+            verdict = json.load(open(os.path.join(
+                wd, "verdict_record.json")))
+            return (result.run.final_verdict,
+                    verdict["stages"],
+                    result.extra_evidence)
+
+    @staticmethod
+    def _strip_provenance(stages):
+        # Provenance carries the run_id + timestamp, which
+        # differ between any two runs by design; everything
+        # else in a stage record (status, reason, value,
+        # details, metrics) is verdict-relevant content and
+        # must be identical.
+        return {name: {k: v for k, v in stage.items()
+                       if k != "provenance"}
+                for name, stage in stages.items()}
+
+    def test_verdict_invariant_across_tool_outcomes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base_verdict, base_stages, _base_extra = (
+                self._run_verdict(None))
+            self.assertEqual(base_verdict, "CANDIDATE")
+            # (mode, timeout_s, expected tool status,
+            #  expected execution status)
+            modes = [
+                ("nan", 30, "inconclusive", "completed"),
+                ("over_one", 30, "fail", "completed"),
+                ("timeout", 2, "unmeasured", "error"),
+                ("malformed", 30, "unmeasured", "error"),
+                ("crash", 30, "unmeasured", "error"),
+            ]
+            for mode, timeout_s, status, exec_status in modes:
+                configs = self._mode_configs(tmp, mode,
+                                             timeout_s)
+                verdict, stages, extra = self._run_verdict(
+                    configs)
+                with self.subTest(mode=mode):
+                    self.assertEqual(verdict, base_verdict)
+                    self.assertEqual(
+                        self._strip_provenance(stages),
+                        self._strip_provenance(base_stages))
+                    self.assertNotIn("triceratops", stages)
+                    tri = extra["external_tools"]["triceratops"]
+                    self.assertEqual(tri["status"], status)
+                    self.assertEqual(tri["execution_status"],
+                                     exec_status)
 
 
 class TestExternalToolSections(unittest.TestCase):

@@ -370,6 +370,22 @@ bar pinned; LATTE REPORT_ONLY.
   white noise; a null-star run on REAL TESS cutouts is still
   owed (real pixels share systematics).
 
+### P-2 — Verdict invariance under pathological tool outcomes
+
+- **Test** (`tests/test_desk_external_tools.py::
+  TestVerdictInvariance`): the same clean-planet desk run,
+  once with no tools (baseline) and once per TRICERATOPS
+  mode — NaN FPP, FPP 1.5 (a tool FAIL), hang past the
+  timeout, malformed output, crash. Final verdict AND the
+  verdict record's stages (provenance stripped — run_id /
+  timestamp differ by design) are identical in all six
+  runs; `triceratops` never appears in the verdict's
+  stages. The per-mode tool statuses are asserted too, so
+  the test proves the modes exercised distinct adapter
+  paths: NaN → inconclusive (grey zone — NaN fails both
+  policy comparisons), FPP 1.5 → fail (refute bar), the
+  three process failures → unmeasured + EXEC_ERROR.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):
