@@ -336,6 +336,40 @@ Test tally after 2E: 490 + 14 = **504** (499 offline +
   `standardize/phase-1` at 4acbc16. No push, no merge.
   Tree clean.
 
+## Vote follow-up (P-items) — 2026-11-15
+
+Branch rebased onto merged main f438a70 (mask-fix PR #2) with
+one conflict (`calibration/registry.json` — kept BOTH the
+bulk_v3 entry from main and the external_tools_v1 entry from
+2B-3). Smoke green on the rebased tip before the build
+(194/194). The vote was unanimous 3/3 GO WITH CHANGES; this
+section closes the changes (brief:
+`hidden_files/science-vet/phase2-vote/FOLLOWUP_BRIEF.md`).
+Tie-breaks honored, not relitigated: NO external_tools
+section in the verdict schema; F-8 uncertainty-aware, 0.30
+bar pinned; LATTE REPORT_ONLY.
+
+### P-1 — Pixel-check: population settled, null-star calibrated
+
+- **Code reading (from `gauntlet/pixel_check.py`):** the 3σ
+  brightening bar applies to the 3×3 aperture — **9 pixels**,
+  never the whole 15×15 cutout. Claude's "~1 in 4 clean
+  targets" is the correct arithmetic for 225 pixels
+  (one-sided 3σ over 225: 26.2% family-wise) and does not
+  apply to this code. For the 9-pixel population the nominal
+  one-sided 3σ false-fail rate is 1.2%, and the Šidák 1%
+  family-wise bar for 9 pixels is 3.06σ — the 3.0σ bar
+  already in place. No bar change was needed.
+- **Measured** (`tests/test_pixel_check.py::TestNullCalibration`,
+  fixed seeds, 300 nulls each): 5/300 (1.7%) false-fails on
+  clean targets with a real dip, 0/300 on pure-noise cubes —
+  both consistent with the nominal 1.2%. The tests bound the
+  rate at <5%: widening the tested set to the whole cutout
+  would read ~26% and fail loudly.
+- **Follow-up (not this build):** the synthetic rate assumes
+  white noise; a null-star run on REAL TESS cutouts is still
+  owed (real pixels share systematics).
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):

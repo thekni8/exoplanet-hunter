@@ -33,6 +33,25 @@ sigma / sqrt(n), the same factor as bulk/clean_refold_gate).
 The bars and the tested-pixel rule are judgment calls recorded
 in PHASE_2_PROGRESS.md for the Phase 2 vote.
 
+Vote follow-up P-1 (2026-11-15) settled the population the 3σ
+bar applies to, from this code: the tested set is the 3×3
+aperture — 9 pixels, never the whole 15×15 cutout (225
+pixels). The three reviewers reasoned about different
+populations; Claude's "~1 in 4 clean targets" is the correct
+arithmetic for 225 pixels (one-sided 3σ over 225: 26.2%
+family-wise) and does not apply here. For the 9-pixel
+population the nominal one-sided 3σ false-fail rate is 1.2%,
+and the Šidák 1%-family-wise bar for 9 pixels is 3.06σ —
+the 3.0σ bar already in place. Measured on synthetic null
+stars (tests/test_pixel_check.py::TestNullCalibration, fixed
+seeds): 5/300 (1.7%) false-fails on clean targets with a real
+dip, 0/300 on pure-noise cubes — both consistent with the
+nominal 1.2%. No code change to the bar was needed; the fix
+is this record + the calibration test. A null-star run on
+REAL TESS cutouts (not synthetic cubes) is still a follow-up:
+the synthetic rate assumes white noise, and real pixels share
+systematics.
+
 The P >= 8 d floor is a RUNNER rule (runner.py assigns
 NOT_APPLICABLE below it), not a tool rule — this module works
 at any period.

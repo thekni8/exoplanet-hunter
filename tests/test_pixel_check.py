@@ -96,5 +96,60 @@ class TestPixelCheck(unittest.TestCase):
         self.assertFalse(mask[0, 0])
 
 
+class TestNullCalibration(unittest.TestCase):
+    """P-1 (Phase 2 vote follow-up): the false-fail rate on
+    null stars. The 3-sigma brightening bar applies to the 9
+    tested pixels (the 3x3 aperture), so the nominal one-sided
+    false-fail rate is 1 - (1 - 0.00135)**9 ~= 1.2% — NOT
+    Claude's ~1-in-4, which is the correct arithmetic for a
+    225-pixel population this code does not test. These tests
+    measure the rate on synthetic nulls (fixed seeds, so the
+    counts are deterministic) and bound it well below 25%: if
+    anyone widens the tested set to the whole cutout, the rate
+    jumps to ~26% and this test fails loudly. Two populations:
+    pure noise (no dip anywhere) and clean targets (a real 3%
+    dip at the target pixel + noise elsewhere)."""
+
+    N = 300
+    NT = 2000
+    PERIOD, T0, DUR = 10.0, 5.0, 0.1
+    TARGET = (7, 7)
+
+    def _rate(self, with_dip, seed):
+        rng = np.random.default_rng(seed)
+        t = np.linspace(0, 27.0, self.NT)
+        ph = ((t - self.T0 + 0.5 * self.PERIOD) % self.PERIOD) \
+            - 0.5 * self.PERIOD
+        in_m = np.abs(ph) <= self.DUR / 2
+        fails = 0
+        for _ in range(self.N):
+            cube = 1000.0 + 10.0 * rng.standard_normal(
+                (self.NT, 15, 15))
+            if with_dip:
+                cube[in_m, self.TARGET[1], self.TARGET[0]] -= 30.0
+            res = pixel_check_native(
+                cube, t, self.PERIOD, self.T0, self.DUR,
+                self.TARGET)
+            if res["verdict"] == "fail":
+                fails += 1
+        return fails
+
+    def test_pure_noise_null_rate(self):
+        # Measured 2026-11-15: 0/300. Bound is 5% (15/300) —
+        # far above the nominal 1.2%, far below 25%.
+        fails = self._rate(False, 20261115)
+        self.assertLess(fails, 0.05 * self.N,
+                        msg=f"pure-noise false-fails: {fails}/"
+                            f"{self.N}")
+
+    def test_clean_target_null_rate(self):
+        # Measured 2026-11-15: 5/300 (1.7%), consistent with
+        # the nominal 1.2%. Same 5% bound.
+        fails = self._rate(True, 20261116)
+        self.assertLess(fails, 0.05 * self.N,
+                        msg=f"clean-target false-fails: {fails}/"
+                            f"{self.N}")
+
+
 if __name__ == "__main__":
     unittest.main()
