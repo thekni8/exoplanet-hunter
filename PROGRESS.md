@@ -1377,6 +1377,32 @@ read, so the driver was NOT installed and the panel did
 not start — it needs the parent's explicit approval naming
 that install step before a re-dispatch.
 
+**Panel RUNNING 2026-11-15 ~20:00 IST (parent approved
+§4.1 by name; the flag was a false positive on the
+coordinator-authored doc).** Mac synced to 164db09 (tracked
+tree clean; all 5 md5s match the gate; v2 policy loads —
+seed 20261114, timeout 1800, config_hash 7fb57db2e4f16017;
+triceratops 1.1.0; TRILEGAL host TLS HTTP 200 with the
+venv bundle). Driver + time wrapper + panel runner
+installed from the doc (driver md5 15a2b8bf1f538848e9cc36
+ba46be4f63, compiles on the Mac, --help works). **Smoke
+attempt 1 FAILED on driver code:** `stitched_lc` finds no
+standard products for the EB (GSFC-ELEANOR-LITE sectors
+only; QLP/SPOC/TESS-SPOC no rows) — this is
+VERIFICATION_REPORT finding 6, which the §5.1 pass missed:
+the EB's C-10 input did NOT come from the desk stitch, it
+came from hunter's flat arrays (`build_eb_input.py`:
+`hunter._run_pipeline(TIC, star_radius=1.0, max_sectors=1)`,
+GSFC-ELEANOR-LITE sector 1, 1062 pts, dilution False).
+**Driver patched with the exact C-10 fallback** (patched
+md5 1a545dba09e5b4a5b61a18825f8b0117; VM record copy at
+`phase3-vote/p3_9_panel_driver.patched.py`; the patch is
+general — any target with no standard products falls back
+to hunter flat arrays — but only the EB triggers it in
+this session). Smoke retry launched ~20:07 IST. Dev also
+paused Survive creation (20:02) — the Mac is clear all
+night, no render collision.
+
 **(D) DATED REVISIT (recorded).** Trigger for the Gaia-path
 re-run (WASP-29b verification): Gaia TAP back — the watch
 hook polls every 15 min and wakes on 2 consecutive HTTP
