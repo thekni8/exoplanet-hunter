@@ -927,6 +927,31 @@ def _fixture_lightcurve(tic_id, max_sectors):
     return lc, int(meta.get("n_sectors", 1))
 
 
+def _reader_dropped_rows(lc_collection):
+    """Rows lightkurve's reader dropped at read time, summed over
+    the downloaded products (DF-9).
+
+    Each downloaded product's lc.meta['QUALITY_MASK'] is the
+    boolean keep-mask over the ORIGINAL row count; len(lc) is
+    what survived the reader's bitmask. The difference is what
+    the reader removed before the pipeline ever saw the curve.
+    Products without the meta entry (readers that don't set it)
+    contribute 0 — their reader-dropped rows are then invisible
+    to the count, so n_masked is a LOWER BOUND on those stars
+    and the fraction's denominator is short by the same amount.
+    The post-download mask still applies to every surviving row,
+    so no unmasked row reaches BLS; only the count under-reports.
+    """
+    dropped = 0
+    for lc in lc_collection:
+        meta = getattr(lc, "meta", None) or {}
+        keep = meta.get("QUALITY_MASK")
+        if keep is None:
+            continue
+        dropped += max(0, len(keep) - len(lc))
+    return dropped
+
+
 def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
                   bls_points=25000, max_sectors=None, progress_callback=None,
                   detrend_window=101):
@@ -939,6 +964,17 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     """
     tic_id = str(tic_id).strip()
 
+    # DF-9 stamping (effect, not intent): what the quality mask
+    # DID on this star. _n_masked_reader counts the rows
+    # lightkurve's reader dropped at read time (live path only);
+    # _n_masked_post counts the rows _apply_quality_mask removed
+    # from the stitched curve; _n_pre_mask is the stitched
+    # length before the post-download mask. The pre-mask total
+    # is reader-drop + stitched length.
+    _n_masked_reader = 0
+    _n_masked_post = 0
+    _n_pre_mask = 0
+
     _fixture = _fixture_lightcurve(tic_id, max_sectors)
     lc_collection = None  # only bound on the live path; the cleanup
     # del below must not fail on the fixture path (Phase 1.1, item 4).
@@ -948,7 +984,9 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         # the deep_v2 seam carry no quality column and pass
         # through unchanged; fixtures WITH a q array are masked
         # exactly as the live path is.
+        _n_pre_mask = len(lc_raw)
         lc_raw = _apply_quality_mask(lc_raw)
+        _n_masked_post = _n_pre_mask - len(lc_raw)
         # Offline test data, not MAST products — marked as such so
         # a fixture result can never be mistaken for a live one.
         _input_identity = _prov.input_identity(
@@ -970,12 +1008,18 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
         n_sectors = len(lc_collection)
 
+        # DF-9: count the reader layer BEFORE stitching (the
+        # stitch does not preserve per-product meta).
+        _n_masked_reader = _reader_dropped_rows(lc_collection)
+
         # deep_v2: mask at pipeline input — BEFORE the NaN/outlier
         # cleaning, so flagged cadences never reach the detrend or
         # BLS (the bulk_v3 pattern: mask at screen input, not
         # after the search).
         lc_raw = lc_collection.stitch(corrector_func=_stitch_corrector)
+        _n_pre_mask = len(lc_raw)
         lc_raw = _apply_quality_mask(lc_raw)
+        _n_masked_post = _n_pre_mask - len(lc_raw)
         lc_raw = lc_raw.remove_nans().remove_outliers(sigma=5.0)
 
     # --- Float64 normalisation (Phase 1.2, item C-4; shared
@@ -1378,6 +1422,21 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # never runs, t/f are still the pass-1 arrays.
     _input_identity["bls_input_hash"] = _prov.bls_input_hash(t, f)
 
+    # DF-9: what the mask DID on this star. n_masked is the SUM
+    # of the reader layer and the post-download layer (the two
+    # layers partition the removed rows: the reader drops its
+    # rows before the stitch, the post-download mask drops its
+    # rows from the stitched curve — no row is counted twice).
+    # The pre-mask total is the reader-drop plus the stitched
+    # length before the post-download mask. quality_mask_applied
+    # is the ACTIVE profile's mask at run time (17087 under a
+    # deep_v1 comparison, 1610629823 under deep_v2).
+    _n_masked = _n_masked_reader + _n_masked_post
+    _n_pre_mask_total = _n_masked_reader + _n_pre_mask
+    _flagged_fraction = (
+        _n_masked / _n_pre_mask_total if _n_pre_mask_total else 0.0
+    )
+
     full = {
         "TIC": tic_id,
         "Period": best_period,
@@ -1390,6 +1449,13 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         "Star_Radius_Rsun": float(star_radius),
         "Sectors_Analyzed": int(n_sectors),
         "Total_Points": int(len(lc_raw)),
+        # DF-9: the mask's effect on this star, stamped on the
+        # record alongside the calibration version that declares
+        # the mask.
+        "calibration_version": CALIBRATION_VERSION,
+        "quality_mask_applied": int(QUALITY_MASK),
+        "n_masked": int(_n_masked),
+        "flagged_fraction": float(_flagged_fraction),
         # Layer 2 provenance (A-2): which inputs this result was
         # computed from (MAST products / fixture, BLS input hash).
         "input_identity": _input_identity,
@@ -1541,6 +1607,10 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "host_radius_solar": full["Star_Radius_Rsun"],
             "sectors_analyzed": full["Sectors_Analyzed"],
             "total_points": full["Total_Points"],
+            "calibration_version": full.get("calibration_version"),
+            "quality_mask_applied": full.get("quality_mask_applied"),
+            "n_masked": full.get("n_masked"),
+            "flagged_fraction": full.get("flagged_fraction"),
             "input_identity": full.get("input_identity", {}),
             "candidates": full.get("Candidates", []),
             "refined_signals": full.get("refined_signals", []),

@@ -282,6 +282,49 @@ class TestDeepQualityMaskPipeline(DeepCalibrationGuardCase):
             self.assertGreaterEqual(r["SDE"], hunter.HIT_SDE,
                                     msg=cal)
 
+    def test_stamp_on_flagged_fixture(self):
+        # DF-9: the record stamps what the mask DID — the applied
+        # mask integer, the rows it removed, and the flagged
+        # fraction — verified against a hand count of the
+        # fixture's own quality array. The stamp follows the
+        # ACTIVE profile: under v1 the bit-30 cadences survive
+        # and n_masked is 0; under v2 they are removed.
+        _t, _f, q = _make_fixture(
+            self._td.name, "900000007",
+            period=WASP29B_PERIOD, depth=0.02, flag_bit=30)
+        n_v2 = int(((q & qf.DEEP_V2_MASK) != 0).sum())
+        n_v1 = int(((q & qf.DEEP_V1_MASK) != 0).sum())
+        self.assertGreater(n_v2, 0)
+        self.assertEqual(n_v1, 0)
+        v2 = self._run("900000007", "deep_v2")
+        self.assertEqual(v2["quality_mask_applied"], 1610629823)
+        self.assertEqual(v2["calibration_version"], "deep_v2")
+        self.assertEqual(v2["n_masked"], n_v2)
+        self.assertAlmostEqual(v2["flagged_fraction"],
+                               n_v2 / len(q), places=6)
+        v1 = self._run("900000007", "deep_v1")
+        self.assertEqual(v1["quality_mask_applied"], 17087)
+        self.assertEqual(v1["calibration_version"], "deep_v1")
+        self.assertEqual(v1["n_masked"], 0)
+        self.assertEqual(v1["flagged_fraction"], 0.0)
+        # The JSON metrics carry the same stamp.
+        metrics = hunter.full_result_to_json_dict(v2)["metrics"]
+        self.assertEqual(metrics["quality_mask_applied"],
+                         1610629823)
+        self.assertEqual(metrics["n_masked"], n_v2)
+        self.assertAlmostEqual(metrics["flagged_fraction"],
+                               n_v2 / len(q), places=6)
+
+    def test_stamp_on_clean_fixture(self):
+        # DF-9: sane values on a clean fixture — nothing masked,
+        # fraction 0.0, the v2 mask still stamped.
+        _make_fixture(self._td.name, "900000008",
+                      period=WASP29B_PERIOD, depth=WASP29B_DEPTH)
+        r = self._run("900000008", "deep_v2")
+        self.assertEqual(r["quality_mask_applied"], 1610629823)
+        self.assertEqual(r["n_masked"], 0)
+        self.assertEqual(r["flagged_fraction"], 0.0)
+
 
 class TestGauntletMaskGates(unittest.TestCase):
     """Through the real gauntlet gates (M-8 fixes)."""
