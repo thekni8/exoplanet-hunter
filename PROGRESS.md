@@ -349,3 +349,149 @@ Grep 2026-11-15 for `quality == 0`, `"default"`, `175`,
 - The remaining 91 NEW v2 survivors (tier B/C + near-systematic)
   are very likely the same artifact class; v3 should kill most
   of them at screen time.
+
+---
+
+# Deep-pipeline quality-mask fix (deep_v2) — progress record
+
+Branch `fix/deep-quality-mask`, off origin/main edbbc61 (after the
+PR #4 live-timeout merge). Dev's go 2026-11-15 ~10:00 IST.
+No PR, no merge — the parent reviews and decides on a vote first.
+
+## The exposure (M-11, verified 2026-11-15)
+
+`hunter.py` downloads through lightkurve with no explicit
+`quality_bitmask`, so lightkurve's reader defaults apply. For QLP
+files, `read_qlp_lightcurve` with quality_bitmask="default" =
+17087 → bits 29/30 are KEPT (lightkurve only adds the QLP 2^30
+flag under "hard"/"hardest", and never 2^29). Verified against
+the installed lightkurve 2.6.0 during this build: the readers
+REMOVE default-flagged rows at read time and keep the QUALITY
+column on the survivors — so a post-download mask on the
+surviving quality values is exactly the right placement. For
+SPOC 2-min products, bits 29/30 don't exist (16-bit QUALITY).
+Conclusion: the deep pipeline IS exposed to the flagged-cadence
+artifact class for QLP targets — the majority, since SPOC 2-min
+covers only ~10^5 stars/sector and the deep pipeline falls back
+to QLP.
+
+## Design
+
+Mirrors bulk_v3 (PR #2), adapted to the deep pipeline's shape:
+
+- **Named masks** (`quality_flags.py`): `DEEP_V1_MASK` (17087)
+  and `DEEP_V2_MASK` (1610629823 = default + QLP bits 29/30,
+  the same integer as `BULK_V3_MASK`, pinned under its own name
+  so the deep drift test pins it). Bit 11 and bit 12 stay out
+  (TOI-700 c lesson; 2026-11-15 vote 2/3 against bit 11).
+- **Profile** (`calibration/deep_v2.yaml`): every deep_v1
+  threshold carried over unchanged + `quality_mask: 1610629823`,
+  status + rationale. Registered (supersedes deep_v1). README
+  table updated.
+- **hunter.py**: `CALIBRATION_VERSION = "deep_v2"` (the fix is
+  the default — the deep pipeline runs per-target on demand,
+  so unlike the bulk screen there is no in-flight v1 run to
+  protect) and `QUALITY_MASK`, with `set_calibration(name)`
+  mirroring bulk_screen's seam (deep_v1 = 17087 for sensitivity
+  comparisons). `_apply_quality_mask(lc)` drops rows carrying
+  ANY masked bit; a curve without a `quality` column passes
+  through unchanged.
+- **Placement** (mask at input, before detrend/BLS):
+  - `_run_pipeline` live path: stitch → mask → remove_nans /
+    remove_outliers.
+  - `_run_pipeline` fixture path: mask right after the fixture
+    binds (fixtures WITH a q array are masked exactly as the
+    live path is).
+  - `_fetch_stitched`: per-curve mask BEFORE normalise —
+    `normalise_lightcurve` rebuilds a time/flux/flux_err curve
+    and drops the quality column, so masking after it would
+    no-op.
+  - The fixture seam gains an optional `q` array (backward
+    compatible: existing fixtures have no q array and build
+    exactly as before; the mask no-ops on them). This is what
+    makes the mask testable offline through the real path.
+- **Gauntlet** (M-8): `load_tpf` and `download_author` used
+  `quality == 0` literally, so a genuine bit-12 transit lost
+  its in-transit cadences from the pixel work and read
+  RAW-REFUTED in the raw-flux tiebreaker. Both now take a
+  `quality_mask` parameter defaulting to the deep_v2 mask:
+  "clean" = kept by the pipeline's mask (the M-2 lesson
+  applied to the deep pipeline's gauntlet). TPFs are SPOC
+  products (16-bit QUALITY), so bits 29/30 never appear there
+  — the mask's effect on a TPF is the SPOC default plus the
+  bit-12 keep.
+- **Out of scope (noted, not fixed)**: the gauntlet's other
+  download sites (`gauntlet/desk.py`, `gauntlet/neighbour_fold.py`,
+  `gauntlet/tesscut_fetch.py`) use lightkurve defaults and do not
+  filter on quality==0 — they don't have the bit-12 bug, but
+  they also don't mask 29/30. A follow-up if the vote wants it.
+
+## Commits
+
+- ab1534c Name the deep-pipeline quality masks (deep_v2 prep)
+- 5e1da67 Add the deep_v2 calibration profile (quality-mask fix)
+- ef5f0e8 Mask bits 29/30 at deep-pipeline input (deep_v2)
+- 960923b Gauntlet 'clean' = kept by the pipeline's mask (M-8)
+- 75a1fe5 Deep-v2 regression tests: artifact dies, bit-12 survives
+- a660ab2 hunter: raise CalibrationError for a bad mask (bulk parity)
+- f2ef631 registry: keep existing entries byte-identical
+
+## Tests
+
+- `tests/test_deep_quality_mask.py` (8 tests, ~91 s): the real
+  `_run_pipeline` through the fixture seam — a bit-30-only
+  artifact is a hit under deep_v1 (SDE >= 8.5 at the injected
+  period) and not a hit under deep_v2; a bit-12 transit and a
+  clean WASP-29b-equivalent transit are hits under both.
+  Unit tests pin `_apply_quality_mask` directly. The gauntlet
+  gates run through the real functions: `download_author` with
+  a mocked MAST download (a bit-12 transit measures in raw
+  flux under the new default, vanishes under old quality==0
+  semantics) and `load_tpf` with a stubbed `lk.read` (bit-12
+  cadences kept, bit-30 dropped).
+- `tests/test_calibration.py`: deep_v2 values + carry-over +
+  drift test against hunter's constants + set_calibration seam.
+- `tests/test_quality_flags.py`: DEEP mask pins + straylight
+  bits out of deep_v2.
+
+## Sensitivity re-measurement (deep M-6 mirror)
+
+Script: `bulk/inject_deep_real_s96.py` — the same six M-6
+hosts, same two trials (A: 2.0% @ 5.123 d; B: 1.0% @ 3.317 d),
+the REAL deep pipeline via the fixture seam, deep_v1 vs deep_v2.
+Recovery = headline Period within 1% AND SDE >= 8.5.
+
+Results: (to be filled in when the run completes)
+
+**MEASURED 2026-11-15 ~10:35 IST** (697 s, 6 stars x 2 trials
+x 2 calibrations; full table in
+`bulk/inject_deep_real_s96_summary.json`):
+
+- deep_v1: **0/12** recovered. deep_v2: **7/12** recovered.
+- The v1 story is NOT false positives: on 5 of 6 hosts the
+  unmasked pipeline's BLS periodogram is degenerate (SDE NaN,
+  period pinned at the 25 d search ceiling) — it finds nothing
+  at all. On the 6th (382069441) it finds a ~12.9 d systematic
+  at SDE 29-38. The bit-29/30 cadences don't just add
+  artifacts; on heavily-flagged hosts (9-30% flagged) they
+  destroy the pipeline's sensitivity outright. The v1-vs-v2
+  difference is the mask alone: same fixture, same code path.
+- Two of the five v2 misses are harmonic aliases of the
+  injected signal — 31852076 trial A lands on the 3:2 alias
+  (7.683 d, SDE 25.5, right depth), 382069441 trial A on the
+  2:1 alias (10.246 d, SDE 13.0). Counting aliases as
+  detections, v2 detects 9/12.
+- 231852754 is a host-property limit, not a mask failure: the
+  star's own ~6% dips at 5.78 d dominate BLS under both masks
+  (v2 finds them at SDE ~40; v1 finds nothing).
+- 382069441 trial B under v2 finds P=10.864 d at SDE 19.2 —
+  not a harmonic of the injected 3.317 d; likely the star's own
+  variability or a window-function alias after 29.5% of
+  cadences are masked. Unresolved — a vote question if the
+  reviewers want it chased (it is a 29%-flagged host, not a
+  typical one).
+- Pin test: `tests/test_inject_deep_real_s96.py` (2 tests,
+  ~50 s) pins trial B on 31852076 — v1 not recovered, v2
+  recovered (P=3.3165, SDE 48.1 measured) — reusing the
+  committed bulk substrate, no duplicate fixture. Trial A is
+  deliberately NOT pinned (3:2 alias, see above).
