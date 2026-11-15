@@ -1493,10 +1493,13 @@ extracted) is still owed, as is the scheduling itself
 (cron/launchd + caffeinate; the job must be LOUD on
 failure — non-zero exit + issue + FAILURE marker).
 
-## P3-2 — DF-19: historical RAW-REFUTED re-runs — MAC JOB RUNNING 2026-11-15, overlap-4 closed
+## P3-2 — DF-19: historical RAW-REFUTED re-runs — DONE 2026-11-15
 
-**Overlap-4 CLOSED 2026-11-15 ~17:20 IST: 0 revived, 0 unmeasured —
-§3 batch (25 TICs) running on the Mac, ETA ~19:50 IST.**
+**DF-19 COMPLETE 2026-11-15 ~19:35 IST: 29/29 measured, 5
+revived (3 EB + 2 REFUTED), 24 not-revived, 0 UNMEASURED, 0
+planets.** Overlap-4 CLOSED ~17:20 IST: 0 revived, 0
+unmeasured — §3 batch (25 TICs) ran detached on the Mac
+17:21–19:35 IST (2h14m, ~5.4 min/TIC).
 `phase3-vote/df19-mac-commands.md`
 (432 lines): the 29 TICs whose historical desk verdict is
 RAW-REFUTED, re-run under the fixed gauntlet (mask-consistent
@@ -1541,21 +1544,47 @@ natives + logs copied to `phase3-vote/df19-results/`):
 | 382256433 | fail, n_in=0, n_ev=0 | fail, −0.0109% @ −0.51σ, 37 ev | NOT REVIVED |
 
 Per-TIC wall ~5–7 min (download-bound; MAST fetch of all
-sectors × 4 authors dominates). §3 runs as the doc's
+sectors × 4 authors dominates). §3 ran as the doc's
 sanctioned detached batch (`df19_rest.sh`, 25 commands
 verified byte-identical to the doc's §3 block, `nohup
-caffeinate -s -i`, pid 29348, launched 17:21 IST). Note:
+caffeinate -s -i`, pid 29348, launched 17:21 IST).
 `df19_rest.sh` is NOT gitignored on the Mac despite the
-doc's claim — it shows as untracked; delete it from the Mac
-repo root after the batch completes. Priors recorded in the
-doc: the 18 flagged-cadence artifacts are expected
-not-revived; the 4 amplified weak dips carry a small real
-clean dip (a pass there revives a weak dip, not a planet);
-272431317 is already superseded (a period error, closed as
-an EB); 300384822's sector (1) is inferred from its t0 epoch
-and its T0 differs between the cluster matrix and
-rawflux_results.json (the commands use the rawflux value).
-§3 outcomes land here when the batch returns.
+doc's claim — it showed as untracked; deleted from the Mac
+repo root after the batch, with the two VM-side helper
+scripts (`df19_extract.py`, `df19_revived_stages.py`).
+
+**§3 outcomes (25 TICs): 5 REVIVED, 20 not-revived, 0
+UNMEASURED.** The 5 revivals are revivals of the SIGNAL
+(real persistent dips the quality==0 bug hid), NOT planets:
+
+| TIC | clean | raw | final | what killed it / what it is |
+|---|---|---|---|---|
+| 231852754 | 1.639% @ 64.3σ, 6 ev | 3.055% @ 293σ | EB | shape (density) + odd/even 4.9σ; persistence PASS; refined P 5.7777852 d |
+| 234510264 | 1.593% @ 21.1σ, 5 ev | 0.050% @ 3.6σ | REFUTED | persistence MIXED + odd/even 4.1σ; refined P 6.2965021 d |
+| 237911080 | 0.303% @ 26.7σ, 31 ev | 1.026% @ 162σ | EB | blend FAIL — neighbour same dip at 281.2σ, 5.7× depth (photocopy of the known EB on TIC 237911081); shape + odd/even 21.5σ also fail |
+| 272431317 | 0.866% @ 21.4σ, 13 ev | 0.612% @ 85.4σ | EB | shape (density); refined P 3.0113126 d matches the §5 prior P′ = 3.0113021 d — the known S98 EB, revived exactly as predicted |
+| 307433122 | 8.669% @ 228σ, 3 ev | 0.106% @ 12.4σ | REFUTED | persistence MIXED + shape; the harmonic alias, as §5 predicted |
+
+The 20 not-revived §3 TICs are all `final_verdict`
+REFUTED, all clean_refold fail ("signal lives only in
+flagged cadences"); 8 of them carry a raw_flux pass (a raw
+dip with zero clean in-transit cadences — flagged-cadence
+signal only). Full per-TIC table:
+`phase3-vote/df19-results/df19-extraction-2026-11-15.txt`;
+all 29 verdict records + natives + evidence packages +
+logs + stage-0 censuses in `phase3-vote/df19-results/`
+(29 dirs, 12 MB; the downloaded light-curve caches were
+trimmed from the VM copies — the Mac retains the full
+workdirs). **DF-19's answer: the bug hid 5 real persistent
+signals, all EB or refuted; 0 planets. "0 planets" stands.**
+Priors recorded in the doc: the 18 flagged-cadence
+artifacts were expected not-revived; the 4 amplified weak
+dips carry a small real clean dip (a pass there revives a
+weak dip, not a planet); 272431317 was already superseded
+(a period error, closed as an EB); 300384822's sector (1)
+is inferred from its t0 epoch and its T0 differs between
+the cluster matrix and rawflux_results.json (the commands
+use the rawflux value).
 
 ## P3-3 — DF-18: TIC 382069441 trial B triage — DONE 2026-11-15
 
