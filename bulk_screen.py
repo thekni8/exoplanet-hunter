@@ -162,6 +162,7 @@ from mad_clip import PROFILE_OPTIONS as _CLIP_PROFILE_OPTIONS
 from mad_clip import ALL_OPTIONS as _CLIP_ALL_OPTIONS
 from mad_clip import mad_clip_mask as _mad_clip_mask
 import ingest as _ingest
+import search_health as _search_health
 from validation import validate_survivor as _validate_survivor
 
 # Thresholds — loaded from the versioned calibration profile
@@ -1038,6 +1039,20 @@ def _screen_one(args):
                         product_ids=[Path(path).name],
                         sectors=[int(sector)], author=PRODUCT,
                         bls_input_hash=bls_hash)})
+        # P3-1 (DF-20): periodogram health check. A degenerate
+        # search records SEARCH_INVALID and returns here — it is
+        # never a survivor, never a "below_floor" valid search,
+        # and never enters a training or calibration dataset.
+        # BOUNDARY_LIMITED searches continue normally (P3-14
+        # dispositions them); the 20 d edge holds legitimate
+        # single dips.
+        _health, _health_reason = _search_health.assess_periodogram(
+            pw, pv, i, sde, SYSTEMATIC_PERIODS, RECORD_FLOOR_SDE)
+        rec["search_health"] = _health
+        rec["search_health_reason"] = _health_reason
+        if _health == _search_health.SEARCH_INVALID:
+            rec["status"] = "search_invalid"
+            return rec
         # (M-4 fields are attached below, after the record floor:
         # a below-floor record has no detection, so its BLS argmax
         # is a noise peak and an "in-transit flagged fraction" at
@@ -1153,7 +1168,8 @@ _EMIT_KEYS = ("tic", "period_days", "t0_btjd", "duration_hours",
               "depth_percent", "sde", "sector", "product", "ra", "dec",
               "tmag", "radius_rsun", "flags", "odd_even_ratio",
               "secondary_depth_percent", "near_systematic", "control",
-              "status", "known_source", "alt_peaks", "mes_pink",
+              "status", "search_health", "search_health_reason",
+              "known_source", "alt_peaks", "mes_pink",
               "cdpp_pct", "n_events", "n_strong_events",
               "max_event_snr", "v_ratio", "tier", "input_identity",
               "flagged_in_transit_frac", "unmasked_bits_in_transit")

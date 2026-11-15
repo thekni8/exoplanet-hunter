@@ -1123,3 +1123,95 @@ The claims ledger (§7 format) closes the section.
   tier. `python -m unittest tests.test_deep_mask_live` →
   1 PASS (14.8 s); lightkurve confirms 3,212/10,819 masked.
   In DOWNLOAD_TESTS; offline suite gains no network.
+
+# Phase 3 vote follow-ups (P3-items) — 2026-11-15
+
+Phase 3 as re-scoped by the unanimous 3/3 GO WITH CHANGES vote
+(2026-11-15). Spec: `hidden_files/science-vet/phase3-vote/
+FOLLOWUP_BRIEF.md` (P3-1…P3-22, the work order) +
+`COMPARISON.md` (tie-breaks TB-1…TB-13, decided). Branch
+`standardize/phase-3`, base origin/main `004f0c7`. Baseline
+smoke at 004f0c7: 199 tests, OK (146 s).
+
+Build order: 3E + DF-19 first (in parallel) → data hygiene
+(DF-18, DF-17, close 3 inconclusives, claims corrections) →
+3C-minimum + 3D(A) → injection campaign + 3B bulk_v4 → 3D
+panel/spike → 3A experimental → S97 validation after freeze.
+P3-20 checkpoint after P3-15: the post-3B queue size goes to
+the parent, and the 3A work (P3-16–P3-19) + P3-21 pause for
+the parent's decision.
+
+WASP-29b standard (hard rule): Phase 3 is NOT measured by
+candidates eliminated — known planets retained, contaminated
+detections removed, demonstrated on unseen sectors.
+
+## P3-1 — 3E health check (DF-20) — DONE 2026-11-15
+
+New module `search_health.py`: the shared vocabulary
+(SEARCH_INVALID / BOUNDARY_LIMITED / VALID_NO_DETECTION /
+VALID_DETECTION; survivor dispositions PERIODIC_CANDIDATE /
+SINGLE_EVENT / BELOW_THRESHOLD / SINGLE_TRANSIT_POOL /
+GRID_EDGE_REJECT, shared with P3-14) and
+`assess_periodogram()` — empty periodogram, non-finite
+powers, non-finite SDE at peak, degenerate noise floor, peak
+at grid edge, in that order. BOUNDARY_LIMITED is its own
+disposition, not invalid (TB-10).
+
+Key design correction during the build: the degenerate check
+is ABSOLUTE (noise-floor scale <= 1e-12), not exact-zero
+variance. BLS on constant flux does NOT produce exactly-zero
+powers — the detrend leaves ~1e-13 floating-point residue,
+BLS turns it into ~1e-27 powers, and the scale-invariant SDE
+amplifies them to a max SDE of 44.4 (measured 2026-11-15),
+above the deep HIT_SDE. An exact-zero check missed it (the
+first bulk test came back "demoted", not "search_invalid").
+Measured scale separation: pure noise 0.3% -> 1.6e-05; pure
+noise 0.01% (quieter than any real TESS star) -> 1.7e-08;
+WASP-29b-like -> 3.1e-05; constant flux -> 2.1e-27. 1e-12
+sits 4+ orders below the quietest plausible real floor and
+15 orders above the floating-point case. The threshold MUST
+match the 1e-12 fallback scale in hunter._sde_scale and
+bulk_screen._robust_sde.
+
+Wiring:
+- hunter.py: `_bls_best` returns health as a 9th element,
+  assessed on the COARSE periodogram before the extraction
+  loop mutates it; `full` + JSON metrics carry
+  search_health / search_health_reason / pass1_search_health
+  / pass2_search_health (adopted pass's health is the
+  record's); classification is "Search Invalid" when health
+  is SEARCH_INVALID; TLS rescue skipped on a degenerate
+  search (a rescue on degenerate data is not evidence).
+- api.py: both hit gates (analyze + sweep) also require
+  health != SEARCH_INVALID — a degenerate search with a
+  1e-12-fallback huge SDE can no longer record a discovery.
+- bulk_screen.py: `_screen_one` assesses health right after
+  the BLS argmax; SEARCH_INVALID returns early as status
+  `search_invalid`, before the alt peaks and the record
+  floor. BOUNDARY_LIMITED searches continue normally (P3-14
+  dispositions them). `search_health` /
+  `search_health_reason` added to _EMIT_KEYS.
+- bulk/run_chunked.py: `search_invalid` added to
+  SCREEN_STATUSES. schema/survivor-schema.json: status enum
+  + `search_health` (enum) / `search_health_reason`
+  properties; additive only, no version bump (M-4 pattern:
+  absent on pre-P3-1 records). Verified by parsed-JSON
+  diff: only the enum + 2 properties changed.
+- log_candidate columns untouched (the DF-17 census reads
+  discoveries.csv).
+
+Tests: `tests/test_search_health.py`, 18 tests — 13
+assess_periodogram unit tests (incl. Claude's 1e-12
+fallback case: a systematic-family peak on a zero-variance
+floor with SDE 4e12 is still SEARCH_INVALID; the
+floating-point-scale case at SDE 44.4; the quiet-real-floor
+guard at 1.7e-08), 2 bulk integration (constant flux ->
+search_invalid; pure noise -> VALID_NO_DETECTION /
+below_floor), 3 deep integration through the fixture seam
+(constant flux -> SEARCH_INVALID + "Search Invalid"
+classification; signal at P = max_p exactly -> BOUNDARY_
+LIMITED; WASP-29b-equivalent -> VALID_DETECTION, SDE >= 8.5).
+
+Evidence: `python -m unittest tests.test_search_health` ->
+18 tests, OK (unit+bulk 0.9 s, deep 42 s). Smoke after the
+item: 199 tests, OK (91 s).

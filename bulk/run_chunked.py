@@ -197,7 +197,7 @@ def _checkpoint_path():
 # timeout is data, not a dropped star.
 SCREEN_STATUSES = frozenset({
     "survivor", "recorded", "demoted", "below_floor",
-    "too_few_points", "error", "unmeasured"})
+    "too_few_points", "error", "unmeasured", "search_invalid"})
 
 # Maximum unmeasured fraction of searched stars (F-13): a run
 # that timed out on more than 5% of its stars FAILS, like a

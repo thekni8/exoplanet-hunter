@@ -132,6 +132,7 @@ from astroquery.mast import Catalogs
 import provenance as _prov
 import ingest as _ingest
 import netbound as _net
+import search_health as _search_health
 from calibration import CalibrationError as _CalibrationError
 from calibration import load_profile as _load_profile
 from quality_flags import DEEP_V2_MASK as _DEEP_V2_MASK
@@ -1216,9 +1217,11 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
 
     def _bls_best(tt, ff):
         """BLS v2 -> (res, period, depth, duration, t0, sde, candidates,
-        refined_signals). candidates and refined_signals are both the
+        refined_signals, health). candidates and refined_signals are both the
         top-3 refined DISTINCT signals (same list at this stage; they
-        diverge later only because TLS rescue prepends to candidates)."""
+        diverge later only because TLS rescue prepends to candidates).
+        health is the (status, reason) pair from search_health
+        (P3-1 / DF-20), assessed on the COARSE periodogram."""
         # F-4 tripwire: BLS must never see a float32 array.
         _ingest.assert_float64(tt, ff, "BLS entry (_bls_best)")
         _bls = BoxLeastSquares(tt * u.day, ff)
@@ -1227,6 +1230,16 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         _pw = np.asarray(_res.power, dtype=float)
         _med, _scale = _sde_scale(_pw, _pv)
         _work = (_pw - _med) / _scale
+
+        # P3-1 (DF-20): periodogram health check, assessed on the
+        # COARSE periodogram BEFORE the extraction loop mutates
+        # _work. A degenerate search records SEARCH_INVALID and
+        # must never pass as a valid search (deep_v1's unmasked
+        # BLS went NaN on flagged hosts and read as "no hit").
+        _peak_i = int(np.argmax(_work))
+        _health = _search_health.assess_periodogram(
+            _pw, _pv, _peak_i, float(_work[_peak_i]),
+            _SYSTEMATIC_PERIODS, HIT_SDE)
 
         def _refine_one(_cand):
             """Refine one candidate on the fine local grid (+/-1.5%,
@@ -1339,10 +1352,10 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         _head = _cands[_head_idx]
         return (_res, _head["period"], _head["depth"], _head["duration"],
                 _head["t0"], _head["sde"], _cands,
-                [dict(_c) for _c in _cands])
+                [dict(_c) for _c in _cands], _health)
 
     (res, best_period, best_depth, best_duration, t0, sde, candidates,
-     refined_signals) = _bls_best(t, f)
+     refined_signals, pass1_health) = _bls_best(t, f)
 
     # --- Depth-recovery pass (2026-11-03 depth fix) -----------------------
     # Autopsy on WASP-126 b (DEPTH_FIX_REPORT.md): lightkurve's flatten
@@ -1365,6 +1378,10 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     pass2_sde = None
     pass2_gate_failed = False
     sde_jump_flag = False
+    # P3-1: per-pass search health; pass2_health is None when pass 2
+    # never ran. The ADOPTED pass's health is the record's health.
+    pass2_health = None
+    _pass2_adopted = False
     _gate_raw_depth_pct = None
     _gate_raw_signif = None
     # Set only when the >50% mask guard blocks pass 2 outright, so the
@@ -1393,8 +1410,9 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
             _t2 = _lc2.time.value
             _f2 = _lc2.flux.value
             (_res2, _per2, _dep2, _dur2, _t02, _sde2,
-             _cand2, _ref2) = _bls_best(_t2, _f2)
+             _cand2, _ref2, _health2) = _bls_best(_t2, _f2)
             pass2_sde = float(_sde2)
+            pass2_health = _health2
             sde_jump_flag = bool(pass2_sde >= 2.0 * pass1_sde)
             # --- Raw-flux gate: the pass-2 ephemeris must show a real
             # dip in the UNFLATTENED flux before it may replace pass 1
@@ -1417,6 +1435,7 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
                 candidates = _cand2
                 refined_signals = _ref2
                 lc_flat, trend, t, f = _lc2, _trend2, _t2, _f2
+                _pass2_adopted = True
             else:
                 pass2_gate_failed = True
                 _emit(progress_callback,
@@ -1442,6 +1461,14 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
               f"{_mask_frac * 100.0:.0f}% of the curve, > 50%); "
               "keeping pass-1 result.")
 
+    # P3-1 (DF-20): the adopted search's health is the record's
+    # health — pass 2's when pass 2 was adopted, else pass 1's.
+    # A SEARCH_INVALID search is never a hit: TLS rescue is
+    # skipped (a rescue on degenerate data is not evidence) and
+    # the api.py hit gates exclude it (see api.py).
+    _adopted_health = pass2_health if _pass2_adopted else pass1_health
+    search_health, search_health_reason = _adopted_health
+
     # --- TLS rescue (2026-11-08 upgrade) -------------------------------
     # Transit Least Squares fits true transit shapes where BLS fits
     # boxes (~10-20% more small-planet sensitivity in the literature).
@@ -1451,8 +1478,10 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # candidate is adopted only at SDE >= 10. Any TLS failure leaves
     # the BLS result untouched. Validated on TOI-700 c (binned SPOC
     # curve): TLS recovers P 16.053 d at SDE 11.1, depth 0.174%.
-    if sde < HIT_SDE and any((not c["near_systematic"]) and c["sde"] >= 5.0
-                         for c in candidates):
+    if (sde < HIT_SDE
+            and search_health != _search_health.SEARCH_INVALID
+            and any((not c["near_systematic"]) and c["sde"] >= 5.0
+                    for c in candidates)):
         try:
             from transitleastsquares import transitleastsquares as _tls
             _emit(progress_callback,
@@ -1579,6 +1608,15 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         "intransit_unmasked_flag_frac": _intransit_frac,
         "intransit_unmasked_flag_bits": _intransit_bits,
         "intransit_unmasked_flag_warn": bool(_intransit_warn),
+        # P3-1 (DF-20): periodogram health of the adopted search
+        # (pass 2's when adopted, else pass 1's), with the
+        # per-pass statuses. SEARCH_INVALID means the search
+        # itself was degenerate — the SDE is not evidence.
+        "search_health": search_health,
+        "search_health_reason": search_health_reason,
+        "pass1_search_health": pass1_health[0],
+        "pass2_search_health": (pass2_health[0]
+                               if pass2_health is not None else None),
         # Layer 2 provenance (A-2): which inputs this result was
         # computed from (MAST products / fixture, BLS input hash).
         "input_identity": _input_identity,
@@ -1720,7 +1758,18 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "tic_id": full["TIC"],
             "best_period_days": full["Period"],
             "sde": full["SDE"],
-            "classification": "Strong Transit" if full["SDE"] >= HIT_SDE else "Marginal / Noise",
+            # P3-1: a degenerate search is never a "Strong
+            # Transit", however large its nominal SDE reads.
+            "classification": (
+                "Search Invalid"
+                if full.get("search_health")
+                == _search_health.SEARCH_INVALID
+                else ("Strong Transit" if full["SDE"] >= HIT_SDE
+                      else "Marginal / Noise")),
+            "search_health": full.get("search_health"),
+            "search_health_reason": full.get("search_health_reason"),
+            "pass1_search_health": full.get("pass1_search_health"),
+            "pass2_search_health": full.get("pass2_search_health"),
             "depth": full["Depth"],
             "depth_percent": full["Depth"] * 100.0,
             "duration_days": full["Duration_Days"],
