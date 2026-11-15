@@ -1403,6 +1403,20 @@ this session). Smoke retry launched ~20:07 IST. Dev also
 paused Survive creation (20:02) — the Mac is clear all
 night, no render collision.
 
+**Smoke PASSED ~20:22 IST.** EB seed 20261114: completed,
+FPP 1.0, NFPP 0.9999999998725, disposition FAIL/refute
+(C-10: FPP 0.999998, NFPP 0.964 — same disposition; FPP
+matches to ~2 decimals, NFPP higher — both read refute).
+Stitch elc s1, 1062 pts (exactly C-10's input); refine
+converged P 0.7584722, T0 1325.47254 (C-10 hunter values
+P 0.75798237, T0 1325.48631 — close). Wall 516.5 s
+(C-10: 349 s), peak RSS 722.3 MB — first P3-8
+measurement. The driver works end to end. Step 0
+(WASP-29b + Zorro curve) launched ~20:28 IST: curve
+fetched from ExoFOP (tar 93,788,160 B, job 3507959),
+converted to 120 rows, Δ6.174 @ 0.5″ — all §3.2 checks
+pass.
+
 **(D) DATED REVISIT (recorded).** Trigger for the Gaia-path
 re-run (WASP-29b verification): Gaia TAP back — the watch
 hook polls every 15 min and wakes on 2 consecutive HTTP
