@@ -13,6 +13,15 @@ available flux column (sap_flux / kspsap_flux / pca_flux / raw_flux /
 flux), and folds at the target's refined ephemeris. Writes the
 neighbour's npz files under WORKDIR/neighbour_<tic>/ (nb_s<NNN>.npz).
 
+Quality handling (DF-3, 2026-11-15): the QLP-first search means a
+neighbour light curve CAN carry QLP bits 29/30, so the downloaded
+curve is masked with the pipeline's quality mask (default deep_v2)
+before any processing — the M-8 pattern, mirroring
+gauntlet/common.py:load_tpf. Without it the blend test would
+compare the target's masked fold against the neighbour's unmasked
+fold, and a flagged-only artifact on the neighbour could read as
+a deep eclipse (a false blend kill) or vice versa.
+
 Usage:
   neighbour_fold.py TARGET_TIC NEIGHBOUR_TIC --period P --t0 T0 \\
       --duration DUR --workdir work/TIC [--max-sectors 6]
@@ -47,11 +56,30 @@ except ImportError:  # run as a plain script from the gauntlet dir
     from blend import check_blend
 
 
-def fetch_neighbour(tic, outdir, max_sectors=6):
+def _masked_keep(lc, quality_mask):
+    """Boolean keep-mask for a downloaded neighbour light curve:
+    (q & mask) == 0, with the quality array cast to int64 first
+    (SPOC 16-bit QUALITY overflows a bare bitwise AND — DF-5).
+    Returns None when the product carries no quality column
+    (some HLSP products) — the caller then keeps all cadences,
+    as before."""
+    if 'quality' not in lc.colnames:
+        return None
+    q = np.asarray(lc['quality'].value, dtype=np.int64)
+    return (q & int(quality_mask)) == 0
+
+
+def fetch_neighbour(tic, outdir, max_sectors=6, quality_mask=None):
     """QLP first, then an unfiltered search. Returns
-    {sector: (t, f)} (possibly empty)."""
+    {sector: (t, f)} (possibly empty). The downloaded curve is
+    masked with the pipeline's quality mask (default deep_v2)
+    before extraction, so the neighbour fold compares against
+    the target's masked fold on equal terms (DF-3)."""
     import lightkurve as lk
     import netbound as _net
+    if quality_mask is None:
+        from quality_flags import DEEP_V2_MASK
+        quality_mask = DEEP_V2_MASK
     os.makedirs(outdir, exist_ok=True)
     lcs = {}
     for author in ('QLP', None):
@@ -115,6 +143,11 @@ def fetch_neighbour(tic, outdir, max_sectors=6):
                         break
                 t = np.asarray(lc.time.value, float)
                 f = np.asarray(lc[col].value, float)
+                keep = _masked_keep(lc, quality_mask)
+                n_masked = 0
+                if keep is not None:
+                    n_masked = int((~keep).sum())
+                    t, f = t[keep], f[keep]
                 m = np.isfinite(t) & np.isfinite(f) & (f > 0)
                 t, f = t[m], f[m]
                 if sec is None:
@@ -122,7 +155,9 @@ def fetch_neighbour(tic, outdir, max_sectors=6):
                 lcs[sec] = (t, f)
                 np.savez(os.path.join(outdir, f'nb_s{sec:03d}.npz'),
                          time=t, flux=f)
-                print(f'    s{sec}: {len(t)} pts ({col})', flush=True)
+                print(f'    s{sec}: {len(t)} pts ({col})'
+                      + (f', {n_masked} masked'
+                         if n_masked else ''), flush=True)
             except Exception as e:
                 print(f'    s{sec} process failed: {e}', flush=True)
         if lcs:
