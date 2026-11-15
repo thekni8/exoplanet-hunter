@@ -23,6 +23,7 @@ import calibration  # noqa: E402
 import hunter  # noqa: E402
 import mad_clip  # noqa: E402
 import persistence  # noqa: E402
+import quality_flags as qf  # noqa: E402
 from calibration import CalibrationError, load_profile  # noqa: E402
 from gauntlet import rawflux_check, transit_fit  # noqa: E402
 from tests.calibration_guard import DeepCalibrationGuardCase  # noqa: E402
@@ -272,6 +273,27 @@ class TestDeepDrift(DeepCalibrationGuardCase):
         # pipeline runs per-target on demand — there is no
         # in-flight v1 deep run to protect.)
         self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v2")
+
+
+class TestSharedQualityMask(unittest.TestCase):
+    def test_one_definition_site(self):
+        # DF-12: bulk_v3 and deep_v2 are the SAME mask, defined
+        # once. A future change to either is a change to both or
+        # an explicit, visible fork — the two profiles can no
+        # longer drift apart silently.
+        self.assertEqual(qf.SHARED_QUALITY_MASK, 1610629823)
+        self.assertEqual(
+            qf.SHARED_QUALITY_MASK,
+            17087 | (1 << 29) | (1 << 30))
+        self.assertEqual(qf.BULK_V3_MASK, qf.SHARED_QUALITY_MASK)
+        self.assertEqual(qf.DEEP_V2_MASK, qf.SHARED_QUALITY_MASK)
+        # The YAML profiles ARE the declarations, so they carry
+        # the bare integer — but it must equal the shared
+        # constant, not a second, independent value.
+        self.assertEqual(load_profile("bulk_v3")["quality_mask"],
+                         qf.SHARED_QUALITY_MASK)
+        self.assertEqual(load_profile("deep_v2")["quality_mask"],
+                         qf.SHARED_QUALITY_MASK)
 
 
 class TestGauntletDrift(unittest.TestCase):

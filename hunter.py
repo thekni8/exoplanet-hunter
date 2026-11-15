@@ -567,12 +567,13 @@ ACCEPT_SDE = 6.5  # refined-peak acceptance floor: a refined peak
 # stars/sector — keep TESS scattered-light bits 29/30. The bulk_v2
 # rescore gauntlet found 18/25 NEW S96 leads were dips living
 # only on bit-29/30 cadences. deep_v2 masks them at pipeline
-# input (1610629823 = 17087 + bits 29/30, the same integer as
-# bulk_v3). quality==0 is NOT used — the TOI-700 c lesson (bit 12
-# carries a real transit); bit 11 stays unmasked (2026-11-15
-# vote, 2/3). The mask is applied by _apply_quality_mask at both
-# stitch sites, BEFORE detrend/BLS — never after the search.
-# v1 profiles predate the field and mean the lightkurve default.
+# input (the shared mask — the same integer as bulk_v3, see
+# quality_flags.SHARED_QUALITY_MASK). quality==0 is NOT used —
+# the TOI-700 c lesson (bit 12 carries a real transit); bit 11
+# stays unmasked (2026-11-15 vote, 2/3). The mask is applied by
+# _apply_quality_mask at both stitch sites, BEFORE detrend/BLS —
+# never after the search. v1 profiles predate the field and mean
+# the lightkurve default.
 CALIBRATION_VERSION = "deep_v2"
 QUALITY_MASK = _DEEP_V2_MASK
 
