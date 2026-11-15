@@ -24,6 +24,7 @@ from gauntlet.stage_result import (EXEC_COMPLETED, EXEC_ERROR,  # noqa: E402
                                    StageResult, aggregate_verdict,
                                    apply_waivers,
                                    clean_refold_result,
+                                   diffimg_result,
                                    holdout_result,
                                    load_decision_policy,
                                    odd_even_result,
@@ -229,6 +230,53 @@ class TestAdapters(unittest.TestCase):
         self.assertEqual(SHAPE_V_MAX_T23_T14,
                          V_SHAPE_MAX_T23_T14)
         self.assertEqual(SHAPE_V_MAX_T23_T14, 0.30)
+
+    def test_diffimg_adapter(self):
+        # P-9: the adapter carries the sigma evidence — value
+        # is the offset, uncertainty the split-half scatter,
+        # threshold the 1-px absolute cap.
+        r = diffimg_result(
+            {"on_target": True, "offset_px": 0.06,
+             "offset_arcsec": 1.26, "blend_host_tic": None,
+             "n_sectors": 3, "offset_sigma_px": 0.14,
+             "offset_over_sigma": 0.42,
+             "sigma_source": "split_half_scatter"}, PROV)
+        self.assertEqual(r.status, "pass")
+        self.assertEqual(r.value, 0.06)
+        self.assertEqual(r.uncertainty, 0.14)
+        self.assertEqual(r.threshold, 1.0)
+        self.assertIn("0.4 sigma", r.reason)
+        # Fallback native: no sigma, flat-bar note in the
+        # reason, uncertainty None.
+        r = diffimg_result(
+            {"on_target": True, "offset_px": 0.06,
+             "offset_arcsec": 1.26, "blend_host_tic": None,
+             "n_sectors": 3, "offset_sigma_px": None,
+             "offset_over_sigma": None,
+             "sigma_source": "flat_1px_fallback"}, PROV)
+        self.assertEqual(r.status, "pass")
+        self.assertIsNone(r.uncertainty)
+        self.assertIn("flat 1 px bar", r.reason)
+        # Off-target names the blend host.
+        r = diffimg_result(
+            {"on_target": False, "offset_px": 3.5,
+             "offset_arcsec": 73.5, "blend_host_tic": "888",
+             "n_sectors": 1, "offset_sigma_px": 0.1,
+             "offset_over_sigma": 35.0,
+             "sigma_source": "split_half_scatter"}, PROV)
+        self.assertEqual(r.status, "fail")
+        self.assertIn("888", r.reason)
+        r = diffimg_result({"on_target": None}, PROV)
+        self.assertEqual(r.status, "unmeasured")
+
+    def test_diffimg_bar_matches_driver(self):
+        # P-9: the adapter's mirrored on-target cap must
+        # equal the driver's constant.
+        from gauntlet.desk import DIFFIMG_ON_TARGET_PX as DRIVER
+        from gauntlet.stage_result import (
+            DIFFIMG_ON_TARGET_PX as ADAPTER)
+        self.assertEqual(ADAPTER, DRIVER)
+        self.assertEqual(ADAPTER, 1.0)
 
     def test_clean_gate(self):
         fold = {"n_in": 42, "n_events": 13, "depth_percent": -0.03,

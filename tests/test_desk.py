@@ -431,6 +431,10 @@ class TestNativeBuilders(unittest.TestCase):
         self.assertAlmostEqual(on["offset_arcsec"], 0.06 * 21.0)
         self.assertIsNone(on["blend_host_tic"])
         self.assertEqual(on["n_sectors"], 2)
+        # No scatter -> the flat 1-px bar, flagged.
+        self.assertEqual(on["sigma_source"], "flat_1px_fallback")
+        self.assertIsNone(on["offset_sigma_px"])
+        self.assertIsNone(on["offset_over_sigma"])
         off = diffimg_native_for(
             {"stack": {"dist_to_target_px": 3.5,
                        "dist_to_neighbour_px": 0.4},
@@ -439,7 +443,65 @@ class TestNativeBuilders(unittest.TestCase):
         self.assertEqual(off["blend_host_tic"], "888")
         none = diffimg_native_for({"stack": {}, "sectors": {}})
         self.assertIsNone(none["on_target"])
+        self.assertEqual(none["sigma_source"], "no_localisation")
         self.assertIsNone(diffimg_native_for(None))
+
+    def test_diffimg_native_sigma_path(self):
+        # P-9: with split-half scatter, on-target needs
+        # offset/sigma < 3 AND offset < 1 px. Sigma is the
+        # radial scatter, floored at 0.1 px, no sqrt(n).
+        scatter = {"x_std": 0.1, "y_std": 0.1, "n": 6}
+        on = diffimg_native_for(
+            {"stack": {"dist_to_target_px": 0.06,
+                       "dist_to_neighbour_px": 5.0},
+             "centroid_scatter_px": scatter,
+             "sectors": {"96": {}, "97": {}}}, "888")
+        self.assertTrue(on["on_target"])
+        self.assertEqual(on["sigma_source"], "split_half_scatter")
+        self.assertAlmostEqual(on["offset_sigma_px"], 0.1414,
+                               delta=0.001)
+        self.assertAlmostEqual(on["offset_over_sigma"], 0.42,
+                               delta=0.01)
+        # Tight scatter + a 0.5 px offset: 5 sigma, so
+        # off-target — the flat 1-px bar would have passed
+        # this. The sigma leg is the new kill.
+        tight = {"x_std": 0.05, "y_std": 0.05, "n": 4}
+        off = diffimg_native_for(
+            {"stack": {"dist_to_target_px": 0.5,
+                       "dist_to_neighbour_px": 5.0},
+             "centroid_scatter_px": tight,
+             "sectors": {"96": {}}}, "888")
+        self.assertAlmostEqual(off["offset_sigma_px"], 0.1)
+        self.assertAlmostEqual(off["offset_over_sigma"], 5.0)
+        self.assertFalse(off["on_target"])
+        self.assertEqual(off["blend_host_tic"], "888")
+        # Loose scatter + a 0.9 px offset: 1.3 sigma and
+        # under the cap, so on-target.
+        loose = {"x_std": 0.5, "y_std": 0.5, "n": 6}
+        on2 = diffimg_native_for(
+            {"stack": {"dist_to_target_px": 0.9,
+                       "dist_to_neighbour_px": 5.0},
+             "centroid_scatter_px": loose,
+             "sectors": {"96": {}}}, "888")
+        self.assertTrue(on2["on_target"])
+        # Same loose scatter, 1.2 px offset: 1.7 sigma, but
+        # over the 1-px absolute cap — the cap leg kills.
+        off2 = diffimg_native_for(
+            {"stack": {"dist_to_target_px": 1.2,
+                       "dist_to_neighbour_px": 5.0},
+             "centroid_scatter_px": loose,
+             "sectors": {"96": {}}}, "888")
+        self.assertFalse(off2["on_target"])
+        # One half is not a scatter — fall back to the flat
+        # bar (0.06 px still passes).
+        one = diffimg_native_for(
+            {"stack": {"dist_to_target_px": 0.06,
+                       "dist_to_neighbour_px": 5.0},
+             "centroid_scatter_px": {"x_std": 0.0, "y_std": 0.0,
+                                     "n": 1},
+             "sectors": {"96": {}}}, "888")
+        self.assertTrue(one["on_target"])
+        self.assertEqual(one["sigma_source"], "flat_1px_fallback")
 
     def test_transit_fit_native_for(self):
         ls = {"theta_ls": [P_BOX, T0_BOX, 0.1, 10.8, 0.3, 0.4, 0.3],

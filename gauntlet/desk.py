@@ -39,11 +39,13 @@ Known gaps (documented, not hidden):
   * transit_fit runs on QLP sectors only (its loader reads
     qlp_sNNN.npz); TESSCut-sector fits need tesscut_extract
     wired in (follow-up);
-  * the diffimg on-target bar (1 px) and the pixel-check bars
-    are judgment calls recorded in PHASE_2_PROGRESS.md.
+  * the diffimg on-target test (offset/sigma < 3 AND offset
+    < 1 px, P-9) and the pixel-check bars are judgment calls
+    recorded in PHASE_2_PROGRESS.md.
 """
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -70,6 +72,16 @@ CLEAN_GATE_SIGMA_MIN = 3.0
 SEGMENT_GAP_D = 1.0
 SEGMENT_MIN_SIGNIF = 1.5
 DIFFIMG_ON_TARGET_PX = 1.0
+# P-9: the on-target test is offset/sigma < 3 AND offset < 1 px
+# (absolute cap). Sigma is the split-half centroid scatter
+# (radial), floored at 0.1 px, with NO sqrt(n) reduction —
+# conservative: the stack centroid's error would be smaller
+# by ~sqrt(n), but we do not claim it. The 3-sigma bar and
+# the floor are judgment calls; the empirical calibration
+# across the F-8 population + known BEBs is deferred (it
+# needs live diffimg runs — a Mac/live-CI job).
+DIFFIMG_ON_TARGET_SIGMA = 3.0
+DIFFIMG_SIGMA_FLOOR_PX = 0.1
 TESS_ARCSEC_PER_PX = 21.0
 R_SUN_OVER_R_EARTH = 109.2
 RHO_SUN_G_CM3 = 1.408
@@ -306,12 +318,22 @@ def diffimg_native_for(results, blend_host_tic=None):
     """diffimg_results.json -> the diffimg adapter native.
 
     diffimg.py writes maps and centroids but no on-target
-    verdict — the driver derives it from the WCS-aligned stack
-    centroid: on-target when the centroid sits within 1 TESS
-    pixel (21\") of the target AND closer to the target than to
-    the neighbour. The 1-px bar is a judgment call (the manual
-    gives no number; the 423498314 on-target case was 0.06 px).
-    No stack centroid -> on_target None -> UNMEASURED."""
+    verdict — the driver derives it from the WCS-aligned
+    stack centroid. On-target (P-9) when ALL of: the offset
+    is under 3 sigma, where sigma is the split-half
+    centroid scatter (radial, hypot(x_std, y_std), floored
+    at 0.1 px, no sqrt(n) reduction — conservative); the
+    offset is under the 1-px absolute cap (21"); and the
+    centroid sits closer to the target than to the
+    neighbour. When no usable scatter exists (missing, non-
+    finite, or fewer than 2 halves) the test falls back to
+    the flat 1-px bar, flagged as sigma_source
+    "flat_1px_fallback" — never a silent sigma. The 1-px
+    cap and the 3-sigma bar are judgment calls (the manual
+    gives no number; the 423498314 on-target case was
+    0.06 px, which passes under any scatter: 0.06/0.1 =
+    0.6 sigma at the floor). No stack centroid ->
+    on_target None -> UNMEASURED."""
     if not results:
         return None
     stack = results.get("stack") or {}
@@ -321,15 +343,42 @@ def diffimg_native_for(results, blend_host_tic=None):
     if d_t is None:
         return {"on_target": None, "offset_px": None,
                 "offset_arcsec": None, "blend_host_tic": None,
-                "n_sectors": n_sectors}
-    on_target = bool(d_t < DIFFIMG_ON_TARGET_PX
-                     and (d_n is None or d_t < d_n))
+                "n_sectors": n_sectors,
+                "offset_sigma_px": None,
+                "offset_over_sigma": None,
+                "sigma_source": "no_localisation"}
+    scatter = results.get("centroid_scatter_px") or {}
+    x_std = scatter.get("x_std")
+    y_std = scatter.get("y_std")
+    n_halves = scatter.get("n")
+    sigma = None
+    if (isinstance(x_std, (int, float))
+            and isinstance(y_std, (int, float))
+            and math.isfinite(x_std) and math.isfinite(y_std)
+            and isinstance(n_halves, (int, float))
+            and n_halves >= 2):
+        sigma = max(math.hypot(x_std, y_std),
+                    DIFFIMG_SIGMA_FLOOR_PX)
+    if sigma is None:
+        sigma_source = "flat_1px_fallback"
+        over_sigma = None
+        on_target = bool(d_t < DIFFIMG_ON_TARGET_PX
+                         and (d_n is None or d_t < d_n))
+    else:
+        sigma_source = "split_half_scatter"
+        over_sigma = float(d_t) / sigma
+        on_target = bool(over_sigma < DIFFIMG_ON_TARGET_SIGMA
+                         and d_t < DIFFIMG_ON_TARGET_PX
+                         and (d_n is None or d_t < d_n))
     return {"on_target": on_target,
             "offset_px": float(d_t),
             "offset_arcsec": float(d_t) * TESS_ARCSEC_PER_PX,
             "blend_host_tic": (None if on_target
                                else blend_host_tic),
-            "n_sectors": n_sectors}
+            "n_sectors": n_sectors,
+            "offset_sigma_px": sigma,
+            "offset_over_sigma": over_sigma,
+            "sigma_source": sigma_source}
 
 
 def transit_fit_native_for(ls_fit, r_star_rsun, rho_star):

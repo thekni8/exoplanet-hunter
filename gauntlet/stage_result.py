@@ -378,6 +378,13 @@ SHAPE_V_MAX_T23_T14 = 0.30
 SHAPE_FAIL_MIN_DEPTH_SIGNIF = 5.0
 
 
+# The diffimg absolute on-target cap, mirroring
+# gauntlet/desk.py's DIFFIMG_ON_TARGET_PX — the adapter cannot
+# import it (desk imports this module). Pinned equal by
+# tests/test_stage_contract.py::test_diffimg_bar_matches_driver.
+DIFFIMG_ON_TARGET_PX = 1.0
+
+
 def _prov(prov):
     """Normalise the provenance argument: adapters accept the
     provenance.header() dict or None (tests pass explicit dicts)."""
@@ -750,10 +757,17 @@ def diffimg_result(native, prov=None):
     StageResult.
 
     Native shape: {"on_target": bool or None, "offset_px",
-    "offset_arcsec", "blend_host_tic", "n_sectors"}. On-target
-    -> PASS. Off-target -> FAIL (BLEND — the source is a
-    neighbour). No localisation -> UNMEASURED. Evidence: value
-    is the centroid offset in pixels.
+    "offset_arcsec", "blend_host_tic", "n_sectors",
+    "offset_sigma_px", "offset_over_sigma", "sigma_source"}.
+    On-target -> PASS. Off-target -> FAIL (BLEND — the source
+    is a neighbour). No localisation -> UNMEASURED. The
+    on-target decision itself is the driver's (P-9: offset <
+    3 sigma AND offset < 1 px cap AND closer to the target
+    than the neighbour, or the flat 1-px bar when no scatter
+    exists). Evidence: value is the centroid offset in
+    pixels, uncertainty its 1-sigma error (the split-half
+    scatter, None on the flat-bar fallback), threshold the
+    1-px absolute cap.
     """
     if not native or native.get("on_target") is None:
         return StageResult(
@@ -761,18 +775,32 @@ def diffimg_result(native, prov=None):
             "no difference-imaging localisation", _prov(prov), {})
     details = {k: native.get(k) for k in
                ("offset_px", "offset_arcsec", "blend_host_tic",
-                "n_sectors") if native.get(k) is not None}
-    ev = {"value": native.get("offset_px")}
+                "n_sectors", "offset_sigma_px",
+                "offset_over_sigma", "sigma_source")
+               if native.get(k) is not None}
+    ev = {"value": native.get("offset_px"),
+          "uncertainty": native.get("offset_sigma_px"),
+          "threshold": DIFFIMG_ON_TARGET_PX}
+    over = native.get("offset_over_sigma")
+    offset = native.get("offset_px")
+    if offset is None:
+        suffix = ""
+    elif isinstance(over, (int, float)):
+        suffix = f" (offset {offset:.2f} px, {over:.1f} sigma)"
+    else:
+        suffix = (f" (offset {offset:.2f} px; flat 1 px bar — "
+                  f"no scatter available)")
     if native.get("on_target"):
         return StageResult(
             "diffimg", STATUS_PASS,
-            "source localises on-target", _prov(prov), details,
-            **ev)
+            "source localises on-target" + suffix,
+            _prov(prov), details, **ev)
     host = native.get("blend_host_tic")
     return StageResult(
         "diffimg", STATUS_FAIL,
         "source localises off-target"
-        + (f" (blend host TIC {host})" if host else ""),
+        + (f" (blend host TIC {host})" if host else "")
+        + suffix,
         _prov(prov), details, **ev)
 
 

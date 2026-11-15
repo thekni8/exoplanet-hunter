@@ -556,6 +556,35 @@ bar pinned; LATTE REPORT_ONLY.
   is not a pass). The meaning test in
   test_toi_population.py is updated to match.
 
+### P-9 — diffimg offset with a sigma (F-9, vote item)
+
+- **Rule** (`diffimg_native_for`): on-target when ALL of —
+  offset/sigma < 3, offset < 1 px absolute cap, and the
+  centroid sits closer to the target than to the
+  neighbour. Sigma is the split-half centroid scatter
+  from diffimg.py (radial, hypot(x_std, y_std)), floored
+  at 0.1 px, with NO sqrt(n) reduction (conservative —
+  the stack centroid's error would be smaller by
+  ~sqrt(n), but we do not claim it). Scatter is usable
+  only with n ≥ 2 halves and finite stds; otherwise the
+  test falls back to the flat 1-px bar, flagged as
+  sigma_source "flat_1px_fallback" — never a silent
+  sigma. The native now carries offset_sigma_px,
+  offset_over_sigma and sigma_source; the adapter
+  records them as evidence (uncertainty = the scatter,
+  threshold = the 1-px cap) and names the sigma in the
+  reason.
+- **The 0.06 px TIC 423498314 case still passes** under
+  any scatter (0.06/0.1 = 0.6 sigma at the floor). The
+  new kill a flat bar would miss: a 0.5 px offset on
+  tight scatter (5 sigma) now reads off-target.
+- **DEFERRED with reason:** the empirical calibration
+  across the F-8 population + known BEBs needs live
+  diffimg runs — a Mac/live-CI job, not a VM one
+  (diffimg needs TESSCut TPUs from MAST + the WCS
+  stack). The 3-sigma bar and the 0.1 px floor stay
+  judgment calls until then.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):
