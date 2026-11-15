@@ -12,6 +12,12 @@ programs run by the current interpreter as the "venv python"
   * hog: allocates far past the memory cap;
   * badjson: writes invalid JSON;
   * silent: exits 0 writing nothing.
+  * sigkill: kills itself with SIGKILL (the kernel
+    OOM-killer's signature, returncode -9);
+  * noisy: prints garbage on stdout/stderr, writes a valid
+    output (stdout is not the output channel);
+  * noisy-badjson: garbage on stdout AND invalid output JSON;
+  * list: writes a JSON list, not an object.
 
 Plus unit tests for the C-10 input builder and the config
 hash. Nothing here touches the network or the real tools.
@@ -87,6 +93,52 @@ FAKE_BADJSON = textwrap.dedent("""\
 FAKE_SILENT = textwrap.dedent("""\
     # Exits 0 and writes nothing — the LATTE failure mode
     # (it swallows per-target failures and exits 0).
+    """)
+
+# P-13: dies by signal, as the kernel OOM-killer would
+# deliver it (returncode -9) — the runner must read FAILED,
+# not crash and not mistake the signal for a pass.
+FAKE_SIGKILL = textwrap.dedent("""\
+    import os, signal
+    os.kill(os.getpid(), signal.SIGKILL)
+    """)
+
+# P-13: garbage on both streams — stdout is not the output
+# channel, so a valid output.json still completes.
+FAKE_NOISY = textwrap.dedent("""\
+    import argparse, json, sys
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", required=True)
+    ap.add_argument("--output", required=True)
+    args = ap.parse_args()
+    print("{not json, just noise")
+    print("traceback-ish noise", file=sys.stderr)
+    json.dump({"tool": "fake", "status": "completed",
+               "seed": 0, "value": None, "metrics": {},
+               "artifacts": [], "warnings": [],
+               "wall_time_s": 0.1}, open(args.output, "w"))
+    """)
+
+# P-13: garbage on stdout AND invalid output JSON — the
+# stdout noise must not mask the JSON failure.
+FAKE_NOISY_BADJSON = textwrap.dedent("""\
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", required=True)
+    ap.add_argument("--output", required=True)
+    args = ap.parse_args()
+    print("{not json, just noise")
+    open(args.output, "w").write("{not json")
+    """)
+
+# P-13: valid JSON, wrong shape — a list, not an object.
+FAKE_LIST = textwrap.dedent("""\
+    import argparse, json
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", required=True)
+    ap.add_argument("--output", required=True)
+    args = ap.parse_args()
+    json.dump(["not", "an", "object"], open(args.output, "w"))
     """)
 
 # P-3: spawns a grandchild (a 30 s sleep) and records its PID
@@ -297,6 +349,97 @@ class TestRunExternalTool(unittest.TestCase):
                 self._config(fake), self._input(), tmp)
             self.assertEqual(res.status, STATUS_FAILED)
             self.assertIn("no output JSON", res.stderr_tail)
+
+
+class TestFaultInjection(unittest.TestCase):
+    """P-13: the fault matrix — every failure mode is a
+    status, never a crash and never a silent PASS. The
+    crash / timeout / memory-cap / missing-venv / missing-
+    wrapper / malformed-output modes are covered in
+    TestRunExternalTool; this class covers the remaining
+    modes: signal kill, malformed stdout, spawn failure
+    (the venv breaking mid-run), and non-object output."""
+
+    def _write_fake(self, tmp, name, source):
+        path = Path(tmp) / name
+        path.write_text(source)
+        return str(path)
+
+    def _config(self, wrapper, **kw):
+        cfg = {"tool": "fake", "python": sys.executable,
+               "wrapper": wrapper, "timeout_s": 30,
+               "memory_mb": 2048, "seed": DEFAULT_SEED,
+               "tool_version": "0", "config_hash": "x" * 64}
+        cfg.update(kw)
+        return ToolConfig(**cfg)
+
+    def _input(self):
+        return build_tool_input(
+            "fake", "0", DEFAULT_SEED, "x" * 64, _target(),
+            _signal(), _lightcurve(), _neighbours())
+
+    def test_signal_kill_is_failed(self):
+        # The kernel OOM-killer delivers SIGKILL: returncode
+        # -9, no stderr, no output. The runner reads FAILED.
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_sigkill.py",
+                                    FAKE_SIGKILL)
+            res = run_external_tool(
+                self._config(fake), self._input(), tmp)
+            self.assertEqual(res.status, STATUS_FAILED)
+            self.assertIsNone(res.output)
+            self.assertEqual(res.returncode, -9)
+            self.assertIn("exited -9", res.stderr_tail)
+
+    def test_noisy_stdout_with_valid_output_completes(self):
+        # Stdout is never parsed: garbage on stdout (and
+        # stderr) with a valid output.json still completes.
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_noisy.py",
+                                    FAKE_NOISY)
+            res = run_external_tool(
+                self._config(fake), self._input(), tmp)
+            self.assertEqual(res.status, STATUS_COMPLETED)
+            self.assertEqual(res.output["status"], "completed")
+            self.assertEqual(res.returncode, 0)
+
+    def test_noisy_stdout_with_bad_output_is_failed(self):
+        # The stdout noise must not mask the JSON failure.
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_noisy_bad.py",
+                                    FAKE_NOISY_BADJSON)
+            res = run_external_tool(
+                self._config(fake), self._input(), tmp)
+            self.assertEqual(res.status, STATUS_FAILED)
+            self.assertIsNone(res.output)
+            self.assertIn("unreadable", res.stderr_tail)
+
+    def test_non_object_output_is_failed(self):
+        # Valid JSON, wrong shape — a list, not an object.
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_list.py",
+                                    FAKE_LIST)
+            res = run_external_tool(
+                self._config(fake), self._input(), tmp)
+            self.assertEqual(res.status, STATUS_FAILED)
+            self.assertIsNone(res.output)
+            self.assertIn("not an object", res.stderr_tail)
+
+    def test_unexecutable_python_is_failed_not_a_raise(self):
+        # The venv python exists (so the missing_venv check
+        # passes) but cannot be spawned — the mid-run
+        # breakage case: a status, not a raise.
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_ok.py", FAKE_OK)
+            dead = Path(tmp) / "dead_python"
+            dead.write_text("# not a python binary\n")
+            dead.chmod(0o644)
+            cfg = self._config(fake, python=str(dead))
+            res = run_external_tool(cfg, self._input(), tmp)
+            self.assertEqual(res.status, STATUS_FAILED)
+            self.assertIsNone(res.output)
+            self.assertIsNone(res.returncode)
+            self.assertIn("could not spawn", res.stderr_tail)
 
 
 class TestMemoryCapGuard(unittest.TestCase):

@@ -625,6 +625,32 @@ bar pinned; LATTE REPORT_ONLY.
   to any verdict, by design and by test (P-2 verdict
   invariance).
 
+### P-13 — Fault injection on the subprocess plumbing
+
+- The fault matrix is now tested end to end
+  (TestFaultInjection in test_external_tool.py) and
+  documented as a table in run_external_tool's
+  docstring: child crash → failed, hang → timeout
+  (whole process group SIGKILLed, P-3), memory-cap
+  breach → failed (MemoryError), OOM/signal kill →
+  failed (returncode -9, proven with a self-SIGKILL
+  fake — no real OOM is induced on the 1.5 GB VM),
+  malformed output JSON → failed, exit 0 with no
+  output → failed, non-object output JSON → failed,
+  missing venv → missing_venv, missing wrapper →
+  failed, spawn failure (venv broken mid-run — the
+  python path exists but is not executable) → failed
+  ("could not spawn"). Every mode is a status, never a
+  raise and never a silent PASS. Stdout is never
+  parsed: garbage on stdout with a valid output.json
+  still completes, and garbage on stdout does not mask
+  a malformed output.json. The crash / timeout /
+  memory-cap / missing-venv / missing-wrapper /
+  malformed-output modes were already covered in
+  TestRunExternalTool; P-13 adds the signal kill, the
+  two stdout modes, the spawn failure, and the
+  non-object output (24 tests in the module, was 19).
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):

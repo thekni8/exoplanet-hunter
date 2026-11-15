@@ -250,6 +250,25 @@ def run_external_tool(config, input_data, work_dir):
     [python, wrapper, --input, --output] under the timeout and
     memory cap, and parses output.json. A missing venv python
     returns "missing_venv" without spawning anything.
+
+    Fault modes (P-13 — every one is a status, never a raise
+    and never a silent PASS):
+      venv python missing      -> missing_venv (no spawn)
+      wrapper missing          -> failed
+      spawn fails (OSError)    -> failed ("could not spawn";
+                                  e.g. the venv broke mid-run)
+      child exits non-zero     -> failed (returncode kept)
+      child killed by signal   -> failed (returncode < 0, e.g.
+                                  -9 for SIGKILL / OOM-killer)
+      timeout                  -> timeout (the whole process
+                                  group is SIGKILLed, P-3)
+      exit 0, no output.json   -> failed
+      output.json malformed    -> failed ("unreadable")
+      output.json not an object-> failed
+    Stdout is never parsed: garbage on stdout with a valid
+    output.json still completes. The adapters map failed /
+    timeout / missing_venv to UNMEASURED + EXEC_ERROR (never
+    a pass — see the P-2 verdict-invariance test).
     """
     work_dir = str(work_dir)
     os.makedirs(work_dir, exist_ok=True)
