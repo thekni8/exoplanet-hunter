@@ -20,7 +20,9 @@ Tests:
 import json
 import sys
 import tempfile
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -33,8 +35,9 @@ import injection_harness as ih  # noqa: E402
 from bulk.inject_real_s96 import (  # noqa: E402
     load_real_fits, write_injected_fits)
 from bulk.inverted_null import (  # noqa: E402
-    CHECKPOINT_NAME, SURVIVORS_NAME, compute_summary, flip_flux,
-    load_done_tics, prepare_flipped, run_null)
+    CHECKPOINT_NAME, SURVIVORS_NAME, _collect_null_results,
+    compute_summary, flip_flux, load_done_tics, prepare_flipped,
+    run_null)
 from synth_fits import make_qlp_fits, screen_job  # noqa: E402
 
 # The injected control signal: 1% @ 5.123 d, 0.3% noise --
@@ -254,6 +257,61 @@ class TestResume(unittest.TestCase):
                 fh.write('{"tic": "999", "status": "survivo')
             # The torn line is ignored (no crash); 111 stays done.
             self.assertEqual(load_done_tics(ckpt), {"111"})
+
+
+def _null_fake_worker(job):
+    tic, _path, _sector, _workdir = job
+    if tic == "slow":
+        time.sleep(2)
+    else:
+        # ~one fast star: the run as a whole still lasts many
+        # watchdog timeouts in aggregate.
+        time.sleep(0.005)
+    return {"tic": tic, "status": "recorded"}
+
+
+class TestCollectNullResults(unittest.TestCase):
+    def test_many_fast_jobs_no_false_timeouts(self):
+        # REGRESSION (2026-11-16 null run): the watchdog
+        # measured each job's age from SUBMISSION, but all
+        # 36,075 jobs were submitted up front -- so after
+        # `timeout_s` of wall time every pending job was a
+        # "timeout" by construction, and the breaker tripped
+        # exactly 600 s after launch on stars that screen in
+        # ~0.7 s. With the bounded in-flight window, fast jobs
+        # never false-timeout even when the whole run lasts
+        # many timeouts: 200 jobs x 0.005 s on 2 workers is
+        # ~0.5 s of wall time against a 0.15 s timeout.
+        jobs = [(f"{100000000 + i}", "/dev/null", 96, "/tmp")
+                for i in range(200)]
+        seen = []
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            counts = _collect_null_results(
+                ex, jobs, _null_fake_worker, timeout_s=0.15,
+                on_record=seen.append)
+        self.assertEqual(counts, {"recorded": 200})
+        self.assertEqual(len(seen), 200)
+        self.assertEqual({r["status"] for r in seen},
+                         {"recorded"})
+
+    def test_genuinely_slow_star_still_times_out(self):
+        # The bounded window must not disable the watchdog: a
+        # star whose own screen hangs is still recorded
+        # unmeasured, and the fast stars still screen.
+        jobs = [("fast1", "/dev/null", 96, "/tmp"),
+                ("slow", "/dev/null", 96, "/tmp"),
+                ("fast2", "/dev/null", 96, "/tmp")]
+        seen = []
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            counts = _collect_null_results(
+                ex, jobs, _null_fake_worker, timeout_s=0.3,
+                on_record=seen.append)
+        by_tic = {r["tic"]: r for r in seen}
+        self.assertEqual(by_tic["slow"]["status"], "unmeasured")
+        self.assertIn("watchdog_timeout", by_tic["slow"]["reason"])
+        self.assertEqual(by_tic["fast1"]["status"], "recorded")
+        self.assertEqual(by_tic["fast2"]["status"], "recorded")
+        self.assertEqual(counts, {"recorded": 2, "unmeasured": 1})
 
 
 class TestSummary(unittest.TestCase):
