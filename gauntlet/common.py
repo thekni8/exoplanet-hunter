@@ -217,7 +217,12 @@ def load_tpf(path, quality_mask=None):
     definition the detection pipeline uses. TPFs are SPOC
     products (16-bit QUALITY), so bits 29/30 never appear
     here — the mask's effect on a TPF is the SPOC default
-    plus the bit-12 keep."""
+    plus the bit-12 keep. The default is FIXED to the deep_v2
+    mask (deep_v2 vote, DF-6): the gauntlet vets hits the v2
+    pipeline found, so it deliberately does NOT follow
+    hunter.set_calibration — a v1 comparison must pass its
+    mask explicitly. Resolved at call time from the
+    DEEP_V2_MASK constant, not bound at import."""
     import lightkurve as lk
     if quality_mask is None:
         ensure_repo_path()

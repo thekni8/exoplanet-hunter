@@ -144,21 +144,21 @@ def run_star(tic, fixture_dir):
         trial = {"depth_frac": depth, "period_d": period,
                  "epoch_btjd": epoch, "duration_d": duration_d}
         for cal in CALIBRATIONS:
-            hunter.set_calibration(cal)
-            full = hunter._run_pipeline(
-                tic, star_radius=1.0, max_sectors=None)
-            found = full.get("Period")
-            recovered = (
-                found is not None
-                and abs(found - period) / period < RECOVERY_TOL
-                and full.get("SDE", 0.0) >= hunter.HIT_SDE)
-            trial[cal] = {"period_days": found,
-                          "sde": full.get("SDE"),
-                          "depth_percent":
-                              full.get("Depth", 0.0) * 100.0
-                              if full.get("Depth") is not None
-                              else None,
-                          "recovered": bool(recovered)}
+            with hunter.calibration_context(cal):
+                full = hunter._run_pipeline(
+                    tic, star_radius=1.0, max_sectors=None)
+                found = full.get("Period")
+                recovered = (
+                    found is not None
+                    and abs(found - period) / period < RECOVERY_TOL
+                    and full.get("SDE", 0.0) >= hunter.HIT_SDE)
+                trial[cal] = {"period_days": found,
+                              "sde": full.get("SDE"),
+                              "depth_percent":
+                                  full.get("Depth", 0.0) * 100.0
+                                  if full.get("Depth") is not None
+                                  else None,
+                              "recovered": bool(recovered)}
         rec["trials"][label] = trial
     return rec
 
@@ -192,34 +192,33 @@ def main(argv=None):
     os.environ["EXHUNT_FIXTURE_DIR"] = str(fixture_dir)
     t0 = time.time()
     records = []
-    previous = hunter.CALIBRATION_VERSION
-    try:
-        with open(out_dir / "injections.jsonl", "w") as fh:
-            for i, tic in enumerate(tics):
-                rec = run_star(tic, fixture_dir)
-                records.append(rec)
-                fh.write(json.dumps(rec) + "\n")
-                fh.flush()
-                fs = rec["flags"]
-                print(f"[inject-deep] {i + 1}/{len(tics)} "
-                      f"TIC {tic}: bit29 {fs['frac_bit29']:.1%} "
-                      f"bit30 {fs['frac_bit30']:.1%} any-flag "
-                      f"{fs['frac_any_flag']:.1%}", flush=True)
-                for label, trial in rec["trials"].items():
-                    v1 = trial["deep_v1"]
-                    v2 = trial["deep_v2"]
-                    print(f"    trial {label} "
-                          f"({trial['depth_frac']:.1%} @ "
-                          f"{trial['period_d']} d): v1 "
-                          f"P={v1['period_days']:.4f} "
-                          f"SDE {v1['sde']:.1f} "
-                          f"recovered={v1['recovered']} | v2 "
-                          f"P={v2['period_days']:.4f} "
-                          f"SDE {v2['sde']:.1f} "
-                          f"recovered={v2['recovered']}",
-                          flush=True)
-    finally:
-        hunter.set_calibration(previous)
+    # No manual calibration save/restore here: run_star switches
+    # through hunter.calibration_context, which restores in a
+    # finally block even if a run raises.
+    with open(out_dir / "injections.jsonl", "w") as fh:
+        for i, tic in enumerate(tics):
+            rec = run_star(tic, fixture_dir)
+            records.append(rec)
+            fh.write(json.dumps(rec) + "\n")
+            fh.flush()
+            fs = rec["flags"]
+            print(f"[inject-deep] {i + 1}/{len(tics)} "
+                  f"TIC {tic}: bit29 {fs['frac_bit29']:.1%} "
+                  f"bit30 {fs['frac_bit30']:.1%} any-flag "
+                  f"{fs['frac_any_flag']:.1%}", flush=True)
+            for label, trial in rec["trials"].items():
+                v1 = trial["deep_v1"]
+                v2 = trial["deep_v2"]
+                print(f"    trial {label} "
+                      f"({trial['depth_frac']:.1%} @ "
+                      f"{trial['period_d']} d): v1 "
+                      f"P={v1['period_days']:.4f} "
+                      f"SDE {v1['sde']:.1f} "
+                      f"recovered={v1['recovered']} | v2 "
+                      f"P={v2['period_days']:.4f} "
+                      f"SDE {v2['sde']:.1f} "
+                      f"recovered={v2['recovered']}",
+                      flush=True)
     n_trials = len(records) * len(TRIALS)
     summary = {
         "tool": "inject_deep_real_s96",

@@ -101,6 +101,7 @@ CLI (original flags):
 """
 
 import argparse
+import contextlib
 import csv
 import gc
 import hashlib
@@ -581,7 +582,10 @@ def set_calibration(name):
     quality mask. The default is deep_v2 (the fix); deep_v1 is
     the sensitivity-comparison seam (the injection script and the
     regression tests switch to it and restore). Restores are the
-    caller's job (tests: setUp/tearDown back to deep_v2)."""
+    caller's job (tests: setUp/tearDown back to deep_v2). For
+    comparisons, prefer calibration_context() — it restores in
+    a finally block, so an exception mid-comparison cannot leak
+    the wrong calibration into later runs."""
     global CALIBRATION_VERSION, QUALITY_MASK
     prof = _load_profile(name)
     CALIBRATION_VERSION = prof["version"]
@@ -592,6 +596,37 @@ def set_calibration(name):
             f"calibration profile {prof['version']!r} declares "
             f"quality_mask {QUALITY_MASK!r} — expected a "
             f"non-negative integer bitmask")
+
+
+@contextlib.contextmanager
+def calibration_context(name):
+    """Switch to calibration `name` for the block, then restore
+    the previous calibration (version AND mask) in a finally
+    block — an exception inside the block cannot leak the wrong
+    calibration into later runs (deep_v2 vote, DF-6: the
+    caller-managed restore in set_calibration is a footgun for
+    exactly this reason). Restores the previous VALUES directly
+    rather than re-loading the previous profile by name, so the
+    restore cannot fail on a profile load. If the switch itself
+    fails (unknown profile, bad mask), the previous values are
+    restored before the error propagates — set_calibration
+    assigns before it validates, so a failed switch can leave
+    half-changed globals behind. set_calibration() stays for
+    CLI/script startup, where no restore is owed."""
+    global CALIBRATION_VERSION, QUALITY_MASK
+    prev_version = CALIBRATION_VERSION
+    prev_mask = QUALITY_MASK
+    try:
+        set_calibration(name)
+    except Exception:
+        CALIBRATION_VERSION = prev_version
+        QUALITY_MASK = prev_mask
+        raise
+    try:
+        yield
+    finally:
+        CALIBRATION_VERSION = prev_version
+        QUALITY_MASK = prev_mask
 
 
 def _apply_quality_mask(lc, quality_mask=None):

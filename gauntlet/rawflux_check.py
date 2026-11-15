@@ -124,7 +124,10 @@ def download_author(author, pfx, no_download=False, tic=None,
     transit sits on Straylight2-flagged cadences), so a real
     signal folded to zero in-transit cadences and read
     RAW-REFUTED. Pass another profile's mask explicitly when
-    the candidate was found under another calibration."""
+    the candidate was found under another calibration. The
+    default is FIXED to deep_v2 (deep_v2 vote, DF-6): the
+    gauntlet vets hits the v2 pipeline found, so it
+    deliberately does NOT follow hunter.set_calibration."""
     if quality_mask is None:
         quality_mask = _DEEP_V2_MASK
     tic = TIC if tic is None else str(tic)

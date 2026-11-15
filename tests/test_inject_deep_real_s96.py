@@ -41,6 +41,7 @@ import numpy as np  # noqa: E402
 import hunter  # noqa: E402
 import injection_harness as ih  # noqa: E402
 from bulk.inject_deep_real_s96 import TRIALS, write_fixture  # noqa: E402
+from tests.calibration_guard import DeepCalibrationGuardCase  # noqa: E402
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "injection"
 SUBSTRATE = FIXTURE_DIR / "substrate_s96_31852076.npz"
@@ -50,15 +51,18 @@ _LABEL, DEPTH, PERIOD, EPOCH_OFF = TRIALS[1]
 RECOVERY_TOL = 0.01
 
 
-class TestInjectDeepRealS96(unittest.TestCase):
+class TestInjectDeepRealS96(DeepCalibrationGuardCase):
     def setUp(self):
-        self._prev_cal = hunter.CALIBRATION_VERSION
+        super().setUp()
         self._prev_env = os.environ.get("EXHUNT_FIXTURE_DIR")
         self._td = tempfile.TemporaryDirectory()
         os.environ["EXHUNT_FIXTURE_DIR"] = self._td.name
 
     def tearDown(self):
-        hunter.set_calibration(self._prev_cal)
+        # No manual calibration restore: the runs switch
+        # through calibration_context, which restores in a
+        # finally block; the guard base class asserts deep_v2
+        # is back after every test.
         if self._prev_env is None:
             os.environ.pop("EXHUNT_FIXTURE_DIR", None)
         else:
@@ -97,14 +101,14 @@ class TestInjectDeepRealS96(unittest.TestCase):
                 and abs(found - PERIOD) / PERIOD < RECOVERY_TOL
                 and result.get("SDE", 0.0) >= hunter.HIT_SDE)
 
-        hunter.set_calibration("deep_v1")
-        v1 = hunter._run_pipeline(TIC, star_radius=1.0,
-                                  max_sectors=None)
+        with hunter.calibration_context("deep_v1"):
+            v1 = hunter._run_pipeline(TIC, star_radius=1.0,
+                                      max_sectors=None)
         self.assertFalse(_recovered(v1),
                          f"v1 unexpectedly recovered: {v1}")
-        hunter.set_calibration("deep_v2")
-        v2 = hunter._run_pipeline(TIC, star_radius=1.0,
-                                  max_sectors=None)
+        with hunter.calibration_context("deep_v2"):
+            v2 = hunter._run_pipeline(TIC, star_radius=1.0,
+                                      max_sectors=None)
         self.assertTrue(_recovered(v2), f"v2 missed: {v2}")
         self.assertAlmostEqual(v2["Period"], PERIOD,
                                delta=RECOVERY_TOL * PERIOD)

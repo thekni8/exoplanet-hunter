@@ -25,6 +25,7 @@ import mad_clip  # noqa: E402
 import persistence  # noqa: E402
 from calibration import CalibrationError, load_profile  # noqa: E402
 from gauntlet import rawflux_check, transit_fit  # noqa: E402
+from tests.calibration_guard import DeepCalibrationGuardCase  # noqa: E402
 
 
 class TestBulkProfile(unittest.TestCase):
@@ -185,7 +186,7 @@ class TestV1Gate(unittest.TestCase):
             bulk_screen.set_calibration(previous)
 
 
-class TestDeepDrift(unittest.TestCase):
+class TestDeepDrift(DeepCalibrationGuardCase):
     def test_deep_profile_matches_hunter_constants(self):
         p = load_profile("deep_v1")
         self.assertEqual(p["hit_sde"], hunter.HIT_SDE)
@@ -216,9 +217,7 @@ class TestDeepDrift(unittest.TestCase):
         # deep_v2 is the drift-tested snapshot of the CURRENT
         # code: the mask constant is hunter.QUALITY_MASK under
         # the default (deep_v2) calibration.
-        previous = hunter.CALIBRATION_VERSION
-        try:
-            hunter.set_calibration("deep_v2")
+        with hunter.calibration_context("deep_v2"):
             p = load_profile("deep_v2")
             self.assertEqual(p["hit_sde"], hunter.HIT_SDE)
             self.assertEqual(p["acceptance_floor_sde"],
@@ -228,23 +227,43 @@ class TestDeepDrift(unittest.TestCase):
             self.assertEqual(p["quality_mask"],
                              hunter.QUALITY_MASK)
             self.assertEqual(hunter.QUALITY_MASK, 1610629823)
-        finally:
-            hunter.set_calibration(previous)
 
     def test_hunter_loads_v1_on_request(self):
         # The v1 seam (sensitivity comparisons + the regression
         # tests): v1 predates the field and means the lightkurve
         # default mask (17087).
-        previous = hunter.CALIBRATION_VERSION
-        try:
-            hunter.set_calibration("deep_v1")
+        with hunter.calibration_context("deep_v1"):
             self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v1")
             self.assertEqual(hunter.QUALITY_MASK, 17087)
-            hunter.set_calibration("deep_v2")
-            self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v2")
-            self.assertEqual(hunter.QUALITY_MASK, 1610629823)
-        finally:
-            hunter.set_calibration(previous)
+            with hunter.calibration_context("deep_v2"):
+                self.assertEqual(hunter.CALIBRATION_VERSION,
+                                 "deep_v2")
+                self.assertEqual(hunter.QUALITY_MASK, 1610629823)
+            # Nested restore: back to v1 inside the outer block.
+            self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v1")
+            self.assertEqual(hunter.QUALITY_MASK, 17087)
+
+    def test_calibration_context_restores_on_exception(self):
+        # The reason the context manager exists: an exception
+        # mid-comparison must not leak the wrong calibration.
+        with self.assertRaises(RuntimeError):
+            with hunter.calibration_context("deep_v1"):
+                self.assertEqual(hunter.CALIBRATION_VERSION,
+                                 "deep_v1")
+                raise RuntimeError("boom")
+        self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v2")
+        self.assertEqual(hunter.QUALITY_MASK, 1610629823)
+
+    def test_calibration_context_failed_switch_restores(self):
+        # set_calibration assigns before it validates, so a
+        # failed switch can leave half-changed globals — the
+        # context manager restores the previous values before
+        # the error propagates.
+        with self.assertRaises(CalibrationError):
+            with hunter.calibration_context("deep_nope"):
+                pass
+        self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v2")
+        self.assertEqual(hunter.QUALITY_MASK, 1610629823)
 
     def test_hunter_default_is_v2(self):
         # The fix is the default: new deep runs mask bits 29/30.

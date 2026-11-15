@@ -43,6 +43,7 @@ import hunter  # noqa: E402
 import quality_flags as qf  # noqa: E402
 from gauntlet import common as gcommon  # noqa: E402
 from gauntlet import rawflux_check as rfc  # noqa: E402
+from tests.calibration_guard import DeepCalibrationGuardCase  # noqa: E402
 
 WASP29B_PERIOD = 3.9227
 WASP29B_DEPTH = 0.0114
@@ -131,17 +132,20 @@ class TestApplyQualityMask(unittest.TestCase):
         self.assertEqual(len(out), 4)
 
 
-class TestDeepQualityMaskPipeline(unittest.TestCase):
+class TestDeepQualityMaskPipeline(DeepCalibrationGuardCase):
     """Through the real _run_pipeline, via the fixture seam."""
 
     def setUp(self):
-        self._prev_cal = hunter.CALIBRATION_VERSION
+        super().setUp()
         self._prev_env = os.environ.get("EXHUNT_FIXTURE_DIR")
         self._td = tempfile.TemporaryDirectory()
         os.environ["EXHUNT_FIXTURE_DIR"] = self._td.name
 
     def tearDown(self):
-        hunter.set_calibration(self._prev_cal)
+        # No manual calibration restore: _run switches through
+        # calibration_context, which restores in a finally
+        # block; the guard base class asserts deep_v2 is back
+        # after every test.
         if self._prev_env is None:
             os.environ.pop("EXHUNT_FIXTURE_DIR", None)
         else:
@@ -149,10 +153,10 @@ class TestDeepQualityMaskPipeline(unittest.TestCase):
         self._td.cleanup()
 
     def _run(self, tic, calibration):
-        hunter.set_calibration(calibration)
-        return hunter._run_pipeline(
-            tic, star_radius=0.9, min_p=2.0, max_p=8.0,
-            bls_points=8000, max_sectors=None)
+        with hunter.calibration_context(calibration):
+            return hunter._run_pipeline(
+                tic, star_radius=0.9, min_p=2.0, max_p=8.0,
+                bls_points=8000, max_sectors=None)
 
     def test_flagged_artifact_found_under_v1_gone_under_v2(self):
         # The core regression: a dip living ONLY on bit-30
