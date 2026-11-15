@@ -1461,6 +1461,29 @@ carry two rows per retried target — the §8 analysis must
 use the latest row per target. §7 seeds + §5 fixtures
 follow the retry pass.
 
+**Retry update 2026-11-16 ~01:10 IST (parent record).** The 00:55
+full re-run was killed deliberately: the driver's skip check sits
+AFTER the stitch+refine+sections (driver line ~342), so re-running
+all 10 targets re-stitches the 4 completed ones first — up to ~100
+min wasted, and a failed re-stitch would log a spurious
+`driver_error` row for an already-completed target. No rows were
+lost (JSONL still 13). A retry script for ONLY the 6 unmeasured
+targets is staged on the Mac (`driver/panel-retry6.sh`,
+syntax-checked; targets 330.01, 4655.01, 6845.01, 302.01, 7689.01,
+700c; same seed 20261114, same 1800 s budget). MAST's search backend
+was STILL down at 03:47 IST (lightkurve `search_lightcurve` probe
+failed 3x in the last hour, RemoteServiceError after ~91.6 s; a
+Mashup POST with a real Caom.Cone query timed out after 30 s — the
+web layer answers 200 while search is down, so bare HTTP checks are
+not a health signal). Outage ~6.5 h since ~22:00 IST Nov 15,
+unplanned, no maintenance announced. The panel runner completed
+03:45 IST and handed off. A half-hourly probe cron
+(`panel-retry-mast-probe`, first run 04:16 IST) now owns the gate:
+it probes MAST via the real lightkurve search path, renews the Mac
+caffeinate each run, and launches `panel-retry6.sh` on the first
+healthy probe, then self-disables. §5 C-10 fixtures already rsync'd
+to the VM (48 files, `phase3-vote/p3-9-c10-fixtures/`).
+
 **(D) DATED REVISIT (recorded).** Trigger for the Gaia-path
 re-run (WASP-29b verification): Gaia TAP back — the watch
 hook polls every 15 min and wakes on 2 consecutive HTTP
@@ -1843,8 +1866,11 @@ stars, 15.8% of survivors, with no period exclusion at
 all). No blanket period exclusion (a real 13.2 d planet
 with ≥3 events would not share the glitch epochs); no
 deletion from the ledger (demoted members keep a
-disposition and remain queryable). Still owed: 13.2 d
-injection pricing (P3-10); cross-sector repeat check
+disposition and remain queryable). **13.2 d injection
+pricing DELIVERED by P3-10 (2026-11-16): 7/120 (5.8%) on
+the dedicated pricing subset; period-bin 7/125 (5.6%,
+includes 5 planet trials that fell in the bin).** Still
+owed: cross-sector repeat check
 (S95/S97/S98 rescores); camera + momentum-dump tests (need
 light-curve headers/QUALITY columns). **Two pipeline
 findings routed to 3B/3C:** (a) t0 is a FITTED epoch, not
@@ -1854,3 +1880,70 @@ computed events past the sector end in the spike's first
 pass); (b) n_events overstates the evidence at sector edges
 — 114 of the 120-star G3 subgroup have only ONE fully
 in-span event yet carry n_events = 2.
+
+## P3-10 — Injection campaign at scale — CODE DONE 2026-11-15, RUN COMPLETE 2026-11-16
+
+**Code (wave 2):** campaign definition
+`bulk/inject_campaign_definition.json` (120 hosts: S96 80 + S95
+40; 13 trials/host; 1,560 trials; 1,080 planet-like positives;
+periods LogUniform(0.5, 15) d; depth grid respects the tier-B 1%
+cap; dedicated 120-trial 13.1–13.3 d pricing subset; S97 held
+out, S98 locked; three-class labels; TIC-grouped splits;
+effective-n = unique host TICs) + runner `bulk/inject_campaign.py`
+(parallel Pool default 8 workers, resumable, guards: S97/S98
+refused, calibration must be bulk_v3) + 28 tests PASS. Mac doc
+`phase3-vote/p3-10-mac-commands.md`.
+
+**RUN COMPLETE 2026-11-16 03:52 IST (Mac, cache-only — ran during
+the MAST outage since the panel was idle; no MAST calls).** All
+§0–§1 gates green: tip 527e89a, §0d md5 gate P310-SYNC-OK (8/8),
+NVMe 34.2 MB/s, both window files present, S95 cache 38,333, S96
+36,075. Resolve: 120 hosts, sectors [95, 96] only, 0 missing,
+byte-deterministic across two resolves. Wall **69 s** (vs 10–20
+min estimate — M4 far faster than the VM extrapolation).
+**120/120 hosts, effective-n 120, 0 failures.** Splits train 82 /
+test 38. Outputs copied back to `phase3-vote/p3-10-results/` and
+md5-verified (injections.jsonl, summary.json, hosts.json,
+hosts/ 120 files). Injected FITS (~80 MB) stay on the Mac.
+Transport note: rsync `-a` threw chown errors (exit 23, VM can't
+chown to Mac uids) — data landed intact; use `--no-owner
+--no-group` next time.
+
+**Recovery by kind (canonical `recovered` field, period-matched):**
+planet 412/960 (42.9%); EB 43/240 (17.9%, mostly demoted by
+design); flagged_dip 0/120 (mask holds — no leakage past bit-29/30
+exclusion); pricing_13p2 7/120 (5.8%); sinusoid 16/120 (13.3% —
+false-positive datapoints for 3A). **13.2 d pricing (P3-13):**
+7/120 (5.8%) on the dedicated subset; period-bin 7/125 (5.6%).
+**1–2-event planet recovery (P3-11's key number):** 1-event 0/11
+(0%), 2-event 16/102 (15.7%), combined 16/113 (14.2%).
+**Depth split (planet):** 0.2% 28/240 (11.7%); 0.5% 101/240
+(42.1%); 0.8% 130/240 (54.2%); 1.0% 153/240 (63.8%).
+
+**Failure-mode breakdown (parent analysis, recovery-analysis.md):**
+of 548 unrecovered planet trials, `recorded` 313 (57%, detected
+but below the SDE 7.0 bar), single-peak lock-on 154 (28%: 97
+DEPTH_EB + 57 wrong-period survivors), `below_floor` 26 (5%).
+**DEPTH_EB dig (parent, 2026-11-16): the gate is INNOCENT** — all
+97 DEPTH_EB planet trials are at the WRONG period (0/97 match),
+measured depths 3.09–17.66% (median 7.2x injected), all SDE ≥ 7.0:
+BLS locked onto a stronger, deeper signal in the light curve and
+the gate correctly flagged THAT. The cause is single-peak BLS.
+Fix family: multi-peak BLS / iterative signal removal — banked as
+a Phase 4 input (`phase4-inputs/campaign-evidence.md`) with the
+full ranked lever list (stacking, multi-peak, single-transit, TLS,
+ranker). Do NOT loosen the DEPTH_EB gate.
+
+**Two flags for P3-11:** (1) the 1–2-event planet n is **113**,
+below the adoption rule's n ≥ 200 floor (mixed-kind bin is 260) —
+whether the rule's n counts planet-only or all trials needs
+adjudication before any threshold decision. (2) Sinusoid recovery
+16/120 — 3A FP training signal, not a runner bug.
+
+**Three-AI consultation on the fix (Dev authorized 2026-11-16
+04:00):** bundle + Claude brief at
+`phase4-inputs/consultation-bundle.md` + `claude_brief.md`;
+Gemini (Argon, web) + ChatGPT (Think, max reasoning) legs
+dispatched to a coordinator; Claude leg is Dev's paste. This is a
+scoping consultation, not the Phase 4 vote (that still happens
+after Phase 3 merges).
