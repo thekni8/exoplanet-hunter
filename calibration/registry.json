@@ -63,6 +63,13 @@
       "status": "active",
       "rationale": "External-tool configuration v2 (2026-11-15, Phase 3 P3-9): v1's run settings, venv paths, tool versions and TRICERATOPS bars carried over UNCHANGED, + the disposition policy (A) ratified by the unanimous Phase 3 vote (2026-11-15, TB-2) recorded explicitly: FPP <= 0.015 and NFPP <= 0.001 validate; FPP >= 0.5 refutes; without a contrast curve, intermediate results read INCONCLUSIVE, never 'validated'. The policy already behaved as (A) under v1 — v2 is a recording act, not a behaviour change. Evidence: C-10 runs on the Mac — EB TIC 308851365 FPP 0.999998 (refute, decisive) and WASP-29b TIC 183537452 FPP 0.169, NFPP 0.0, STP-dominated (0.160), no contrast curve (INCONCLUSIVE, not validated). The STP-excluded disposition (Gemini's LIKELY_PLANET_UNCONSTRAINED_STP) is NOT adopted in Phase 3 (TB-2); the known-planet panel (P3-9) is the evidence that could justify it in 3.1. Supersedes external_tools_v1 for all new tool runs.",
       "supersedes": "external_tools_v1"
+    },
+    {
+      "calibration_id": "bulk_v4",
+      "sha256": "b30fde0c1aef4c6b348d098edcd70b75473ed790f6c28374e68f8a7b2fd045d1",
+      "status": "provisional",
+      "rationale": "Bulk calibration v4 (2026-11-15, Phase 3 P3-15 scaffold — PROVISIONAL): all bulk_v3 gates carried over verbatim; the only additions are the P3-14 grid-edge floor constants (no unmasked in-transit flags, >= 4 in-transit cadences for SINGLE_TRANSIT_POOL). The tier-B tightening gates land only after the P3-11 replay matrix reports and the pre-registered adoption rule (docs/bulk_v4_adoption_rule.md) clears them against the P3-10 campaign loss measurement. Do not screen a sector under this profile until its status reads active.",
+      "supersedes": "bulk_v3"
     }
   ]
 }
