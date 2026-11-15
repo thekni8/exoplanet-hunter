@@ -50,6 +50,29 @@ class TestNamedMasks(unittest.TestCase):
     def test_v1_v2_mask_is_17087(self):
         self.assertEqual(qf.BULK_V1_V2_MASK, 17087)
 
+    def test_deep_masks(self):
+        # deep_v2 (2026-11-15): the deep pipeline (hunter.py) gets
+        # the same scattered-light fix as bulk_v3 — M-11 verified
+        # it exposed for QLP targets. Same integer as BULK_V3_MASK,
+        # pinned under its own name so the deep drift test pins it.
+        self.assertEqual(qf.DEEP_V1_MASK, 17087)
+        self.assertEqual(qf.DEEP_V2_MASK, 1610629823)
+        self.assertEqual(
+            qf.DEEP_V2_MASK,
+            qf.SPOC_DEFAULT_MASK
+            | qf.QLP_UNDOCUMENTED_29
+            | qf.QLP_LOW_PRECISION,
+        )
+        self.assertEqual(qf.DEEP_V2_MASK, qf.BULK_V3_MASK)
+
+    def test_straylight_bits_stay_out_of_deep_v2(self):
+        # Bit 11 (Straylight, manual) and bit 12 (Straylight2):
+        # the same TOI-700 c lesson as v3 — a real transit can
+        # survive on these cadences. The 2026-11-15 vote went 2/3
+        # against masking bit 11; bit 12 was never proposed.
+        self.assertEqual(qf.DEEP_V2_MASK & qf.SPOC_STRAYLIGHT, 0)
+        self.assertEqual(qf.DEEP_V2_MASK & qf.SPOC_STRAYLIGHT2, 0)
+
     def test_straylight_bits_stay_out_of_v3(self):
         # Bit 11 (Straylight, manual) and bit 12 (Straylight2,
         # automatic): a real transit can survive on these cadences

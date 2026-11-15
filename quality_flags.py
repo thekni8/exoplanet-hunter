@@ -106,8 +106,24 @@ QLP_UNDOCUMENTED_29 = 1 << 29
 # ------------------------------------------------------------ pipeline
 #: The bulk_v1/v2 screen mask: lightkurve's TESS default.
 BULK_V1_V2_MASK = SPOC_DEFAULT_MASK
-#: The bulk_v3 screen mask: the v1/v2 mask plus QLP bits 29/30.
-BULK_V3_MASK = SPOC_DEFAULT_MASK | QLP_UNDOCUMENTED_29 | QLP_LOW_PRECISION
+#: The shared scattered-light mask (DF-12): lightkurve's TESS
+#: default plus QLP bits 29/30. ONE definition site — both the
+#: bulk_v3 screen and the deep_v2 pipeline reference this
+#: constant, so a future change to either is a change to both
+#: or an explicit, visible fork. Value 1610629823.
+SHARED_QUALITY_MASK = (
+    SPOC_DEFAULT_MASK | QLP_UNDOCUMENTED_29 | QLP_LOW_PRECISION
+)
+#: The bulk_v3 screen mask: the shared mask (DF-12).
+BULK_V3_MASK = SHARED_QUALITY_MASK
+#: The deep_v1 pipeline mask: lightkurve's TESS default (what
+#: hunter.py's lightkurve downloads applied at read time).
+DEEP_V1_MASK = SPOC_DEFAULT_MASK
+#: The deep_v2 pipeline mask: the shared mask (DF-12). The two
+#: names exist so each profile's drift test pins its own
+#: constant, and so a reader of hunter.py sees the deep
+#: profile's mask, not the bulk screen's.
+DEEP_V2_MASK = SHARED_QUALITY_MASK
 
 #: Short name per bit, for the unmasked-bit tally (M-4) and logs.
 #: Bits not listed here are reported as "bit_<n>".

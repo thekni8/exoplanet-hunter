@@ -46,6 +46,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from gauntlet.desk import (DeskDataSource, Survivor,  # noqa: E402
+                           _flagged_fold,
                            clean_refold_native,
                            diffimg_native_for,
                            persistence_native,
@@ -97,7 +98,10 @@ def _discovery(P=P_BOX, T0=T0_BOX, DUR=DUR_BOX, depth=DEPTH,
                mode="clean", seed=13):
     """One sector with quality flags. mode='artifact': the dip
     exists ONLY in flagged (bit-29/30) cadences, 0 clean
-    in-transit — the 2026-11-14 rescore artifact class."""
+    in-transit — the 2026-11-14 rescore artifact class.
+    mode='bit12': the dip's in-transit cadences carry bit 12
+    only (TOI-700 c) — bit 12 is NOT in the mask, so the dip
+    is a clean-data signal, not a flagged artifact."""
     rng = np.random.default_rng(seed)
     t = _sector_times(1500.0)
     q = np.zeros(len(t), dtype=np.int64)
@@ -110,6 +114,9 @@ def _discovery(P=P_BOX, T0=T0_BOX, DUR=DUR_BOX, depth=DEPTH,
         q[flag & ~in_tr] = 1 << 29
     elif mode == "artifact":
         q[in_tr] = (1 << 29) | (1 << 30)
+        f[in_tr] -= depth
+    elif mode == "bit12":
+        q[in_tr] = np.int64(4096)
         f[in_tr] -= depth
     return t, f, q
 
@@ -453,6 +460,40 @@ class TestNativeBuilders(unittest.TestCase):
         _fold, verdict = clean_refold_native(t, f, q, P_BOX, T0_BOX,
                                              DUR_BOX * 24)
         self.assertEqual(verdict, "PASS")
+
+    def test_flagged_fold_bit12_transit_is_clean(self):
+        # DF-1: a genuine bit-12 transit (TOI-700 c) must land
+        # in the CLEAN set, not the flagged set — the old
+        # (q == 0)/(q != 0) split classified every bit-12
+        # cadence as flagged, so the flagcheck read a real
+        # transit as a flagged-only artifact. Directly through
+        # _flagged_fold: zero flagged in-transit cadences.
+        t, f, q = _discovery(mode="bit12")
+        flagged = _flagged_fold(t, f, q, P_BOX, T0_BOX,
+                                DUR_BOX * 24)
+        self.assertEqual(flagged["n_in"], 0)
+        self.assertEqual(flagged["n_events"], 0)
+        self.assertIsNone(flagged["depth_percent"])
+        # And the full gate PASSES it: the clean fold keeps the
+        # bit-12 cadences and measures the dip.
+        _fold, verdict = clean_refold_native(t, f, q, P_BOX,
+                                             T0_BOX, DUR_BOX * 24)
+        self.assertEqual(verdict, "PASS")
+
+    def test_flagged_fold_bit30_artifact_is_flagged(self):
+        # The other side of DF-1: a bit-29/30-only dip still
+        # lands in the flagged set and the flagcheck measures
+        # it — the mask-consistent split must not lose the
+        # artifact class it exists to catch.
+        t, f, q = _discovery(mode="artifact")
+        flagged = _flagged_fold(t, f, q, P_BOX, T0_BOX,
+                                DUR_BOX * 24)
+        self.assertGreater(flagged["n_in"], 0)
+        self.assertGreater(flagged["n_events"], 0)
+        self.assertIsNotNone(flagged["snr"])
+        self.assertGreater(flagged["snr"], 3.0)
+        self.assertAlmostEqual(flagged["depth_percent"],
+                               DEPTH * 100, delta=0.5)
 
     def test_diffimg_native_for(self):
         on = diffimg_native_for(

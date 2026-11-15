@@ -23,8 +23,10 @@ import calibration  # noqa: E402
 import hunter  # noqa: E402
 import mad_clip  # noqa: E402
 import persistence  # noqa: E402
+import quality_flags as qf  # noqa: E402
 from calibration import CalibrationError, load_profile  # noqa: E402
 from gauntlet import rawflux_check, transit_fit  # noqa: E402
+from tests.calibration_guard import DeepCalibrationGuardCase  # noqa: E402
 
 
 class TestBulkProfile(unittest.TestCase):
@@ -185,7 +187,7 @@ class TestV1Gate(unittest.TestCase):
             bulk_screen.set_calibration(previous)
 
 
-class TestDeepDrift(unittest.TestCase):
+class TestDeepDrift(DeepCalibrationGuardCase):
     def test_deep_profile_matches_hunter_constants(self):
         p = load_profile("deep_v1")
         self.assertEqual(p["hit_sde"], hunter.HIT_SDE)
@@ -194,6 +196,104 @@ class TestDeepDrift(unittest.TestCase):
                          hunter._SYSTEMATIC_PERIODS)
         self.assertEqual(p["hit_sde"], 8.5)
         self.assertEqual(p["acceptance_floor_sde"], 6.5)
+
+    def test_deep_v2_values(self):
+        p2 = load_profile("deep_v2")
+        p1 = load_profile("deep_v1")
+        self.assertEqual(p2["version"], "deep_v2")
+        self.assertEqual(p2["status"], "active")
+        self.assertTrue(p2["rationale"].strip())
+        # The only new field: the quality mask adds bits 29/30
+        # (TESS scattered light) to the lightkurve default.
+        self.assertEqual(p2["quality_mask"], 1610629823)
+        self.assertEqual(p2["quality_mask"],
+                         17087 | (1 << 29) | (1 << 30))
+        # Every v1 threshold carried over unchanged.
+        for key in ("hit_sde", "acceptance_floor_sde",
+                    "systematic_periods", "min_period_d",
+                    "max_period_d", "detrend_window_d"):
+            self.assertEqual(p2[key], p1[key], key)
+
+    def test_deep_v2_matches_hunter_constants(self):
+        # deep_v2 is the drift-tested snapshot of the CURRENT
+        # code: the mask constant is hunter.QUALITY_MASK under
+        # the default (deep_v2) calibration.
+        with hunter.calibration_context("deep_v2"):
+            p = load_profile("deep_v2")
+            self.assertEqual(p["hit_sde"], hunter.HIT_SDE)
+            self.assertEqual(p["acceptance_floor_sde"],
+                             hunter.ACCEPT_SDE)
+            self.assertEqual(tuple(p["systematic_periods"]),
+                             hunter._SYSTEMATIC_PERIODS)
+            self.assertEqual(p["quality_mask"],
+                             hunter.QUALITY_MASK)
+            self.assertEqual(hunter.QUALITY_MASK, 1610629823)
+
+    def test_hunter_loads_v1_on_request(self):
+        # The v1 seam (sensitivity comparisons + the regression
+        # tests): v1 predates the field and means the lightkurve
+        # default mask (17087).
+        with hunter.calibration_context("deep_v1"):
+            self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v1")
+            self.assertEqual(hunter.QUALITY_MASK, 17087)
+            with hunter.calibration_context("deep_v2"):
+                self.assertEqual(hunter.CALIBRATION_VERSION,
+                                 "deep_v2")
+                self.assertEqual(hunter.QUALITY_MASK, 1610629823)
+            # Nested restore: back to v1 inside the outer block.
+            self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v1")
+            self.assertEqual(hunter.QUALITY_MASK, 17087)
+
+    def test_calibration_context_restores_on_exception(self):
+        # The reason the context manager exists: an exception
+        # mid-comparison must not leak the wrong calibration.
+        with self.assertRaises(RuntimeError):
+            with hunter.calibration_context("deep_v1"):
+                self.assertEqual(hunter.CALIBRATION_VERSION,
+                                 "deep_v1")
+                raise RuntimeError("boom")
+        self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v2")
+        self.assertEqual(hunter.QUALITY_MASK, 1610629823)
+
+    def test_calibration_context_failed_switch_restores(self):
+        # set_calibration assigns before it validates, so a
+        # failed switch can leave half-changed globals — the
+        # context manager restores the previous values before
+        # the error propagates.
+        with self.assertRaises(CalibrationError):
+            with hunter.calibration_context("deep_nope"):
+                pass
+        self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v2")
+        self.assertEqual(hunter.QUALITY_MASK, 1610629823)
+
+    def test_hunter_default_is_v2(self):
+        # The fix is the default: new deep runs mask bits 29/30.
+        # (Unlike the bulk screen, which kept v1 as its import
+        # default while sectors were mid-screen, the deep
+        # pipeline runs per-target on demand — there is no
+        # in-flight v1 deep run to protect.)
+        self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v2")
+
+
+class TestSharedQualityMask(unittest.TestCase):
+    def test_one_definition_site(self):
+        # DF-12: bulk_v3 and deep_v2 are the SAME mask, defined
+        # once. A future change to either is a change to both or
+        # an explicit, visible fork — the two profiles can no
+        # longer drift apart silently.
+        self.assertEqual(qf.SHARED_QUALITY_MASK, 1610629823)
+        self.assertEqual(
+            qf.SHARED_QUALITY_MASK,
+            17087 | (1 << 29) | (1 << 30))
+        self.assertEqual(qf.BULK_V3_MASK, qf.SHARED_QUALITY_MASK)
+        self.assertEqual(qf.DEEP_V2_MASK, qf.SHARED_QUALITY_MASK)
+        # The YAML profiles ARE the declarations, so they carry
+        # the bare integer — but it must equal the shared
+        # constant, not a second, independent value.
+        self.assertEqual(load_profile("bulk_v3")["quality_mask"],
+                         qf.SHARED_QUALITY_MASK)
+        self.assertEqual(load_profile("deep_v2")["quality_mask"],
+                         qf.SHARED_QUALITY_MASK)
 
 
 class TestGauntletDrift(unittest.TestCase):
@@ -279,6 +379,7 @@ class TestLoader(unittest.TestCase):
         names = calibration.available_profiles()
         self.assertIn("bulk_v1", names)
         self.assertIn("deep_v1", names)
+        self.assertIn("deep_v2", names)
         self.assertIn("gauntlet_v1", names)
 
 

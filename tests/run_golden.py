@@ -37,7 +37,8 @@ achieve speed):
   belong in rest, not smoke (smoke stays the <=3 min PR
   check) and not golden (no _run_pipeline).
 * live (DOWNLOAD_TESTS, not in any offline tier):
-  test_golden_stars, test_desk_live, test_concordance_live
+  test_golden_stars, test_desk_live, test_concordance_live,
+  test_deep_mask_live
   — real MAST downloads; weekly + on merge in live.yml,
   non-blocking.
 
@@ -65,8 +66,8 @@ and their results are recorded, not gated on.
 * rest shard: everything else offline (the medium modules).
 * full (--fast): the standard gate — smoke + golden + injection
   + rest, offline, ~15 min. The live tests (test_golden_stars,
-  test_desk_live, test_concordance_live) are NOT in any
-  offline tier; they run weekly in live.yml.
+  test_desk_live, test_concordance_live, test_deep_mask_live)
+  are NOT in any offline tier; they run weekly in live.yml.
 
 CI split: golden.yml runs smoke (the PR check) plus the three
 shards in parallel; together the shards cover the full --fast
@@ -131,7 +132,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 DOWNLOAD_TESTS = {"test_golden_stars", "test_desk_live",
-                  "test_concordance_live"}
+                  "test_concordance_live", "test_deep_mask_live"}
 
 # Smoke tier (F-10): the <=3 min PR check. Runner, status
 # matrix, blend, conservation, registry, fingerprint,

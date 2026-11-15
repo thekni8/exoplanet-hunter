@@ -21,6 +21,18 @@ Sectors where TESSCut has no cutout, the download fails after the
 retry ladder, or the target is off-CCD are recorded as NO-DATA with a
 reason — never silently skipped.
 
+Quality handling (DF-3, 2026-11-15): TESSCut cutouts are FFI
+products with SPOC-style 16-bit QUALITY columns, so bits 29/30
+cannot occur and NO quality mask is applied here — the deep_v2
+mask would be meaningless on 16-bit data. identity_for uses
+unfiltered medians over all cadences: medians are robust to the
+handful of flagged cadences (momentum dumps etc.), and the
+identity check needs pixel positions, not photometry. Any
+photometric use of a downloaded cutout goes through
+gauntlet/common.py:load_tpf, which applies the M-8 mask. This
+file is on the DF-2 guard test's KNOWN_UNMASKED list for exactly
+this reason.
+
 Usage:
   tesscut_fetch.py TIC --ra RA --dec DEC --sectors 32 98 107 \\
       --outdir tesscut/ [--neighbour-tic T --neighbour-ra RA \\
