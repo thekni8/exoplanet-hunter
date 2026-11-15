@@ -1280,3 +1280,65 @@ hit is inside the correction note); the only remaining
 "256 gauntlet-killed" instances are the frozen bundle/brief
 text (banner-covered) and the verdicts/COMPARISON/brief
 discussing the correction.
+
+## P3-9 — 3D: record (A), panel, B spike, (D) — PARTIAL 2026-11-15
+
+**(A) RECORDED (done).** Disposition (A) is recorded in the
+new policy profile `calibration/external_tools_v2.yaml`
+(registry-pinned, sha256
+7fb57db2e4f16017e7c0f79b24b7e4fafea80492f4b240418e33466d8192caa6,
+supersedes external_tools_v1) — v1 was NOT edited: it is
+merged on main and used in runs (C-10), so the immutability
+rule requires a successor (the brief's "or its successor
+profile"). Bars UNCHANGED from v1 (FPP 0.015 / NFPP 0.001 /
+refute 0.5); run settings, venv paths and tool versions
+unchanged. The v2 `disposition` section records: VALIDATE =
+FPP <= 0.015 AND NFPP <= 0.001; REFUTE = FPP >= 0.5; grey
+zone = INCONCLUSIVE (never "validated", never Giacalone's
+"likely planet"); without a contrast curve, intermediate
+results read INCONCLUSIVE (STP unconstrained — WASP-29b:
+STP 0.160 of FPP 0.169; Collier et al. 2026: curves remove
+"almost entirely" the STP scenario); the STP-excluded
+disposition is NOT adopted in Phase 3 (TB-2), with both
+panel-outcome branches recorded (panel mostly below 0.015
+-> revisit (C) per target; panel mostly STP-dominated ->
+evidence base for revisiting the disposition in 3.1). Code
+defaults moved v1 -> v2 (`EXTERNAL_TOOLS_POLICY_VERSION`,
+`load_external_tool_configs`, docstrings). This is a
+recording act — the mapping already behaved as (A), so no
+disposition behaviour changed. Tests: 3 new tests pin v2
+(bars unchanged, disposition (A), v2 is the default);
+test_triceratops + test_desk_external_tools default-policy
+assertions updated v1 -> v2 (documented, justified: the
+default moved by design; behaviour assertions unchanged).
+Evidence: test_triceratops + test_desk_external_tools +
+test_registry -> 52 tests, OK. Smoke after the item: 199
+tests, OK.
+
+**B SPIKE (done).** Coverage finding recorded
+(`phase3-vote/p3-9-b-spike.md`): contrast curves exist
+essentially only for TOIs — ExoFOP-TESS is the single
+aggregation point; ~3,000–4,000 of ~8,000 TOIs covered
+(SOAR 2,982 targets the largest program); no blind
+field-star coverage. **(B) is CLOSED as a general solution**
+for new uncatalogued leads. No scraper built (per the
+brief). WASP-29 (TOI-192) already has two curves on ExoFOP
+(Gemini/Zorro 832 nm, SOAR/HRCam) — re-running WASP-29b
+with the Zorro curve is the immediate 3D(A) calibration
+test and is step 0 of the panel job.
+
+**Known-planet panel (Mac job — commands being prepared).**
+~10 confirmed planets, no-contrast configuration: the 9
+recovered TOIs + TOI-700 c. Per-target FPP/NFPP/scenario
+split + disposition under (A). The panel measures the
+false-refute rate that n=1 cannot.
+
+**(D) DATED REVISIT (recorded).** Trigger for the Gaia-path
+re-run (WASP-29b verification): Gaia TAP back — the watch
+hook polls every 15 min and wakes on 2 consecutive HTTP
+200s. Revisit date: within 7 days of the known-planet panel
+completing, and no later than 2026-12-09 (one week after
+the Gaia DR4 release on 2026-12-02, when the archive is
+stable). Note the planned DR4 shutdown window 2026-11-25
+12:00 CET → 2026-12-02, during which Gaia-dependent work
+is impossible. The revisit does not block Phase 3.

@@ -5,7 +5,7 @@ Two layers, both driven without the real tool:
 * The ADAPTER (gauntlet/stage_result.py:triceratops_result)
   maps canned TRICERATOPS output JSONs onto StageResults
   using the POLICY bars (a small test policy here; one test
-  proves the default policy loads from external_tools_v1).
+  proves the default policy loads from external_tools_v2).
   PASS needs FPP and NFPP both under the validation bars;
   FAIL needs FPP over the refute bar; the grey zone (and a
   low FPP blocked by a high NFPP) is INCONCLUSIVE. A
@@ -198,9 +198,10 @@ class TestTriceratopsResult(unittest.TestCase):
             validate_triceratops_output(bad)
 
     def test_default_policy_loads(self):
-        # policy=None loads the real external_tools_v1
+        # policy=None loads the real external_tools_v2
         # profile (registry-verified): the planet output
-        # passes under the provisional bars.
+        # passes under the ratified bars (P3-9: the default
+        # policy moved v1 -> v2; the bars are unchanged).
         res = triceratops_result(_output())
         self.assertEqual(res.status, "pass")
         self.assertEqual(res.threshold, 0.015)
@@ -211,9 +212,9 @@ class TestTriceratopsResult(unittest.TestCase):
         # policy-only edit re-derives the disposition without
         # re-running the tool.
         res = triceratops_result(_output())
-        self.assertEqual(res.policy_version, "external_tools_v1")
+        self.assertEqual(res.policy_version, "external_tools_v2")
         self.assertEqual(res.to_dict()["policy_version"],
-                         "external_tools_v1")
+                         "external_tools_v2")
         # The new field passes the stage-result schema
         # (additionalProperties: false would reject an
         # undeclared field).
@@ -230,14 +231,14 @@ class TestTriceratopsResult(unittest.TestCase):
         # passes under the default bars (0.015) but is
         # inconclusive under a stricter policy (0.005).
         status, _reason = triceratops_disposition(
-            0.01, 0.0008, False, {"version": "external_tools_v1",
+            0.01, 0.0008, False, {"version": "external_tools_v2",
                                   "triceratops": {
                                       "fpp_validate_max": 0.015,
                                       "nfpp_validate_max": 0.001,
                                       "fpp_refute_min": 0.5}})
         self.assertEqual(status, "pass")
         status, _reason = triceratops_disposition(
-            0.01, 0.0008, False, {"version": "external_tools_v2",
+            0.01, 0.0008, False, {"version": "external_tools_v9",
                                   "triceratops": {
                                       "fpp_validate_max": 0.005,
                                       "nfpp_validate_max": 0.001,
@@ -579,6 +580,40 @@ class TestBinFold(unittest.TestCase):
         self.assertEqual(n, 0)
         self.assertEqual(len(centres), 0)
         self.assertEqual(len(fluxes), 0)
+
+
+class TestExternalToolsV2Policy(unittest.TestCase):
+    """P3-9: v2 records disposition (A) with the v1 bars
+    unchanged — a recording act, not a behaviour change."""
+
+    def test_v2_bars_unchanged_from_v1(self):
+        from calibration import load_profile
+        v1 = load_profile("external_tools_v1")["triceratops"]
+        v2 = load_profile("external_tools_v2")["triceratops"]
+        for key in ("fpp_validate_max", "nfpp_validate_max",
+                    "fpp_refute_min"):
+            self.assertEqual(v2[key], v1[key], key)
+        for key in ("tool_version", "venv_python", "wrapper"):
+            self.assertEqual(v2[key], v1[key], key)
+
+    def test_v2_records_disposition_a(self):
+        from calibration import load_profile
+        disp = load_profile(
+            "external_tools_v2")["triceratops"]["disposition"]
+        self.assertEqual(disp["policy"], "A")
+        self.assertEqual(disp["grey_zone"], "inconclusive")
+        self.assertIn("validated", disp["grey_zone_never"])
+        self.assertIn("likely planet", disp["grey_zone_never"])
+        # TB-2: the STP-excluded disposition is NOT adopted
+        # in Phase 3.
+        self.assertIn("not adopted",
+                      disp["stp_excluded_disposition"])
+
+    def test_v2_is_the_default_policy(self):
+        from gauntlet.stage_result import (
+            EXTERNAL_TOOLS_POLICY_VERSION)
+        self.assertEqual(EXTERNAL_TOOLS_POLICY_VERSION,
+                         "external_tools_v2")
 
 
 if __name__ == "__main__":

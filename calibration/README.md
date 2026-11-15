@@ -15,6 +15,8 @@ immutable once used in a run.
 | `deep_v1.yaml` | deep pipeline (`hunter.py`) | drift-tested: `tests/test_calibration.py` asserts the profile matches `hunter.py`'s named constants |
 | `deep_v2.yaml` | deep pipeline (`hunter.py`) | same drift test, against the new constants; `quality_mask` 1610629823 (lightkurve default 17087 + TESS scattered-light bits 29/30) — the 2026-11-15 flagged-cadence artifact fix for the deep pipeline (M-11: hunter.py's lightkurve downloads kept bits 29/30 on QLP targets) |
 | `gauntlet_v1.yaml` | vetting gauntlet | drift-tested against `gauntlet/` + `persistence.py` constants |
+| `external_tools_v1.yaml` | external tools (LATTE/TRICERATOPS) | `gauntlet/external_tool.py:load_external_tool_configs` + `gauntlet/stage_result.py:load_external_tools_policy`; shared run settings (seed 20261114, timeout 1800 s, memory 2048 MB) + per-tool venv paths/versions + the Giacalone et al. 2021 TRICERATOPS bars (FPP < 0.015, NFPP < 0.001 validate; FPP ≥ 0.5 refutes) — PROVISIONAL until the Phase 3 vote ratified them |
+| `external_tools_v2.yaml` | external tools (LATTE/TRICERATOPS) | same loaders, now the default; v1's settings, paths, versions and bars carried over UNCHANGED + the disposition policy (A) ratified by the unanimous Phase 3 vote (2026-11-15, TB-2) recorded explicitly — FPP ≤ 0.015 and NFPP ≤ 0.001 validate, FPP ≥ 0.5 refutes, the grey zone reads INCONCLUSIVE (never "validated", never "likely planet"), and without a contrast curve intermediate results read INCONCLUSIVE |
 
 ## Rules
 
