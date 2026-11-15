@@ -475,6 +475,12 @@ x 2 calibrations; full table in
 `bulk/inject_deep_real_s96_summary.json`):
 
 - deep_v1: **0/12** recovered. deep_v2: **7/12** recovered.
+  (7/12 is roughly a 32–81% interval — small-n on a
+  flagged-heavy stress set. The blindness is fixed;
+  completeness is unmeasured. P3-6, 2026-11-15: the
+  "sensitivity proven" reading of 7/12 is corrected
+  wherever it appears; the bundle's "roughly 30–85%"
+  estimate is superseded by the 32–81% Wilson interval.)
 - The v1 story is NOT false positives: on 5 of 6 hosts the
   unmasked pipeline's BLS periodogram is degenerate (SDE NaN,
   period pinned at the 25 d search ceiling) — it finds nothing
@@ -1215,3 +1221,62 @@ LIMITED; WASP-29b-equivalent -> VALID_DETECTION, SDE >= 8.5).
 Evidence: `python -m unittest tests.test_search_health` ->
 18 tests, OK (unit+bulk 0.9 s, deep 42 s). Smoke after the
 item: 199 tests, OK (91 s).
+
+## P3-6 — Claims corrections — DONE 2026-11-15
+
+Five overstated claims corrected (Claude + ChatGPT catches;
+Gemini's accounting catch). Grep-verified 2026-11-15.
+
+1. **"Sensitivity proven" → the interval.** 7/12 is roughly a
+   32–81% interval (Wilson). The literal phrase appears in NO
+   record — the overstatement was the unqualified reading of
+   7/12. Corrected in the repo PROGRESS.md sensitivity section
+   (with the note that the bundle's "roughly 30–85%" estimate
+   is superseded by 32–81%) and in GOAL.md's deep_v2 line.
+   The bundle already carried the small-n caveat ("NOT a
+   completeness claim"); the banner records the corrected
+   interval.
+2. **256-lead accounting: 244 refuted, not 253.** 36 EBs + 208
+   other = 244. The 9 TOIs are recoveries, the 3 inconclusives
+   unresolved; the bundle intro's breakdown (36 + 9 + 208)
+   omits the inconclusives, and the batch summaries counted
+   the 9 TOIs as REFUTED (the source of "253"). Corrected in
+   the gauntlet LEDGER.md final tally (with the full
+   breakdown 244 + 9 + 3 = 256 and the "256 gauntlet-killed
+   leads" label marked invalid). Batch summaries are run data
+   and were NOT edited — the ledger note supersedes them.
+3. **Selection bias.** The 256 were NEW tier-A survivors
+   (top-SDE, selected), not a random sample — 0 planets among
+   them is not a pipeline FPR estimate and not a sensitivity
+   statement. Caveat recorded in the LEDGER.md final tally
+   and the bundle banner.
+4. **Base-rate caveat.** ~1 planet per ~71k stars (RAVEN) is a
+   contextual analogue, not an established base rate for this
+   pipeline's target selection. The figure appears ONLY in the
+   frozen vote artifacts (BUNDLE.md, claude_brief.md) — no
+   living record cites it. Caveat recorded in both banners.
+5. **Null-specificity caveat.** 0/12 synthetic null false
+   alarms is not sufficient evidence of real-world
+   specificity. Caveat recorded in bulk/SENSITIVITY_MAP.md
+   under the Headline table. The PROGRESS.md /
+   PHASE_1_2_PROGRESS.md 0/12 citations are grid
+   measurements (pre-registered clip-grid criteria), not
+   specificity claims — left as-is.
+
+**Vote-artifact policy (judgment call, recorded):** BUNDLE.md
+and claude_brief.md are frozen vote inputs — the three
+verdicts quote and reference their wording, so rewriting the
+voted text would falsify the vote record. They carry dated
+P3-6 correction banners at the top instead (superseding the
+labelled claims in place); the living records (repo, GOAL.md,
+ledger) are corrected in place. MEMORY.md was checked: it
+contains no instance of any of the five claims (its 7/12 and
+256 lines are measurements).
+
+Grep verification: repo has no "256 killed" / "71k" and no
+"sensitivity proven" except this section's own correction
+note; GOAL.md + LEDGER.md have no live instance (the ledger
+hit is inside the correction note); the only remaining
+"256 gauntlet-killed" instances are the frozen bundle/brief
+text (banner-covered) and the verdicts/COMPARISON/brief
+discussing the correction.

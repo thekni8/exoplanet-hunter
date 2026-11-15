@@ -27,6 +27,16 @@ the flatten step is applied in both.
 | Null false alarms (12 noise-only cells) | 0/12 | 0/12 | 0/12 |
 | Max null SDE | 7.3 | 7.3 | 7.3 |
 
+**Null-specificity caveat (P3-6, 2026-11-15):** 0/12 synthetic
+null false alarms is not sufficient evidence of real-world
+specificity. Twelve noise-only cells on synthetic Gaussian
+noise do not sample real TESS systematics (scattered light,
+momentum dumps, sector edges, the 13.7 d family) — the
+pipeline's real false-alarm behaviour is measured by the
+S96 rescore gauntlet and the injection campaign (P3-10),
+not by this row. The null class is thin and must be grown
+by injection into real null light curves.
+
 v2's numbers are identical to the unclipped reference on every
 aggregate: the 10% floor never binds at depths ≤ 3%, so v2 clips
 outliers without touching any transit in the grid. The clip choice
