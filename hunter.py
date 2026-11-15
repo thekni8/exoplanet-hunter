@@ -101,6 +101,7 @@ CLI (original flags):
 """
 
 import argparse
+import contextlib
 import csv
 import gc
 import hashlib
@@ -131,6 +132,11 @@ from astroquery.mast import Catalogs
 import provenance as _prov
 import ingest as _ingest
 import netbound as _net
+from calibration import CalibrationError as _CalibrationError
+from calibration import load_profile as _load_profile
+from quality_flags import DEEP_V2_MASK as _DEEP_V2_MASK
+from quality_flags import SPOC_DEFAULT_MASK as _SPOC_DEFAULT_MASK
+from quality_flags import tally_unmasked_bits as _tally_unmasked_bits
 
 OUTPUT_DIR = "reports"
 DISCOVERIES_CSV = "discoveries.csv"
@@ -443,8 +449,15 @@ def _download_products(sectors_to_fetch, tic_id, progress_callback=None):
     for i in range(total):
         row = sectors_to_fetch[i]
         try:
+            # DF-11: pass the ACTIVE profile's mask explicitly —
+            # depending on the reader default is what caused this
+            # bug. The reader drops masked rows at read time, so
+            # _apply_quality_mask downstream is defence-in-depth
+            # on the surviving rows (and DF-9 counts both layers).
             item = _with_download_self_heal(
-                lambda row=row: row.download(), progress_callback,
+                lambda row=row: row.download(
+                    quality_bitmask=QUALITY_MASK),
+                progress_callback,
                 corrupt_max_retries=1)
         except Exception as e:
             last_error = e
@@ -547,11 +560,143 @@ _AUTHOR_PRIORITY = ("SPOC", "TESS-SPOC", "QLP")
 # so the artifact forest stops taxing every real peak's SDE.
 _SYSTEMATIC_PERIODS = (13.7, 6.85, 27.4)
 
-# Deep-pipeline calibration (calibration/deep_v1.yaml — drift-tested
+# Deep-pipeline calibration (calibration/deep_v2.yaml — drift-tested
 # in tests/test_calibration.py; change the profile + the code together).
 HIT_SDE = 8.5     # discovery bar: a sweep hit needs SDE >= 8.5
 ACCEPT_SDE = 6.5  # refined-peak acceptance floor: a refined peak
                   # below this is not a signal
+
+# Quality mask (deep_v2, 2026-11-15): which QUALITY bits exclude a
+# cadence from BLS input. M-11 verified the deep pipeline was
+# exposed the same way as the bulk screen: hunter.py used to
+# download through lightkurve with no explicit quality_bitmask,
+# so lightkurve's default (17087) applied at read time and QLP
+# targets — the majority, since SPOC 2-min covers only ~10^5
+# stars/sector — kept TESS scattered-light bits 29/30. The bulk_v2
+# rescore gauntlet found 18/25 NEW S96 leads were dips living
+# only on bit-29/30 cadences. deep_v2 masks them at pipeline
+# input (the shared mask — the same integer as bulk_v3, see
+# quality_flags.SHARED_QUALITY_MASK). DF-11: _download_products
+# passes the active profile's mask explicitly at every download,
+# so the reader layer and the stamped mask agree.
+# quality==0 is NOT used — the TOI-700 c lesson (bit 12 carries
+# a real transit); bit 11 stays unmasked (2026-11-15 vote, 2/3).
+# The mask is applied by _apply_quality_mask at both stitch sites,
+# BEFORE detrend/BLS — never after the search. v1 profiles predate
+# the field and mean the lightkurve default.
+CALIBRATION_VERSION = "deep_v2"
+QUALITY_MASK = _DEEP_V2_MASK
+
+
+def set_calibration(name):
+    """Load profile `name` (registry-verified) and re-derive the
+    quality mask. The default is deep_v2 (the fix); deep_v1 is
+    the sensitivity-comparison seam (the injection script and the
+    regression tests switch to it and restore). Restores are the
+    caller's job (tests: setUp/tearDown back to deep_v2). For
+    comparisons, prefer calibration_context() — it restores in
+    a finally block, so an exception mid-comparison cannot leak
+    the wrong calibration into later runs."""
+    global CALIBRATION_VERSION, QUALITY_MASK
+    prof = _load_profile(name)
+    CALIBRATION_VERSION = prof["version"]
+    QUALITY_MASK = prof.get("quality_mask", _SPOC_DEFAULT_MASK)
+    if isinstance(QUALITY_MASK, bool) \
+            or not isinstance(QUALITY_MASK, int) or QUALITY_MASK < 0:
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"quality_mask {QUALITY_MASK!r} — expected a "
+            f"non-negative integer bitmask")
+
+
+@contextlib.contextmanager
+def calibration_context(name):
+    """Switch to calibration `name` for the block, then restore
+    the previous calibration (version AND mask) in a finally
+    block — an exception inside the block cannot leak the wrong
+    calibration into later runs (deep_v2 vote, DF-6: the
+    caller-managed restore in set_calibration is a footgun for
+    exactly this reason). Restores the previous VALUES directly
+    rather than re-loading the previous profile by name, so the
+    restore cannot fail on a profile load. If the switch itself
+    fails (unknown profile, bad mask), the previous values are
+    restored before the error propagates — set_calibration
+    assigns before it validates, so a failed switch can leave
+    half-changed globals behind. set_calibration() stays for
+    CLI/script startup, where no restore is owed."""
+    global CALIBRATION_VERSION, QUALITY_MASK
+    prev_version = CALIBRATION_VERSION
+    prev_mask = QUALITY_MASK
+    try:
+        set_calibration(name)
+    except Exception:
+        CALIBRATION_VERSION = prev_version
+        QUALITY_MASK = prev_mask
+        raise
+    try:
+        yield
+    finally:
+        CALIBRATION_VERSION = prev_version
+        QUALITY_MASK = prev_mask
+
+
+def _apply_quality_mask(lc, quality_mask=None, require_quality=False,
+                        product_label=None):
+    """The stitched (or single) light curve with masked cadences
+    removed: rows whose QUALITY carries ANY bit in the mask are
+    dropped. A curve without a `quality` column (offline fixtures
+    built before the deep_v2 seam, HLSP products without QUALITY)
+    passes through unchanged — there is nothing to mask. A
+    quality column of None (or other non-numeric values) takes
+    the same path: it carries no flag information. A masked
+    quality entry is dropped — unknown quality is not clean.
+
+    quality_mask defaults to the module QUALITY_MASK (the active
+    deep profile's mask). Callers that know their own profile
+    pass it explicitly.
+
+    require_quality (DF-10): when True, a missing or unusable
+    quality column RAISES instead of passing through — a real
+    MAST product that must carry QUALITY arrived without it, so
+    the mask cannot be verified and silently proceeding would
+    stamp a record the mask never touched. The raise names the
+    product (product_label) and the missing column. BOUNDARY:
+    only the LIVE path passes require_quality=True, and only for
+    named-author products (SPOC/TESS-SPOC/QLP, read from the
+    input identity's author). Offline fixtures and the
+    unfiltered HLSP fallback keep the default False — fixtures
+    predate the seam, and HLSP products may legitimately lack
+    QUALITY."""
+    if quality_mask is None:
+        quality_mask = QUALITY_MASK
+    label = product_label or "light curve"
+    if "quality" not in getattr(lc, "columns", ()):
+        if require_quality:
+            raise RuntimeError(
+                f"{label} has no QUALITY column — the quality mask "
+                "cannot be verified; refusing to proceed with an "
+                "unmasked curve (DF-10).")
+        return lc
+    q_raw = np.asarray(lc.quality)
+    if q_raw.dtype == object:
+        # A quality column of None (or other non-numeric values)
+        # carries no flag information — nothing to mask, so the
+        # curve passes through unchanged (DF-5). Real TESS
+        # products always carry an integer QUALITY column.
+        if require_quality:
+            raise RuntimeError(
+                f"{label} has an unusable QUALITY column "
+                "(non-numeric values) — the quality mask cannot "
+                "be verified; refusing to proceed with an "
+                "unmasked curve (DF-10).")
+        return lc
+    # Cast to int64 BEFORE the bitwise AND: a bare
+    # uint16 & 1610629823 raises OverflowError under numpy 2.x
+    # (SPOC 16-bit QUALITY — DF-5). A masked quality array keeps
+    # its mask through the cast, and boolean indexing drops
+    # masked entries.
+    q = q_raw.astype(np.int64)
+    return lc[(q & int(quality_mask)) == 0]
 
 
 def _near_systematic(period):
@@ -806,9 +951,83 @@ def _fixture_lightcurve(tic_id, max_sectors):
             and meta.get("max_sectors") != max_sectors):
         return None
     import lightkurve as lk
-    lc = lk.LightCurve(time=np.asarray(z["t"], dtype=float),
-                       flux=np.asarray(z["f"], dtype=float))
+    kwargs = {"time": np.asarray(z["t"], dtype=float),
+              "flux": np.asarray(z["f"], dtype=float)}
+    if "q" in z.files:
+        # deep_v2 seam: a fixture may carry the stitched QUALITY
+        # column, so the quality mask is testable offline through
+        # the real path. Existing fixtures have no q array — they
+        # build exactly as before and the mask no-ops on them.
+        kwargs["quality"] = np.asarray(z["q"], dtype=np.int64)
+    lc = lk.LightCurve(**kwargs)
     return lc, int(meta.get("n_sectors", 1))
+
+
+def _reader_dropped_rows(lc_collection):
+    """Rows lightkurve's reader dropped at read time, summed over
+    the downloaded products (DF-9).
+
+    Each downloaded product's lc.meta['QUALITY_MASK'] is the
+    boolean keep-mask over the ORIGINAL row count; len(lc) is
+    what survived the reader's bitmask. The difference is what
+    the reader removed before the pipeline ever saw the curve.
+    Products without the meta entry (readers that don't set it)
+    contribute 0 — their reader-dropped rows are then invisible
+    to the count, so n_masked is a LOWER BOUND on those stars
+    and the fraction's denominator is short by the same amount.
+    The post-download mask still applies to every surviving row,
+    so no unmasked row reaches BLS; only the count under-reports.
+    """
+    dropped = 0
+    for lc in lc_collection:
+        meta = getattr(lc, "meta", None) or {}
+        keep = meta.get("QUALITY_MASK")
+        if keep is None:
+            continue
+        dropped += max(0, len(keep) - len(lc))
+    return dropped
+
+
+def _intransit_unmasked_stats(t, q, period, t0, duration,
+                              quality_mask):
+    """(fraction, per-bit counts, warn) for the BLS-input
+    in-transit cadences carrying flags the mask does NOT
+    exclude — bits 11/12 and any other unmasked bit (DF-13).
+
+    With "clean = kept by the mask", an artifact living only
+    in bit-11/12 cadences passes the re-fold gate; this
+    fraction is the only thing that makes that visible. The
+    fraction is over the BLS-INPUT in-transit cadences (the
+    post-mask curve) at the headline ephemeris. warn is True
+    above 50%: most of the dip's evidence is flagged cadences.
+
+    Returns (None, {}, False) when unmeasurable: no quality
+    column, no in-transit cadences, or a degenerate headline
+    (NaN ephemeris). Per-bit keys are strings (JSON-safe).
+    """
+    if (q is None or t is None or len(t) == 0
+            or period is None or t0 is None or duration is None):
+        return None, {}, False
+    try:
+        period = float(period)
+        t0 = float(t0)
+        duration = float(duration)
+    except (TypeError, ValueError):
+        return None, {}, False
+    if not (math.isfinite(period) and math.isfinite(t0)
+            and math.isfinite(duration)) or period <= 0:
+        return None, {}, False
+    phase = ((t - t0 + 0.5 * period) % period) - 0.5 * period
+    in_tr = np.abs(phase) <= duration / 2.0
+    n_in = int(in_tr.sum())
+    if n_in == 0:
+        return None, {}, False
+    q_in = np.asarray(q, dtype=np.int64)[in_tr]
+    unmasked = (q_in & ~int(quality_mask)) != 0
+    frac = float(unmasked.mean())
+    bits = {str(bit): count for bit, count
+            in _tally_unmasked_bits(q_in, quality_mask).items()}
+    return frac, bits, bool(frac > 0.5)
 
 
 def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
@@ -823,11 +1042,29 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     """
     tic_id = str(tic_id).strip()
 
+    # DF-9 stamping (effect, not intent): what the quality mask
+    # DID on this star. _n_masked_reader counts the rows
+    # lightkurve's reader dropped at read time (live path only);
+    # _n_masked_post counts the rows _apply_quality_mask removed
+    # from the stitched curve; _n_pre_mask is the stitched
+    # length before the post-download mask. The pre-mask total
+    # is reader-drop + stitched length.
+    _n_masked_reader = 0
+    _n_masked_post = 0
+    _n_pre_mask = 0
+
     _fixture = _fixture_lightcurve(tic_id, max_sectors)
     lc_collection = None  # only bound on the live path; the cleanup
     # del below must not fail on the fixture path (Phase 1.1, item 4).
     if _fixture is not None:
         lc_raw, n_sectors = _fixture
+        # deep_v2: mask at pipeline input. Fixtures built before
+        # the deep_v2 seam carry no quality column and pass
+        # through unchanged; fixtures WITH a q array are masked
+        # exactly as the live path is.
+        _n_pre_mask = len(lc_raw)
+        lc_raw = _apply_quality_mask(lc_raw)
+        _n_masked_post = _n_pre_mask - len(lc_raw)
         # Offline test data, not MAST products — marked as such so
         # a fixture result can never be mistaken for a live one.
         _input_identity = _prov.input_identity(
@@ -849,8 +1086,33 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
         n_sectors = len(lc_collection)
 
-        lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
-                  .remove_nans().remove_outliers(sigma=5.0))
+        # DF-9: count the reader layer BEFORE stitching (the
+        # stitch does not preserve per-product meta).
+        _n_masked_reader = _reader_dropped_rows(lc_collection)
+
+        # deep_v2: mask at pipeline input — BEFORE the NaN/outlier
+        # cleaning, so flagged cadences never reach the detrend or
+        # BLS (the bulk_v3 pattern: mask at screen input, not
+        # after the search).
+        lc_raw = lc_collection.stitch(corrector_func=_stitch_corrector)
+        _n_pre_mask = len(lc_raw)
+        # DF-10: a named-author product (SPOC/TESS-SPOC/QLP) MUST
+        # carry a QUALITY column — a missing column means the mask
+        # cannot be verified, and silently proceeding would stamp
+        # a record the mask never touched. The unfiltered HLSP
+        # fallback (author "mixed" or a single HLSP author) stays
+        # non-raising: HLSP products may legitimately lack
+        # QUALITY. An unreadable input identity ({}) fails open
+        # to non-raising, consistent with provenance never
+        # crashing the pipeline. Fixtures never reach this branch.
+        _require_quality = (
+            _input_identity.get("author") in _AUTHOR_PRIORITY)
+        lc_raw = _apply_quality_mask(
+            lc_raw, require_quality=_require_quality,
+            product_label=f"TIC {tic_id} "
+            f"({_input_identity.get('author', 'unknown')})")
+        _n_masked_post = _n_pre_mask - len(lc_raw)
+        lc_raw = lc_raw.remove_nans().remove_outliers(sigma=5.0)
 
     # --- Float64 normalisation (Phase 1.2, item C-4; shared
     # ingest since follow-up F-4) ---------------------------------
@@ -867,6 +1129,22 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # POSITION is unchanged — the C-4 live/fixture hash test pins
     # the post-stitch normalisation, so this call stays here
     # rather than moving to the download.
+    # DF-13: capture the BLS-input (t, q) BEFORE normalise —
+    # normalise drops the quality column, and the in-transit
+    # unmasked-flag fraction is computed at the headline
+    # ephemeris (after BLS) from these arrays. q is None when
+    # the curve carries no usable quality column (fixtures
+    # without q, HLSP products) — the fraction is then
+    # unmeasurable and records None.
+    _bls_t = np.asarray(lc_raw.time.value, dtype=float)
+    _bls_q = None
+    if "quality" in getattr(lc_raw, "columns", ()):
+        try:
+            _q_raw = np.asarray(lc_raw.quality)
+            if _q_raw.dtype != object:
+                _bls_q = _q_raw.astype(np.int64)
+        except (TypeError, ValueError):
+            _bls_q = None
     lc_raw = _ingest.normalise_lightcurve(lc_raw)
 
     # --- Detrend window in TIME units (2026-11-08 upgrade) -------------
@@ -1252,6 +1530,29 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # never runs, t/f are still the pass-1 arrays.
     _input_identity["bls_input_hash"] = _prov.bls_input_hash(t, f)
 
+    # DF-9: what the mask DID on this star. n_masked is the SUM
+    # of the reader layer and the post-download layer (the two
+    # layers partition the removed rows: the reader drops its
+    # rows before the stitch, the post-download mask drops its
+    # rows from the stitched curve — no row is counted twice).
+    # The pre-mask total is the reader-drop plus the stitched
+    # length before the post-download mask. quality_mask_applied
+    # is the ACTIVE profile's mask at run time (17087 under a
+    # deep_v1 comparison, 1610629823 under deep_v2).
+    _n_masked = _n_masked_reader + _n_masked_post
+    _n_pre_mask_total = _n_masked_reader + _n_pre_mask
+    _flagged_fraction = (
+        _n_masked / _n_pre_mask_total if _n_pre_mask_total else 0.0
+    )
+
+    # DF-13: the in-transit unmasked-flag fraction at the final
+    # headline ephemeris (after pass-2/TLS adoption), over the
+    # BLS-input cadences captured before normalise.
+    (_intransit_frac, _intransit_bits,
+     _intransit_warn) = _intransit_unmasked_stats(
+         _bls_t, _bls_q, best_period, t0, best_duration,
+         QUALITY_MASK)
+
     full = {
         "TIC": tic_id,
         "Period": best_period,
@@ -1264,6 +1565,20 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         "Star_Radius_Rsun": float(star_radius),
         "Sectors_Analyzed": int(n_sectors),
         "Total_Points": int(len(lc_raw)),
+        # DF-9: the mask's effect on this star, stamped on the
+        # record alongside the calibration version that declares
+        # the mask.
+        "calibration_version": CALIBRATION_VERSION,
+        "quality_mask_applied": int(QUALITY_MASK),
+        "n_masked": int(_n_masked),
+        "flagged_fraction": float(_flagged_fraction),
+        # DF-13: fraction of the BLS-input in-transit cadences
+        # carrying flags the mask does NOT exclude (bits 11/12
+        # etc.), with a per-bit breakdown; warn above 50%.
+        # None when unmeasurable (no quality column).
+        "intransit_unmasked_flag_frac": _intransit_frac,
+        "intransit_unmasked_flag_bits": _intransit_bits,
+        "intransit_unmasked_flag_warn": bool(_intransit_warn),
         # Layer 2 provenance (A-2): which inputs this result was
         # computed from (MAST products / fixture, BLS input hash).
         "input_identity": _input_identity,
@@ -1415,6 +1730,16 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "host_radius_solar": full["Star_Radius_Rsun"],
             "sectors_analyzed": full["Sectors_Analyzed"],
             "total_points": full["Total_Points"],
+            "calibration_version": full.get("calibration_version"),
+            "quality_mask_applied": full.get("quality_mask_applied"),
+            "n_masked": full.get("n_masked"),
+            "flagged_fraction": full.get("flagged_fraction"),
+            "intransit_unmasked_flag_frac": full.get(
+                "intransit_unmasked_flag_frac"),
+            "intransit_unmasked_flag_bits": full.get(
+                "intransit_unmasked_flag_bits", {}),
+            "intransit_unmasked_flag_warn": full.get(
+                "intransit_unmasked_flag_warn", False),
             "input_identity": full.get("input_identity", {}),
             "candidates": full.get("Candidates", []),
             "refined_signals": full.get("refined_signals", []),
@@ -1638,8 +1963,12 @@ def _fetch_stitched(tic_id, max_sectors=None, progress_callback=None):
     # corrector, the cleaning and the flatten all see float64
     # (FITS flux is typically float32; scipy's savgol
     # accumulates in the input dtype — see ingest.py).
+    # deep_v2: the mask goes BEFORE the normalisation —
+    # normalise_lightcurve rebuilds a time/flux/flux_err curve
+    # and drops the quality column, so masking after it would
+    # be a no-op.
     lc_collection = lk.LightCurveCollection(
-        [_ingest.normalise_lightcurve(lc)
+        [_ingest.normalise_lightcurve(_apply_quality_mask(lc))
          for lc in lc_collection])
     lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
               .remove_nans().remove_outliers(sigma=5.0))

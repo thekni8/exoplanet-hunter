@@ -1,0 +1,331 @@
+{
+  "script": "bulk/inject_deep_real_s96.py",
+  "date": "2026-11-15",
+  "sector": 96,
+  "hosts": [
+    "231011325",
+    "231852754",
+    "234510264",
+    "237911080",
+    "31852076",
+    "382069441"
+  ],
+  "trials": {
+    "A": {
+      "depth_frac": 0.02,
+      "period_d": 5.123
+    },
+    "B": {
+      "depth_frac": 0.01,
+      "period_d": 3.317
+    }
+  },
+  "recovery_criterion": "headline period within 1% of injected AND SDE >= 8.5",
+  "recovered": {
+    "deep_v1": "0/12",
+    "deep_v2": "7/12"
+  },
+  "notes": [
+    "deep_v1 recovers 0/12: on 5 of 6 hosts the BLS periodogram is degenerate (SDE NaN, period pinned at the 25 d search ceiling); on 382069441 it finds a ~12.9 d systematic at SDE 29-38. The bit-29/30 cadences do not just add false positives \u2014 on heavily-flagged hosts they destroy the pipeline's ability to find anything real.",
+    "deep_v2 recovers 7/12 cleanly. Two of the five misses are harmonic aliases of the injected signal (31852076 trial A: 3:2 alias at 7.683 d, SDE 25.5, right depth; 382069441 trial A: 2:1 alias at 10.246 d, SDE 13.0) \u2014 the signal is detected at the wrong harmonic. Counting aliases as detections, v2 detects 9/12.",
+    "231852754 is a host-property limit, not a mask failure: the star's own ~6% dips at 5.78 d dominate BLS under both masks (v2 finds them at SDE ~40; v1 finds nothing).",
+    "382069441 trial B under v2 finds P=10.864 d at SDE 19.2 \u2014 not a harmonic of the injected 3.317 d; likely the star's own variability or a window-function alias after 29.5% of cadences are masked. Unresolved; see PROGRESS.md.",
+    "All six hosts are QLP S96 light curves with 9-30% flagged cadences. The v1-vs-v2 difference is the quality mask alone: same fixture, same code path."
+  ],
+  "records": [
+    {
+      "tic": "231011325",
+      "sector": 96,
+      "product": "QLP",
+      "flags": {
+        "n_cadences": 10807,
+        "frac_bit29": 0.0,
+        "frac_bit30": 0.0927176829832516,
+        "frac_any_flag": 0.0927176829832516
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.779695826106,
+          "duration_d": 0.14365702639325748,
+          "deep_v1": {
+            "period_days": 25.0,
+            "sde": null,
+            "depth_percent": 0.0,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 5.122261689831204,
+            "sde": 52.76296514756595,
+            "depth_percent": 2.017587751734572,
+            "recovered": true
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.779695826106,
+          "duration_d": 0.12427980918779241,
+          "deep_v1": {
+            "period_days": 25.0,
+            "sde": null,
+            "depth_percent": 6.842112894933764e-308,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 3.3172941231449222,
+            "sde": 65.0887642836381,
+            "depth_percent": 0.9742556533811271,
+            "recovered": true
+          }
+        }
+      }
+    },
+    {
+      "tic": "231852754",
+      "sector": 96,
+      "product": "QLP",
+      "flags": {
+        "n_cadences": 10807,
+        "frac_bit29": 0.0,
+        "frac_bit30": 0.09993522716757657,
+        "frac_any_flag": 0.09993522716757657
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.779482823681,
+          "duration_d": 0.14365702639325748,
+          "deep_v1": {
+            "period_days": 25.0,
+            "sde": null,
+            "depth_percent": 6.842112894933764e-308,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 5.779550507205349,
+            "sde": 40.07559504565162,
+            "depth_percent": 6.866702451458092,
+            "recovered": false
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.779482823681,
+          "duration_d": 0.12427980918779241,
+          "deep_v1": {
+            "period_days": 25.0,
+            "sde": null,
+            "depth_percent": 6.842112894933764e-308,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 5.778248651890595,
+            "sde": 39.51605003199515,
+            "depth_percent": 6.279609374148691,
+            "recovered": false
+          }
+        }
+      }
+    },
+    {
+      "tic": "234510264",
+      "sector": 96,
+      "product": "QLP",
+      "flags": {
+        "n_cadences": 10807,
+        "frac_bit29": 0.0,
+        "frac_bit30": 0.09993522716757657,
+        "frac_any_flag": 0.09993522716757657
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.780117173977,
+          "duration_d": 0.14365702639325748,
+          "deep_v1": {
+            "period_days": 25.0,
+            "sde": null,
+            "depth_percent": 6.842112894933764e-308,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 5.123415749479068,
+            "sde": 51.6200141728107,
+            "depth_percent": 1.8286969806383724,
+            "recovered": true
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.780117173977,
+          "duration_d": 0.12427980918779241,
+          "deep_v1": {
+            "period_days": 25.0,
+            "sde": null,
+            "depth_percent": 6.842112894933764e-308,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 3.315770728383332,
+            "sde": 70.04045077531241,
+            "depth_percent": 0.9612921699126822,
+            "recovered": true
+          }
+        }
+      }
+    },
+    {
+      "tic": "237911080",
+      "sector": 96,
+      "product": "QLP",
+      "flags": {
+        "n_cadences": 10807,
+        "frac_bit29": 0.0,
+        "frac_bit30": 0.09993522716757657,
+        "frac_any_flag": 0.09993522716757657
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.779695816134,
+          "duration_d": 0.14365702639325748,
+          "deep_v1": {
+            "period_days": 25.0,
+            "sde": null,
+            "depth_percent": 2500.0,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 5.122152985668912,
+            "sde": 48.11954167802159,
+            "depth_percent": 1.853203763120869,
+            "recovered": true
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.779695816134,
+          "duration_d": 0.12427980918779241,
+          "deep_v1": {
+            "period_days": 25.0,
+            "sde": null,
+            "depth_percent": 6.842112894933764e-308,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 3.3167575049028093,
+            "sde": 58.255367009528364,
+            "depth_percent": 0.961243297198776,
+            "recovered": true
+          }
+        }
+      }
+    },
+    {
+      "tic": "31852076",
+      "sector": 96,
+      "product": "QLP",
+      "flags": {
+        "n_cadences": 10807,
+        "frac_bit29": 0.27963357083371887,
+        "frac_bit30": 0.09836217266586472,
+        "frac_any_flag": 0.2961043767928195
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.7784222570895,
+          "duration_d": 0.14365702639325748,
+          "deep_v1": {
+            "period_days": 25.0,
+            "sde": null,
+            "depth_percent": 86.75134327570962,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 7.683213614245207,
+            "sde": 25.52063584086466,
+            "depth_percent": 1.7975658565177206,
+            "recovered": false
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.7784222570895,
+          "duration_d": 0.12427980918779241,
+          "deep_v1": {
+            "period_days": 25.0,
+            "sde": null,
+            "depth_percent": 6.842112894933764e-308,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 3.3164700309176105,
+            "sde": 48.05962934591397,
+            "depth_percent": 0.8949955620713441,
+            "recovered": true
+          }
+        }
+      }
+    },
+    {
+      "tic": "382069441",
+      "sector": 96,
+      "product": "QLP",
+      "flags": {
+        "n_cadences": 10807,
+        "frac_bit29": 0.2812991579531785,
+        "frac_bit30": 0.12658462107893032,
+        "frac_any_flag": 0.29508651799759417
+      },
+      "trials": {
+        "A": {
+          "depth_frac": 0.02,
+          "period_d": 5.123,
+          "epoch_btjd": 3909.777021210045,
+          "duration_d": 0.14365702639325748,
+          "deep_v1": {
+            "period_days": 12.834402930518753,
+            "sde": 38.11771595933299,
+            "depth_percent": 5.978743140639726,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 10.245467912549914,
+            "sde": 12.985858578518636,
+            "depth_percent": 1.8521893057970042,
+            "recovered": false
+          }
+        },
+        "B": {
+          "depth_frac": 0.01,
+          "period_d": 3.317,
+          "epoch_btjd": 3908.777021210045,
+          "duration_d": 0.12427980918779241,
+          "deep_v1": {
+            "period_days": 12.91090100716912,
+            "sde": 29.391555107349884,
+            "depth_percent": 3.813613863571362,
+            "recovered": false
+          },
+          "deep_v2": {
+            "period_days": 10.864261072461007,
+            "sde": 19.17854487576447,
+            "depth_percent": 1.570650716949351,
+            "recovered": false
+          }
+        }
+      }
+    }
+  ]
+}

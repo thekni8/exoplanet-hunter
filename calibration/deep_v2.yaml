@@ -1,0 +1,29 @@
+# Deep-pipeline (hunter.py) calibration profile v2.
+# IMMUTABLE once used in a run: to change a threshold, copy this file
+# to deep_v3.yaml, bump `version`, and update the code + golden suite
+# in the same change. See calibration/README.md for the rules.
+# Registered in calibration/registry.json — the loader verifies this
+# file's sha256 against the registry and refuses a mismatch.
+version: deep_v2
+status: active
+rationale: "Deep calibration v2 (2026-11-15, quality-mask fix): extends the deep pipeline's quality mask to exclude TESS scattered-light flags bits 29/30. M-11 verified the deep pipeline was exposed the same way as the bulk screen: hunter.py downloads through lightkurve with no explicit quality_bitmask, so lightkurve's default (17087) applies and QLP targets — the majority, since SPOC 2-min covers only ~10^5 stars/sector — keep bits 29/30. v2 masks bits 29/30 at pipeline input (quality_mask 1610629823 = lightkurve default 17087 + bits 29/30, the same integer as bulk_v3); quality==0 is NOT used — the TOI-700 c lesson (bit 12 carries a real transit). All v1 thresholds carried over unchanged. Supersedes deep_v1 for all new deep runs."
+
+# --- quality mask --------------------------------------------------------
+quality_mask: 1610629823  # cadences with ANY of these bits set are
+                          # excluded from BLS input: lightkurve's
+                          # TESS default 17087 (bits 0,1,2,3,4,5,7,9,
+                          # 14) PLUS bits 29/30 (TESS scattered
+                          # light, 536870912 + 1073741824). v1
+                          # predates this field and means 17087.
+                          # Bit 12 (4096) is deliberately NOT
+                          # masked: TOI-700 c's only sector-1
+                          # transit sits on bit-12 cadences.
+
+hit_sde: 8.5              # discovery bar (hunter.HIT_SDE): a sweep hit
+                          # needs SDE >= 8.5
+acceptance_floor_sde: 6.5 # refined-peak acceptance floor (hunter.ACCEPT_SDE):
+                          # a refined peak below this is not a signal
+systematic_periods: [13.7, 6.85, 27.4]  # TESS orbital family
+min_period_d: 0.5         # BLS search floor (hunter._run_pipeline default)
+max_period_d: 25.0        # BLS search ceiling (hunter._run_pipeline default)
+detrend_window_d: 2.0     # flatten window target, days (cadence-derived)

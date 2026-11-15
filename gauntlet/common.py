@@ -205,13 +205,32 @@ def t14_max_hours(period_d, radius_rsun, mass_msun, rp_over_rstar=0.0):
 
 # ---------------------------------------------------------------- pixels
 
-def load_tpf(path):
-    """Load a TESSCut/SPOC TPF, quality==0 only. Returns (t, flux, tpf)
-    with flux as float ndarray (cadence, y, x)."""
+def load_tpf(path, quality_mask=None):
+    """Load a TESSCut/SPOC TPF, keeping the cadences the
+    pipeline's quality mask keeps (default deep_v2). Returns
+    (t, flux, tpf) with flux as float ndarray (cadence, y, x).
+
+    deep_v2 (2026-11-15): the old `quality == 0` dropped
+    genuine bit-12 transits from the pixel work (TOI-700 c
+    lesson — the M-2 lesson applied to the deep pipeline's
+    gauntlet, M-8). "Clean" means "kept by the mask", the same
+    definition the detection pipeline uses. TPFs are SPOC
+    products (16-bit QUALITY), so bits 29/30 never appear
+    here — the mask's effect on a TPF is the SPOC default
+    plus the bit-12 keep. The default is FIXED to the deep_v2
+    mask (deep_v2 vote, DF-6): the gauntlet vets hits the v2
+    pipeline found, so it deliberately does NOT follow
+    hunter.set_calibration — a v1 comparison must pass its
+    mask explicitly. Resolved at call time from the
+    DEEP_V2_MASK constant, not bound at import."""
     import lightkurve as lk
+    if quality_mask is None:
+        ensure_repo_path()
+        from quality_flags import DEEP_V2_MASK
+        quality_mask = DEEP_V2_MASK
     tpf = lk.read(path)
-    q = np.asarray(tpf.quality)
-    m = (q == 0)
+    q = np.asarray(tpf.quality, dtype=np.int64)
+    m = (q & int(quality_mask)) == 0
     t = np.asarray(tpf.time.value)[m]
     flux = np.asarray(tpf.flux.value)[m].astype(float)
     return t, flux, tpf

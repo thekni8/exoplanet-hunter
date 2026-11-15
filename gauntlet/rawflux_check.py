@@ -62,6 +62,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mad_clip import mad_clip_mask as _mad_clip_mask  # noqa: E402
+from quality_flags import DEEP_V2_MASK as _DEEP_V2_MASK  # noqa: E402
 
 # Module globals set by main() and read by the download helpers.
 TIC = None
@@ -109,12 +110,26 @@ def select_pipeline_set(sets, sector_cap=20):
 
 
 def download_author(author, pfx, no_download=False, tic=None,
-                    data_dir=None):
+                    data_dir=None, quality_mask=None):
     """One npz per sector (earliest products; SPOC prefers 120 s rows).
 
     tic / data_dir default to the module globals set by main()
     (TIC / DATA); the desk driver passes them explicitly so the
-    fetch path is callable without main()'s globals."""
+    fetch path is callable without main()'s globals.
+
+    quality_mask defaults to the deep_v2 mask (deep_v2, 2026-11-15):
+    "clean" means "kept by the pipeline's quality mask", NOT
+    quality==0 — the M-2 lesson from the bulk clean-refold gate.
+    quality==0 drops genuine bit-12 transits (TOI-700 c: the
+    transit sits on Straylight2-flagged cadences), so a real
+    signal folded to zero in-transit cadences and read
+    RAW-REFUTED. Pass another profile's mask explicitly when
+    the candidate was found under another calibration. The
+    default is FIXED to deep_v2 (deep_v2 vote, DF-6): the
+    gauntlet vets hits the v2 pipeline found, so it
+    deliberately does NOT follow hunter.set_calibration."""
+    if quality_mask is None:
+        quality_mask = _DEEP_V2_MASK
     tic = TIC if tic is None else str(tic)
     data_dir = DATA if data_dir is None else data_dir
     if no_download:
@@ -159,8 +174,12 @@ def download_author(author, pfx, no_download=False, tic=None,
             try:
                 # C-1: watch the download too — a hung row
                 # download retries like any other failure.
+                # DF-11: the mask is passed explicitly at the
+                # download (the post-download filter below is
+                # defence-in-depth on the surviving rows).
                 lc = _net.mast_call(
-                    lambda: sr[by_sector[sec]].download(),
+                    lambda: sr[by_sector[sec]].download(
+                        quality_bitmask=quality_mask),
                     name=f"rawflux download TIC {tic} s{sec} "
                          f"({author})")
                 if lc is not None:
@@ -177,10 +196,19 @@ def download_author(author, pfx, no_download=False, tic=None,
         q = getattr(lc, 'quality', None)
         m = np.isfinite(t_all) & np.isfinite(f_all)
         if q is not None:
-            try:
-                m &= (np.asarray(q) == 0)
-            except Exception:
-                pass
+            # deep_v2: "clean" = kept by the pipeline's quality
+            # mask, not quality==0 (M-8: the old (q == 0) dropped
+            # genuine bit-12 transits and read them RAW-REFUTED;
+            # TOI-700 c lesson). The cast to int64 comes first:
+            # a bare uint16 & mask raises OverflowError under
+            # numpy 2.x (SPOC 16-bit QUALITY — DF-5). DF-5 removed
+            # the try/except Exception: pass that used to swallow
+            # a mask failure here: a malformed quality column on
+            # a live download is a hard error, not a silent
+            # unmasked pass — proceeding without the mask could
+            # flip a verdict. Fail loud (DF-10's principle).
+            m &= (np.asarray(q, dtype=np.int64)
+                  & int(quality_mask)) == 0
         if m.sum() < 100:
             print(f'{author} s{sec}: too few good points', flush=True)
             continue

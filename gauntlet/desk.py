@@ -67,6 +67,7 @@ from gauntlet.stage_result import (EXEC_ERROR, STATUS_UNMEASURED,
                                    StageResult, latte_result,
                                    triceratops_result)
 from gauntlet.verdict import build_verdict
+from quality_flags import DEEP_V2_MASK as _DEEP_V2_MASK  # noqa: E402
 
 CLEAN_GATE_SIGMA_MIN = 3.0
 SEGMENT_GAP_D = 1.0
@@ -117,7 +118,7 @@ def count_events(t, period, t0, duration_d):
     return int(len(np.unique(np.round((t[in_tr] - t0) / period))))
 
 
-def _flagged_fold(t, f, q, period, t0, dur_h):
+def _flagged_fold(t, f, q, period, t0, dur_h, quality_mask=None):
     """The flagcheck fold: do the FLAGGED cadences carry a dip?
     The flagged in-transit median is measured against the CLEAN
     out-of-transit baseline (the star's normal flux) — the
@@ -125,22 +126,37 @@ def _flagged_fold(t, f, q, period, t0, dur_h):
     at all (in the rescore artifacts, every flagged cadence
     sat inside a transit window). Returns the clean_fold dict
     shape (n_in / n_events count flagged in-transit cadences).
+
+    deep_v2 (DF-1): "flagged" means "excluded by the
+    pipeline's quality mask" — (q & mask) != 0 — NOT a bare
+    nonzero-quality test. The old literal split classified
+    bit-12 cadences as flagged, so a genuine bit-12 transit
+    (a real transit can sit on bit-12 cadences, TOI-700 c)
+    read as a flagged-only artifact. The mask defaults to the deep_v2 mask,
+    mirroring the M-8 gauntlet sites; pass another profile's
+    mask when the candidate was found under another
+    calibration. The return shape is unchanged (no
+    quality_mask field — the desk-natives schema pins the
+    shape; see test_schema.test_flagged_fold_has_no_quality_mask).
     """
     from bulk.clean_refold_gate import mad_sigma
+    if quality_mask is None:
+        quality_mask = _DEEP_V2_MASK
     t = np.asarray(t, dtype=float)
     f = np.asarray(f, dtype=float)
-    q = np.asarray(q)
+    q = np.asarray(q, dtype=np.int64)
     m = np.isfinite(t) & np.isfinite(f) & (f > 0)
     t, f, q = t[m], f[m], q[m]
     phase = ((t - t0) / period + 0.5) % 1.0 - 0.5
     dur_frac = dur_h / 24.0 / period
     in_tr = np.abs(phase) < dur_frac / 2
-    clean_out = (q == 0) & ~in_tr
-    flagged_in = (q != 0) & in_tr
+    flagged = (q & int(quality_mask)) != 0
+    clean_out = ~flagged & ~in_tr
+    flagged_in = flagged & in_tr
     n_in = int(flagged_in.sum())
     ev = np.unique(np.floor((t[flagged_in] - t0) / period).astype(int)) \
         if n_in else []
-    out = {"n_clean": int((q == 0).sum()), "n_in": n_in,
+    out = {"n_clean": int((~flagged).sum()), "n_in": n_in,
            "n_events": int(len(ev)),
            "depth_percent": None, "snr": None}
     if n_in < 2 or clean_out.sum() < 10:
@@ -155,32 +171,40 @@ def _flagged_fold(t, f, q, period, t0, dur_h):
 
 
 def clean_refold_native(t, f, q, period, t0, dur_h,
-                        sigma_min=CLEAN_GATE_SIGMA_MIN):
+                        sigma_min=CLEAN_GATE_SIGMA_MIN,
+                        quality_mask=None):
     """The clean-data re-fold gate (manual §1) on one sector's
     light curve with quality flags. Returns the (fold, verdict)
     tuple the clean_refold adapter takes.
 
     Three-way, mirroring the manual flagcheck: the clean fold
-    (quality==0) decides PASS/FAIL when it has enough cadences.
-    When it does not (INSUFFICIENT), the flagged-only fold is
-    tested — if the flagged cadences alone carry a significant
-    dip, the signal lives only in flagged cadences and the
-    verdict is FAIL, not INSUFFICIENT. That is the decisive
-    test for the flagged-cadence artifact class (18 of the 25
-    rescore leads had ZERO clean in-transit cadences — a bare
-    clean_fold would read them INSUFFICIENT and let them
+    (cadences the quality mask keeps) decides PASS/FAIL when it
+    has enough cadences. When it does not (INSUFFICIENT), the
+    flagged-only fold is tested — if the flagged cadences alone
+    carry a significant dip, the signal lives only in flagged
+    cadences and the verdict is FAIL, not INSUFFICIENT. That is
+    the decisive test for the flagged-cadence artifact class (18
+    of the 25 rescore leads had ZERO clean in-transit cadences —
+    a bare clean_fold would read them INSUFFICIENT and let them
     through as unvetted). The bulk gate CLI keeps its current
     verdict_for behaviour; this stricter rule lives in the
-    driver, which has the full quality-flagged light curve."""
+    driver, which has the full quality-flagged light curve.
+    quality_mask defaults to each fold's own default (the
+    bulk_v3 mask for clean_fold, the deep_v2 mask for the
+    flagcheck) — the same integer today; pass a profile's mask
+    explicitly when the candidate was found under another
+    calibration."""
     from bulk.clean_refold_gate import (MIN_EVENTS, MIN_IN,
                                         clean_fold, verdict_for)
     t = np.asarray(t, dtype=float)
     f = np.asarray(f, dtype=float)
     q = np.asarray(q)
-    fold = clean_fold(t, f, q, period, t0, dur_h)
+    fold = clean_fold(t, f, q, period, t0, dur_h,
+                      quality_mask=quality_mask)
     verdict = verdict_for(fold, sigma_min)
     if verdict == "INSUFFICIENT":
-        flagged = _flagged_fold(t, f, q, period, t0, dur_h)
+        flagged = _flagged_fold(t, f, q, period, t0, dur_h,
+                                quality_mask=quality_mask)
         if (flagged["n_in"] >= MIN_IN
                 and flagged["n_events"] >= MIN_EVENTS
                 and flagged["snr"] is not None
@@ -594,8 +618,8 @@ class DeskDataSource:
 
     def stitched_lc(self, tic, workdir):
         """{"pfx", "sectors", "t", "f", "spans"} — the selected
-        pipeline set's stitched raw flux (quality==0, 10%
-        MAD-clip floor, as in rawflux_check.load_stitched)."""
+        pipeline set's stitched raw flux (mask-kept cadences,
+        10% MAD-clip floor, as in rawflux_check.load_stitched)."""
         raise NotImplementedError
 
     def neighbour_lc(self, tic, workdir):
@@ -668,8 +692,16 @@ class LiveDataSource(DeskDataSource):
         if len(sr) == 0:
             return None
         try:
+            # DF-11 exception: quality_bitmask="none", NOT the
+            # deep_v2 mask. discovery_lc's contract is the RAW
+            # curve with the FULL quality column — the clean gate
+            # and _flagged_fold need to SEE the flagged cadences
+            # to judge them, and reader-side masking would make
+            # _flagged_fold vacuous (no flagged rows left to
+            # fold). This matches the cache path above, which
+            # reads the raw FITS with no reader masking.
             lc = _net.mast_call(
-                lambda: sr[0].download(),
+                lambda: sr[0].download(quality_bitmask="none"),
                 name=f"desk discovery download TIC {tic} s{sector}")
         except Exception:
             return None
