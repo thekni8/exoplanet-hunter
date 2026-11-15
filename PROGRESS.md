@@ -124,7 +124,11 @@ Same lesson earlier: TIC 344334378 (signal only in bit-30 cadences).
 - [x] C-6: Flag-fraction sweep bounds the cadence-loss cost
   (recovery with realistic bits 29/30 fractions on
   non-transit cadences, mask on vs off). VERIFIED —
-  `/tmp/flag_fraction_sweep.py`: WASP-29b survives at every
+  `bulk/flag_fraction_sweep.py` (committed in M-5; the
+  original /tmp script was lost to a VM replacement and
+  rewritten from the SENSITIVITY_MAP.md §v3 table + this
+  record — numbers close to the original's, not bit-identical):
+  WASP-29b survives at every
   flag fraction (5/10/20%, all-cadence and off-transit-only);
   v3 SDE costs up to ~20% at 20% flagging (50.0 → 39.3) but
   MES preserved or improved in every cell (17.5 → 17.3–18.8);
@@ -150,13 +154,39 @@ Same lesson earlier: TIC 344334378 (signal only in bit-30 cadences).
 
 ## Commits
 
+Original fix (8 commits on 4acbc16; the list previously showed
+7 — dd6602f was missing — fixed in M-12):
 - 169b0c8 — design record (this file)
 - 7e7770b — synth_fits: flag_bit parameter for flagged-only fixtures
 - 2e56634 — bulk_v3: quality mask excludes bits 29/30 at screen input (profile + registry + bulk_screen + rescore_v2)
 - 7444ea5 — quality-mask regression tests (5 tests, artifact cells + guards)
 - f92d583 — pin the NEW flagged-cadence behaviour under bulk_v3 (test_false_positives)
 - 3a3cb22 — bulk_v3 profile values + v3 clip-grid monotonicity tests
-- (docs, this commit) — v3 section in SENSITIVITY_MAP.md, bulk_v3 row in calibration/README.md, claims ledger completed
+- 535cc16 — v3 section in SENSITIVITY_MAP.md, bulk_v3 row in calibration/README.md, claims ledger completed
+- dd6602f — mark C-7 verified (frozen files untouched, full suite 393 PASS)
+
+Vote follow-up (M-1…M-12, 2026-11-15):
+- 77fea01 — M-1: named flag constants (`quality_flags.py`,
+  cited sources) + pin 1610629823 in a test
+- 7e00ce3 — M-2: clean-refold gate uses QUALITY_MASK (not
+  quality==0) + bit-12 regression test through the actual gate
+- b47afe8 — M-3: rescore_v2 pins the v2 mask explicitly,
+  `--profile` flag for a future bulk_v3 rescore
+- 1c899fb — M-4: survivor records log raw in-transit flagged
+  fraction + tally of unmasked bits
+- 0d5cd7d — M-5: flag-fraction sweep committed (seeded,
+  re-runnable) + contiguous-block variant
+- 012a875 — M-6: injection-recovery into real S96 light curves
+  carrying 29/30 flags, v2 vs v3 (v2 2/12, v3 8/12)
+- 365ae43 — M-7: S96 25-lead replay under v3, v2 vs v3 (the
+  merge gate — artifact signals gone 18/18, gates PASS)
+- (docs, this commit) — M-8/M-9/M-10/M-11/M-12: grep record,
+  ledger-note pointer, 7/25 breakdown, deep_v2 follow-up
+  record, commit-list nit fixed (8 original commits listed),
+  C-6 /tmp path corrected to bulk/flag_fraction_sweep.py.
+  NOTE: hashes in this section are pre-rebase; they change
+  when the branch is rebased onto main — update after the
+  rebase.
 
 ## Vote follow-up (M-7 replay) — expected outcome, written BEFORE the run
 
@@ -231,11 +261,82 @@ Actual result (2026-11-15 ~06:45 IST, script
   (10.63 d, 10.26 d) — their 6.2683 d ledger signals are gone.
 - Refined gates: ALL PASS (exit 0).
 
+## What killed the other 7/25 (M-10)
+
+From the rescore gauntlet ledger
+(`rescore-gauntlet-2026-11-14/LEDGER.md`, 25/25 vetted,
+0 survivors). The 18 flagged-cadence artifacts are above;
+the other 7 were NOT flag artifacts:
+
+| Group (n) | TICs | What killed them |
+|---|---|---|
+| 4 s96-only single-event / weak dips, flagged-amplified | 41361938, 141708967, 142087258, 141680194 | A small real clean dip (0.12–0.63%) amplified 2–10x by flagged dropouts; three share the P 6.2682513 d ephemeris. Killed on single-event / weak-dip grounds, not flags alone. |
+| 1 catalogued known planet | 183537452 (WASP-29b / TOI-192.01) | Stage-0 catalogue kill. The v2 rescore RECOVERED a real planet v1 missed — sensitivity validation, not a failure. |
+| 1 era-confined V-shaped variability | 101945781 | Late sectors only; T14 28 h vs 3.2 h max; brightens at phase 0.5. A variable star, not a transit. |
+| 1 harmonic alias | 307433122 | Real 8–17% s96 dips, but unequal depths (6.6% vs 14.5%), absent in other sectors; free BLS finds strong sub-day signals (0.796 d SDE 34.4, 0.733 d SDE 26.1) = 11x/12x harmonics of the filed 8.77 d period. Possible short-period EB or spotted rotator on an M dwarf; unvetted as a variable-star lead. |
+
+Follow-on (Claude, vote): the 10% clip floor lets any
+UNFLAGGED dropout under 10% through too — the mask does not
+address that class. The tier-B residue finding in M-7 is the
+same family: single/double-event detections from unflagged
+systematic residue. A clip-floor / tier-B tightening is a
+calibration decision for Phase 3, not this fix.
+
+## Other mask forms in the repo (M-8 grep)
+
+Grep 2026-11-15 for `quality == 0`, `"default"`, `175`,
+`1 << 29` / `2**29` / `2**30` / `1610629823`:
+- `bulk/clean_refold_gate.py:60` — the clean-refold gate used
+  `quality == 0` literally (ChatGPT's catch, confirmed).
+  FIXED in M-2: the gate now takes QUALITY_MASK.
+- `gauntlet/common.py:209` `load_tpf` — `m = (q == 0)` on
+  TPFs for centroid/diffimg pixel work. Deep pipeline, out of
+  scope for this fix — recorded here (see M-11).
+- `gauntlet/rawflux_check.py:171` — `m &= (q == 0)`: the
+  raw-flux tiebreaker DOES use quality==0 literally, so a
+  genuine bit-12 transit would show no dip there and read
+  RAW-REFUTED. A real instance of ChatGPT's catch in the deep
+  pipeline; out of scope here, recorded for deep_v2 (M-11).
+- `gauntlet/stage_result.py:404` — message string only
+  ("clean (quality==0) flux"); updated in M-2.
+- `archive/scripts/blend_stage2_folds.py`,
+  `blend_stage3_diffimg.py` — frozen history, untouched.
+- `"default"` bitmask: no direct code matches.
+- Literal 17087: `bulk/calibrate_analysis.py:37` (frozen
+  v1-era analysis, deliberately unchanged — leave it, record
+  it), `bulk_screen.py` comments + the `_apply_profile`
+  default (now the named constant, M-1), gate/rescore
+  comments.
+- `175`: no matches — no such mask form exists.
+- `1<<29` / `2**29` / `2**30` / 1610629823: no code matches
+  outside tests/YAML. The integer lives in
+  `calibration/bulk_v3.yaml` + `calibration/registry.json`,
+  pinned in `tests/test_calibration.py:121,142`,
+  `tests/test_quality_mask.py:98`, and now in
+  `tests/test_quality_flags.py` (M-1).
+
 ## Open follow-ups (not this fix)
 
-- The deep pipeline (`hunter.py`) still uses lightkurve's default
-  mask (17087) — bits 29/30 pass there too. Needs a deep_v2
-  profile + deep sensitivity re-measurement if Dev wants it.
+- **Deep pipeline mask fix (deep_v2) — VERIFIED EXPOSED
+  (M-11, 2026-11-15).** `hunter.py` uses lightkurve
+  `search_lightcurve` + `row.download()` with NO explicit
+  quality_bitmask anywhere, so lightkurve's reader defaults
+  apply. For QLP files, `read_qlp_lightcurve` with
+  quality_bitmask="default" = 17087 → bits 29/30 are KEPT
+  (lightkurve only adds the QLP 2^30 flag under "hard" /
+  "hardest", and never 2^29). For SPOC 2-min products, bits
+  29/30 don't exist (16-bit QUALITY). Conclusion: the deep
+  pipeline IS exposed to the flagged-cadence artifact class
+  for QLP targets — the majority, since SPOC 2-min covers
+  only ~10^5 stars/sector and the deep pipeline falls back
+  to QLP. The fix is a deep_v2 profile + deep sensitivity
+  re-measurement; it also needs the two deep-pipeline
+  quality==0 uses found in M-8 (`gauntlet/common.py:209`
+  load_tpf; `gauntlet/rawflux_check.py:171` — a genuine
+  bit-12 transit would read RAW-REFUTED there). Needs Dev's
+  go; not this branch. Durable home for this record: this
+  file (travels with the branch) + a pointer in the goal's
+  GOAL.md (Phase 1 section).
 - A bulk_v3 rescore of S96–S98 (or at least the 116 NEW v2
   survivors) is the real-world validation of this fix — needs
   Dev's go + Mac time; the S97/S98 caches are being downloaded
