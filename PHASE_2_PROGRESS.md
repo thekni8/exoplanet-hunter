@@ -738,6 +738,36 @@ bar pinned; LATTE REPORT_ONLY.
   verification targets are fixed (WASP-29b + TIC
   308851365).
 
+### P-17 — Phase 3 design-doc rule (vote item)
+
+- **Rule for every Phase 3 design doc (and any later
+  one): every external fact carries a citation, and
+  every external dependency gets a spike before the
+  design is accepted.** An external fact is any claim
+  about something outside this repo — a paper's result
+  or threshold, a tool's behaviour or output format, a
+  catalog's contents. Its citation is the paper (journal
+  + DOI/arXiv) or the source (package + version +
+  date read). A spike is a small verification run
+  against the real thing — install the tool, read its
+  source, run the minimal example — that proves the
+  premise the design rests on, recorded with its
+  outcome. A design whose premises are unspiked is a
+  draft, not a decision.
+- **Motivation — the two C-10 failures:** (a) LATTE was
+  designed as a per-check disposition source; the
+  premise was wrong — LATTE emits plots + a PDF, no
+  machine-readable dispositions (verified against the
+  1.0.21 source during the build, after the design was
+  written). A spike (read the source / run it once)
+  would have caught it before the design existed.
+  (b) The Giacalone validation bar was misremembered as
+  FPP < 0.01; the paper says 0.015 (P-10). A citation
+  checked against the abstract would have caught it.
+  Both failures cost build time and one shipped a wrong
+  premise into a design doc — the rule exists so Phase 3
+  does not repeat them.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):
