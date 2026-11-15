@@ -123,8 +123,13 @@ def fetch_neighbour(tic, outdir, max_sectors=6, quality_mask=None):
                 try:
                     # C-1: watch the download too — a hung row
                     # download retries like any other failure.
+                    # DF-11: the mask is passed explicitly at the
+                    # download (the post-download _masked_keep is
+                    # defence-in-depth on the surviving rows, and
+                    # covers readers that ignore the bitmask).
                     lc = _net.mast_call(
-                        lambda: row.download(),
+                        lambda: row.download(
+                            quality_bitmask=quality_mask),
                         name=f"neighbour download TIC {tic} s{sec}")
                     break
                 except Exception as e:

@@ -174,8 +174,12 @@ def download_author(author, pfx, no_download=False, tic=None,
             try:
                 # C-1: watch the download too — a hung row
                 # download retries like any other failure.
+                # DF-11: the mask is passed explicitly at the
+                # download (the post-download filter below is
+                # defence-in-depth on the surviving rows).
                 lc = _net.mast_call(
-                    lambda: sr[by_sector[sec]].download(),
+                    lambda: sr[by_sector[sec]].download(
+                        quality_bitmask=quality_mask),
                     name=f"rawflux download TIC {tic} s{sec} "
                          f"({author})")
                 if lc is not None:

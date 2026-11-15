@@ -83,8 +83,14 @@ RECOVERY_TOL = 0.01  # headline period within 1% of injected
 
 def download_host_qlp(tic, sector=SECTOR):
     """The host's sector light curve as the deep pipeline sees
-    it: lightkurve download (default bitmask applied at read),
-    TIME / flux / QUALITY arrays of the surviving rows."""
+    it: lightkurve download (default bitmask applied at read,
+    passed explicitly — DF-11), TIME / flux / QUALITY arrays of
+    the surviving rows. The substrate design DEPENDS on the
+    default reader mask: the v1-vs-v2 comparison measures what
+    the v2 mask adds on top of the rows v1's reader already
+    kept, so the download must not apply the v2 mask (that would
+    make the v1 half vacuous) nor "none" (that would change the
+    published sensitivity substrates)."""
     import lightkurve as lk
     sr = lk.search_lightcurve(f"TIC {tic}", author="QLP")
     if len(sr) == 0:
@@ -95,7 +101,7 @@ def download_host_qlp(tic, sector=SECTOR):
     if not rows:
         raise RuntimeError(
             f"TIC {tic}: no QLP sector-{sector} product on MAST")
-    lc = sr[rows[0]].download()
+    lc = sr[rows[0]].download(quality_bitmask="default")
     if lc is None:
         raise RuntimeError(f"TIC {tic}: QLP download returned None")
     t = np.asarray(lc.time.value, dtype=float)

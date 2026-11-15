@@ -448,8 +448,15 @@ def _download_products(sectors_to_fetch, tic_id, progress_callback=None):
     for i in range(total):
         row = sectors_to_fetch[i]
         try:
+            # DF-11: pass the ACTIVE profile's mask explicitly —
+            # depending on the reader default is what caused this
+            # bug. The reader drops masked rows at read time, so
+            # _apply_quality_mask downstream is defence-in-depth
+            # on the surviving rows (and DF-9 counts both layers).
             item = _with_download_self_heal(
-                lambda row=row: row.download(), progress_callback,
+                lambda row=row: row.download(
+                    quality_bitmask=QUALITY_MASK),
+                progress_callback,
                 corrupt_max_retries=1)
         except Exception as e:
             last_error = e
@@ -560,20 +567,22 @@ ACCEPT_SDE = 6.5  # refined-peak acceptance floor: a refined peak
 
 # Quality mask (deep_v2, 2026-11-15): which QUALITY bits exclude a
 # cadence from BLS input. M-11 verified the deep pipeline was
-# exposed the same way as the bulk screen: hunter.py downloads
-# through lightkurve with no explicit quality_bitmask, so
-# lightkurve's default (17087) applies at read time and QLP
+# exposed the same way as the bulk screen: hunter.py used to
+# download through lightkurve with no explicit quality_bitmask,
+# so lightkurve's default (17087) applied at read time and QLP
 # targets — the majority, since SPOC 2-min covers only ~10^5
-# stars/sector — keep TESS scattered-light bits 29/30. The bulk_v2
+# stars/sector — kept TESS scattered-light bits 29/30. The bulk_v2
 # rescore gauntlet found 18/25 NEW S96 leads were dips living
 # only on bit-29/30 cadences. deep_v2 masks them at pipeline
 # input (the shared mask — the same integer as bulk_v3, see
-# quality_flags.SHARED_QUALITY_MASK). quality==0 is NOT used —
-# the TOI-700 c lesson (bit 12 carries a real transit); bit 11
-# stays unmasked (2026-11-15 vote, 2/3). The mask is applied by
-# _apply_quality_mask at both stitch sites, BEFORE detrend/BLS —
-# never after the search. v1 profiles predate the field and mean
-# the lightkurve default.
+# quality_flags.SHARED_QUALITY_MASK). DF-11: _download_products
+# passes the active profile's mask explicitly at every download,
+# so the reader layer and the stamped mask agree.
+# quality==0 is NOT used — the TOI-700 c lesson (bit 12 carries
+# a real transit); bit 11 stays unmasked (2026-11-15 vote, 2/3).
+# The mask is applied by _apply_quality_mask at both stitch sites,
+# BEFORE detrend/BLS — never after the search. v1 profiles predate
+# the field and mean the lightkurve default.
 CALIBRATION_VERSION = "deep_v2"
 QUALITY_MASK = _DEEP_V2_MASK
 

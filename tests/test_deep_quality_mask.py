@@ -385,7 +385,7 @@ class TestGauntletMaskGates(unittest.TestCase):
         lc = lk.LightCurve(time=t, flux=f, quality=q)
 
         class _Row:
-            def download(self):
+            def download(self, **kwargs):
                 return lc
 
         class _SearchResult:
@@ -485,7 +485,7 @@ class TestGauntletMaskGates(unittest.TestCase):
         lc = lk.LightCurve(time=t, flux=f, quality=q)
 
         class _Row:
-            def download(self):
+            def download(self, **kwargs):
                 return lc
 
         class _SearchResult:

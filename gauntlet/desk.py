@@ -692,8 +692,16 @@ class LiveDataSource(DeskDataSource):
         if len(sr) == 0:
             return None
         try:
+            # DF-11 exception: quality_bitmask="none", NOT the
+            # deep_v2 mask. discovery_lc's contract is the RAW
+            # curve with the FULL quality column — the clean gate
+            # and _flagged_fold need to SEE the flagged cadences
+            # to judge them, and reader-side masking would make
+            # _flagged_fold vacuous (no flagged rows left to
+            # fold). This matches the cache path above, which
+            # reads the raw FITS with no reader masking.
             lc = _net.mast_call(
-                lambda: sr[0].download(),
+                lambda: sr[0].download(quality_bitmask="none"),
                 name=f"desk discovery download TIC {tic} s{sector}")
         except Exception:
             return None
