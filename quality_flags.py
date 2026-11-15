@@ -108,6 +108,15 @@ QLP_UNDOCUMENTED_29 = 1 << 29
 BULK_V1_V2_MASK = SPOC_DEFAULT_MASK
 #: The bulk_v3 screen mask: the v1/v2 mask plus QLP bits 29/30.
 BULK_V3_MASK = SPOC_DEFAULT_MASK | QLP_UNDOCUMENTED_29 | QLP_LOW_PRECISION
+#: The deep_v1 pipeline mask: lightkurve's TESS default (what
+#: hunter.py's lightkurve downloads applied at read time).
+DEEP_V1_MASK = SPOC_DEFAULT_MASK
+#: The deep_v2 pipeline mask: the v1 mask plus QLP bits 29/30.
+#: Same integer as BULK_V3_MASK (1610629823) — both pipelines mask
+#: the same scattered-light flags; the two names exist so each
+#: profile's drift test pins its own constant, and so a reader of
+#: hunter.py sees the deep profile's mask, not the bulk screen's.
+DEEP_V2_MASK = SPOC_DEFAULT_MASK | QLP_UNDOCUMENTED_29 | QLP_LOW_PRECISION
 
 #: Short name per bit, for the unmasked-bit tally (M-4) and logs.
 #: Bits not listed here are reported as "bit_<n>".
