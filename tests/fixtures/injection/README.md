@@ -24,3 +24,21 @@ trials are the STRONG cells from the 2026-11-13 run, which
 detected at SDE 31–106: the smoke test proves the detection
 machinery still works, it does not re-measure the completeness
 floor (that is the full harness's job, run manually).
+
+`substrate_s01_149269965.npz` — one REAL Sector 1 QLP light
+curve (TIC 149269965, 1,281 points at 30-min cadence,
+sap_flux), exported 2026-11-15 for the deep-fix follow-up
+DF-4: ZERO cadences carry quality bits 29/30 (Sector 1
+predates the scattered-light flagging — 1,429 of the VM's
+cached S1 stars are clean), 15 cadences carry default-mask
+bits, 288 carry bit 12. The DF-4 identity test
+(`tests/test_deep_identity.py`) runs the deep pipeline under
+deep_v1 and deep_v2 on it and asserts bitwise-identical
+search outputs.
+
+`substrate_s01_150428135_spoc.npz` — one REAL Sector 1 SPOC
+light curve (TIC 150428135 = TOI-700, 120 s, 19,261 points,
+pdcsap_flux), downloaded 2026-11-15 for DF-4: ZERO cadences
+carry bits 29/30 (SPOC QUALITY is 16-bit, so bits 29/30
+cannot occur), 982 carry default-mask bits. The SPOC half of
+the DF-4 identity test.
