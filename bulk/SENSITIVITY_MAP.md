@@ -134,25 +134,49 @@ SDEs equal v2's).
 
 Sensitivity cost of the mask, measured by a flag-fraction sweep
 (WASP-29b-equivalent transit, P 3.9227 d, 1.14%, 0.3% noise;
-random bit-29 flags on 5/10/20% of cadences):
+bit-29 flags on 5/10/20% of cadences). Script:
+`bulk/flag_fraction_sweep.py` (committed, seeded, re-runnable;
+`--quick` runs the 3-cell CI subset). The first version lived
+in /tmp and was lost to a VM replacement; this table is from
+the committed rewrite (M-5, 2026-11-15), whose numbers are
+close to the original's (clean cell identical; random cells
+within ~2 SDE) but not bit-identical — the original flag seeds
+are unrecoverable. Conclusions unchanged.
 
-| Flag fraction | v2 SDE / MES | v3 SDE / MES | v3 status |
+| Cell | v2 SDE / MES | v3 SDE / MES | v3 status |
 |---|---|---|---|
 | clean | 50.0 / 17.5 | 50.0 / 17.5 | survivor A |
-| 5% of all cadences | 50.0 / 17.5 | 44.3 / 17.3 | survivor A |
-| 10% of all cadences | 50.0 / 17.5 | 44.5 / 18.8 | survivor A |
-| 20% of all cadences | 50.0 / 17.5 | 39.3 / 18.8 | survivor A |
-| 10% off-transit only | 50.0 / 17.5 | 46.1 / 18.5 | survivor A |
-| 20% off-transit only | 50.0 / 17.5 | 41.5 / 18.1 | survivor A |
+| random 5% all | 50.0 / 17.5 | 45.8 / 17.6 | survivor A |
+| random 10% all | 50.0 / 17.5 | 42.9 / 18.0 | survivor A |
+| random 20% all | 50.0 / 17.5 | 41.6 / 18.6 | survivor A |
+| random 10% off-transit | 50.0 / 17.5 | 46.5 / 18.7 | survivor A |
+| random 20% off-transit | 50.0 / 17.5 | 40.6 / 18.3 | survivor A |
+| blocks 10% all | 50.0 / 17.5 | 40.4 / 16.2 | survivor A |
+| blocks 20% all | 50.0 / 17.5 | 28.7 / 13.8 | survivor A |
+| blocks 10% off-transit | 50.0 / 17.5 | 45.5 / 17.5 | survivor A |
+| blocks 20% off-transit | 50.0 / 17.5 | 42.6 / 17.7 | survivor A |
+| marginal 0.5% clean | 18.9 / 8.5 | 18.9 / 8.5 | recorded |
+| marginal 0.5% random 10% all | 18.9 / 8.5 | 16.3 / 9.2 | survivor A |
+| marginal 0.5% random 20% all | 18.9 / 8.5 | 16.6 / 9.1 | survivor A |
 
-The mask costs SDE (up to ~20% at 20% flagging — fewer cadences
-in the fold) but MES is preserved or slightly improved in every
-cell, and no real transit was lost at any flag fraction tested.
-One marginal shallow cell (0.5% depth, MES 8.5 under v2, just
-below the tier-A bar of 9.0) crossed the OTHER way under v3 at
-10–20% flagging (MES 9.3, survivor A) — at the boundary the
-mask's effect on MES can go either way; the sweep does not
-claim a systematic sensitivity gain.
+Random flags: the mask costs SDE (up to ~20% at 20% flagging —
+fewer cadences in the fold) but MES is preserved or slightly
+improved in every cell, and no real transit was lost at any
+flag fraction tested. One marginal shallow cell (0.5% depth,
+MES 8.5 under v2, just below the tier-A bar of 9.0) crossed the
+OTHER way under v3 at 10–20% flagging (MES 9.2, survivor A) —
+at the boundary the mask's effect on MES can go either way;
+the sweep does not claim a systematic sensitivity gain.
+
+Contiguous blocks (Gemini's topology critique, 2026-11-15 vote:
+real bits 29/30 come in 0.5–2.5-day blocks, not random
+sprinkles) cost MORE than random flags at the same fraction: at
+20% block flagging the v3 SDE falls 43% (50.0 → 28.7) and MES
+21% (17.5 → 13.8) — a 2-day block can swallow whole transits.
+The transit still survives as tier A (MES 13.8 vs the 9.0 bar)
+with margin, and blocks that avoid the transit cost no more
+than random flags. The block variant is the harsher, more
+realistic bound on the mask's cost.
 
 Artifact rejection is pinned in `tests/test_quality_mask.py`:
 five synthetic cells at real gauntlet periods/depths (bits 29/30,
