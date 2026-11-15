@@ -113,11 +113,12 @@ class TestPrepareFilingReview(unittest.TestCase):
     def test_prepare_eligible_candidate(self):
         pkg = _package(_pass_results())
         review = prepare_filing_review(
-            pkg, timestamp_utc="2026-11-15T00:00:00Z")
+            pkg, "pingu", timestamp_utc="2026-11-15T00:00:00Z")
         self.assertEqual(review["record_type"], "filing_review")
         self.assertEqual(review["schema_version"], "1.0")
         self.assertEqual(review["tic"], "999999999")
         self.assertEqual(review["run_id"], "test-run-1")
+        self.assertEqual(review["operator"], "pingu")
         self.assertEqual(review["status"], "awaiting_review")
         self.assertTrue(review["eligible"])
         self.assertEqual(review["eligibility"]["blockers"], [])
@@ -152,7 +153,7 @@ class TestPrepareFilingReview(unittest.TestCase):
 
     def test_prepare_with_tools_checklist(self):
         pkg = _package(_pass_results(), extra=_tool_extra())
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         by_item = {i["item"]: i
                    for i in review["checklist"]}
         latte = by_item["read_latte_report"]
@@ -168,7 +169,7 @@ class TestPrepareFilingReview(unittest.TestCase):
             "shape", "fail", "V-shaped: T23/T14 0.08", PROV)
         pkg = _package(
             _pass_results(overrides={"shape": shape}))
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         # The record exists (its blockers are visible); the
         # gate is enforced at decision time.
         self.assertEqual(review["status"], "awaiting_review")
@@ -181,7 +182,7 @@ class TestPrepareFilingReview(unittest.TestCase):
 
     def test_prepare_missing_stage(self):
         pkg = _package(_pass_results(exclude=("diffimg",)))
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         self.assertFalse(review["eligible"])
         self.assertIn("diffimg never ran",
                       review["eligibility"]["blockers"])
@@ -194,7 +195,7 @@ class TestPrepareFilingReview(unittest.TestCase):
             "holdout", "inconclusive", "one sector only", PROV)
         pkg = _package(
             _pass_results(overrides={"holdout": holdout}))
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         self.assertFalse(review["eligible"])
         blockers = review["eligibility"]["blockers"]
         self.assertTrue(any(
@@ -214,7 +215,7 @@ class TestPrepareFilingReview(unittest.TestCase):
         pkg = _package(
             _pass_results(overrides={"holdout": holdout}),
             waivers={"holdout": "single sector"})
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         self.assertTrue(review["eligible"])
         self.assertEqual(review["eligibility"]["blockers"], [])
         by_item = {i["item"]: i
@@ -225,22 +226,25 @@ class TestPrepareFilingReview(unittest.TestCase):
 
     def test_prepare_rejects_malformed_package(self):
         with self.assertRaises(RecordValidationError):
-            prepare_filing_review({"tic": "999999999"})
+            prepare_filing_review({"tic": "999999999"}, "pingu")
 
 
 class TestRecordReviewDecision(unittest.TestCase):
 
     def test_approve_eligible(self):
         pkg = _package(_pass_results())
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         decided = record_review_decision(
             review, "Dev", "approved",
             "All gates pass; LATTE read; FPP 0.0032.",
-            timestamp_utc="2026-11-15T01:00:00Z")
+            timestamp_utc="2026-11-15T01:00:00Z",
+            reviewer_examined_evidence=True)
         self.assertEqual(decided["status"], "approved")
         self.assertEqual(decided["decision"]["reviewer"], "Dev")
         self.assertEqual(decided["decision"]["decision"],
                          "approved")
+        self.assertTrue(
+            decided["decision"]["reviewer_examined_evidence"])
         self.assertEqual(decided["decision"]["timestamp_utc"],
                          "2026-11-15T01:00:00Z")
         # The input record is not mutated.
@@ -253,7 +257,7 @@ class TestRecordReviewDecision(unittest.TestCase):
             "shape", "fail", "V-shaped: T23/T14 0.08", PROV)
         pkg = _package(
             _pass_results(overrides={"shape": shape}))
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         with self.assertRaises(ValueError) as ctx:
             record_review_decision(
                 review, "Dev", "approved", "looks fine")
@@ -264,7 +268,7 @@ class TestRecordReviewDecision(unittest.TestCase):
             "shape", "fail", "V-shaped: T23/T14 0.08", PROV)
         pkg = _package(
             _pass_results(overrides={"shape": shape}))
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         decided = record_review_decision(
             review, "Dev", "rejected",
             "EB — not worth pursuing.")
@@ -272,7 +276,7 @@ class TestRecordReviewDecision(unittest.TestCase):
 
     def test_decision_validation(self):
         pkg = _package(_pass_results())
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         with self.assertRaises(ValueError):
             record_review_decision(
                 review, "  ", "approved", "ok")
@@ -285,9 +289,10 @@ class TestRecordReviewDecision(unittest.TestCase):
 
     def test_double_decision_raises(self):
         pkg = _package(_pass_results())
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         decided = record_review_decision(
-            review, "Dev", "approved", "all gates pass")
+            review, "Dev", "approved", "all gates pass",
+            reviewer_examined_evidence=True)
         with self.assertRaises(ValueError):
             record_review_decision(
                 decided, "Dev", "rejected", "changed my mind")
@@ -307,12 +312,13 @@ class TestRecordReviewDecision(unittest.TestCase):
                    for d in pkg["stages"].values()]
         ready, _reason = check_report_ready(results)
         self.assertFalse(ready)
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         self.assertIsNone(review_2e_marker(review))
         decided = record_review_decision(
             review, "Dev", "approved",
             "Single sector is all that exists; holdout "
-            "waiver accepted.")
+            "waiver accepted.",
+            reviewer_examined_evidence=True)
         marker = review_2e_marker(decided)
         self.assertEqual(marker, {"reviewer": "Dev"})
         ready, _reason = check_report_ready(
@@ -321,12 +327,99 @@ class TestRecordReviewDecision(unittest.TestCase):
 
     def test_schema_validation_direct(self):
         pkg = _package(_pass_results())
-        review = prepare_filing_review(pkg)
+        review = prepare_filing_review(pkg, "pingu")
         validate_filing_review(review)
         bad = dict(review)
         del bad["eligibility"]
         with self.assertRaises(RecordValidationError):
             validate_filing_review(bad)
+
+
+class TestReviewIndependence(unittest.TestCase):
+    """P-6 (Phase 2 vote follow-up): the reviewer must be a
+    different human from the operator who prepared the run,
+    and must attest to having examined the evidence. The
+    operator here is 'pingu' (the agent ran the desk
+    gauntlet); the reviewer is 'Dev' (the human)."""
+
+    def _review(self, operator="pingu"):
+        pkg = _package(_pass_results())
+        return prepare_filing_review(pkg, operator)
+
+    def test_operator_required(self):
+        pkg = _package(_pass_results())
+        for bad in ("", "  ", None, 42):
+            with self.assertRaises(ValueError, msg=bad):
+                prepare_filing_review(pkg, bad)
+
+    def test_operator_recorded(self):
+        review = self._review()
+        self.assertEqual(review["operator"], "pingu")
+        validate_filing_review(review)
+
+    def test_reviewer_must_differ_from_operator(self):
+        review = self._review()
+        for same in ("pingu", " Pingu ", "PINGU"):
+            with self.assertRaises(ValueError, msg=same):
+                record_review_decision(
+                    review, same, "approved", "looks good",
+                    reviewer_examined_evidence=True)
+        # A different human approves.
+        decided = record_review_decision(
+            review, "Dev", "approved", "looks good",
+            reviewer_examined_evidence=True)
+        self.assertEqual(decided["status"], "approved")
+
+    def test_approval_requires_evidence_attestation(self):
+        review = self._review()
+        with self.assertRaises(ValueError):
+            record_review_decision(
+                review, "Dev", "approved", "looks good")
+        with self.assertRaises(ValueError):
+            record_review_decision(
+                review, "Dev", "approved", "looks good",
+                reviewer_examined_evidence=False)
+        decided = record_review_decision(
+            review, "Dev", "approved", "looks good",
+            reviewer_examined_evidence=True)
+        self.assertTrue(
+            decided["decision"]["reviewer_examined_evidence"])
+
+    def test_agent_identity_reviewer_refused(self):
+        review = self._review(operator="dev")
+        for agent in ("Muse", "claude", "bot", "Gemini",
+                      "assistant"):
+            with self.assertRaises(ValueError, msg=agent):
+                record_review_decision(
+                    review, agent, "approved", "looks good",
+                    reviewer_examined_evidence=True)
+
+    def test_rejection_needs_neither(self):
+        # Rejecting is the fail-safe direction: the operator
+        # may reject their own run, an agent identity may
+        # reject, and no attestation is needed.
+        review = self._review()
+        decided = record_review_decision(
+            review, "pingu", "rejected",
+            "On reflection this is an EB.")
+        self.assertEqual(decided["status"], "rejected")
+        self.assertFalse(
+            decided["decision"]["reviewer_examined_evidence"])
+        review = self._review()
+        decided = record_review_decision(
+            review, "Muse", "rejected", "Not a planet.")
+        self.assertEqual(decided["status"], "rejected")
+
+    def test_approve_review_without_operator_raises(self):
+        # A review prepared before P-6 names no operator:
+        # it cannot be approved (prepare a fresh review).
+        review = self._review()
+        del review["operator"]
+        with self.assertRaises(ValueError) as ctx:
+            record_review_decision(
+                review, "Dev", "approved", "looks good",
+                reviewer_examined_evidence=True)
+        self.assertIn("no operator", str(ctx.exception))
 
 
 if __name__ == "__main__":

@@ -462,6 +462,34 @@ bar pinned; LATTE REPORT_ONLY.
   stage shapes — the first P-5 test run caught it
   (evidence-package validation rejected the field).
 
+### P-6 — Review independence: reviewer ≠ preparer
+
+- **Operator recorded:** `prepare_filing_review` takes
+  `operator` (required, non-empty — usually Pingu, who
+  ran the desk gauntlet); the record carries it, and the
+  review schema requires it. A pre-P-6 record naming no
+  operator cannot be approved (prepare a fresh review).
+- **Approval refusals** (all `ValueError`, all approval-
+  only — rejecting is the fail-safe direction and needs
+  none of them): reviewer == operator (compared
+  stripped + casefolded, so " Pingu " is Pingu); reviewer
+  claims a known agent identity (denylist tripwire:
+  pingu, muse, claude, gemini, chatgpt, gpt, copilot,
+  bot, agent, ai, assistant, llm — exact match only, so
+  no human name false-positives); approval without
+  `reviewer_examined_evidence=True`.
+- **Attestation recorded:** the decision carries
+  `reviewer_examined_evidence` (schema-required boolean),
+  so the record says whether the reviewer attested to
+  examining the LATTE report, the TRICERATOPS numbers,
+  and the waived stages.
+- **Procedural, not authentication:** documented in the
+  module docstring — the code checks the reviewer string,
+  it cannot verify the human behind the keyboard. The
+  approval call itself is the human attestation point;
+  the denylist is a tripwire against the lazy failure,
+  not a guarantee.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):

@@ -32,6 +32,28 @@ The review binds to its evidence package by hash (sha256 of
 the canonical package JSON), so a decision cannot be
 silently re-attached to different evidence.
 
+REVIEWER INDEPENDENCE (P-6, Phase 2 vote): the reviewer must
+not be the operator who prepared the run. prepare_filing_review
+takes the operator (required, non-empty — the person or agent
+who ran the desk gauntlet, usually Pingu); record_review_decision
+refuses to approve when the reviewer IS the operator, when the
+reviewer claims a known agent identity (a small denylist tripwire
+— see AGENT_IDENTITY_DENYLIST), or when the reviewer has not
+attested to examining the evidence
+(reviewer_examined_evidence must be True to approve). A
+rejection needs none of these — rejecting is the fail-safe
+direction and is always allowed.
+
+This is a PROCEDURAL control, not authentication: the code can
+check that the reviewer string differs from the operator and is
+not a known agent identity, but it cannot verify the human
+behind the keyboard. The approval call itself is the human
+attestation point — the caller asserts, by calling it with a
+human reviewer name and the attestation set, that a second pair
+of eyes examined the evidence. The denylist is a tripwire
+against the lazy failure (the operator approving its own work
+under its own name), not a guarantee.
+
 No filing action is ever taken here — the gate prepares the
 review, a human decides.
 """
@@ -49,6 +71,26 @@ from gauntlet.stage_result import (
 REVIEW_SCHEMA_VERSION = "1.0"
 
 _DATA_STAGES = ("persistence", "diffimg", "blend")
+
+# P-6: reviewer identities that are never a human second pair
+# of eyes. A tripwire, not authentication — it catches the
+# lazy failure (the operator approving its own work under an
+# agent name), not a determined impersonation. Compared
+# against the reviewer string normalised (stripped +
+# casefolded), exact match only — substring matching would
+# false-positive on human names. The operator MAY be an agent
+# (Pingu runs the desk gauntlet); the REVIEWER may not.
+AGENT_IDENTITY_DENYLIST = frozenset({
+    "pingu", "muse", "claude", "gemini", "chatgpt", "gpt",
+    "copilot", "bot", "agent", "ai", "assistant", "llm",
+})
+
+
+def _normalize_identity(name):
+    """Reviewer/operator comparison form: stripped +
+    casefolded, so ' Pingu ' and 'pingu' are the same
+    identity."""
+    return name.strip().casefold()
 
 
 def _eligibility(package):
@@ -196,17 +238,25 @@ def _checklist(package):
     return items
 
 
-def prepare_filing_review(package, timestamp_utc=None):
+def prepare_filing_review(package, operator,
+                          timestamp_utc=None):
     """Prepare the filing review record for one evidence
     package.
 
     The package is validated against the evidence schema
     first — a malformed package fails loud, never a review
-    of unknown evidence. The record is returned in status
-    awaiting_review with the eligibility verdict, the
-    blockers (when ineligible), and the human checklist.
-    Preparing a review is never itself a decision.
+    of unknown evidence. `operator` is the person or agent
+    who prepared the run (required, non-empty — usually
+    Pingu, who ran the desk gauntlet); it is recorded on
+    the review so the decision step can enforce
+    reviewer-independence (P-6). The record is returned in
+    status awaiting_review with the eligibility verdict,
+    the blockers (when ineligible), and the human
+    checklist. Preparing a review is never itself a
+    decision.
     """
+    if not (isinstance(operator, str) and operator.strip()):
+        raise ValueError("operator must be a non-empty string")
     _validation.validate_evidence_package(package)
     eligible, eligibility = _eligibility(package)
     package_hash = hashlib.sha256(
@@ -217,6 +267,7 @@ def prepare_filing_review(package, timestamp_utc=None):
         "schema_version": REVIEW_SCHEMA_VERSION,
         "tic": package["tic"],
         "run_id": package["run_id"],
+        "operator": operator,
         "evidence_package_hash": package_hash,
         "timestamp_utc": (timestamp_utc if timestamp_utc is not None
                           else _prov.utc_now_iso()),
@@ -230,20 +281,28 @@ def prepare_filing_review(package, timestamp_utc=None):
 
 
 def record_review_decision(review, reviewer, decision, reason,
-                           timestamp_utc=None):
+                           timestamp_utc=None,
+                           reviewer_examined_evidence=False):
     """Record a human's decision on a filing review.
 
     reviewer: non-empty string (the human deciding — an
     approved review's reviewer is the F-5 second-eyes
     marker). decision: "approved" or "rejected". reason:
     non-empty string (why — an approval without a reason is
-    not a review).
+    not a review). reviewer_examined_evidence: the
+    reviewer's attestation that they examined the evidence
+    (the LATTE report, the TRICERATOPS numbers, the waived
+    stages) — must be True to approve.
 
     Raises ValueError when the inputs are invalid, when the
-    review was already decided, or when approving an
-    ineligible record (the blockers are named in the error).
-    Rejecting an ineligible record is allowed. Returns a NEW
-    record dict; the input is not mutated.
+    review was already decided, when approving an
+    ineligible record (the blockers are named in the
+    error), when the reviewer IS the operator who prepared
+    the run (P-6 — a second pair of eyes must be second),
+    when the reviewer claims a known agent identity, or
+    when approving without the evidence attestation.
+    Rejecting is always allowed. Returns a NEW record dict;
+    the input is not mutated.
     """
     if not (isinstance(reviewer, str) and reviewer.strip()):
         raise ValueError("reviewer must be a non-empty string")
@@ -264,12 +323,44 @@ def record_review_decision(review, reviewer, decision, reason,
         raise ValueError(
             "cannot approve an ineligible review: "
             + "; ".join(blockers))
+    if decision == "approved":
+        # P-6 independence: the reviewer must be a different
+        # human from the operator, and must attest to having
+        # examined the evidence. The operator check needs an
+        # operator on the record — a review prepared before
+        # P-6 names none, and cannot be approved (prepare a
+        # fresh review instead).
+        operator = review.get("operator")
+        if not (isinstance(operator, str) and operator.strip()):
+            raise ValueError(
+                "cannot approve a review that names no "
+                "operator — prepare a fresh review from a "
+                "(fresh) evidence package")
+        if _normalize_identity(reviewer) == \
+                _normalize_identity(operator):
+            raise ValueError(
+                "cannot approve: the reviewer is the operator "
+                "who prepared this run — a second pair of "
+                "eyes must be second")
+        if _normalize_identity(reviewer) in \
+                AGENT_IDENTITY_DENYLIST:
+            raise ValueError(
+                "cannot approve: the reviewer claims an agent "
+                "identity — a filing review must be decided "
+                "by a human")
+        if reviewer_examined_evidence is not True:
+            raise ValueError(
+                "cannot approve without the reviewer's "
+                "attestation that they examined the evidence "
+                "(reviewer_examined_evidence=True)")
     decided = copy.deepcopy(review)
     decided["status"] = decision
     decided["decision"] = {
         "reviewer": reviewer,
         "decision": decision,
         "reason": reason,
+        "reviewer_examined_evidence": bool(
+            reviewer_examined_evidence),
         "timestamp_utc": (timestamp_utc if timestamp_utc is not None
                           else _prov.utc_now_iso()),
     }
