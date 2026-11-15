@@ -1,0 +1,174 @@
+{
+  "calibration": "bulk_v3",
+  "campaign": "inject_campaign_v1",
+  "depth_grid_frac": [
+    0.002,
+    0.005,
+    0.008,
+    0.01
+  ],
+  "depth_grid_note": "The grid MUST respect the tier-B 1% depth cap (Claude's catch: the committed 2% trial is above the cap). Planet trials cover sub-1% depths (0.2%, 0.5%, 0.8%) + 1%; the 2%/5% depths belong to the EB class only, never to a planet trial.",
+  "description": "Phase 3 injection campaign at scale (bulk screen, bulk_v3). Injects planet-like transits, eclipsing binaries, sinusoidal variables and flagged-cadence-only dips into real cached QLP light curves and screens them through the real bulk screen. Serves 3B's injection-recovery loss measurement in the 1-2-event regime (P3-11) and 3A's training set (P3-16/P3-17). The campaign DEFINITION is committed so the run is reproducible; the run's outputs (injections.jsonl, summary.json) live in run-data dirs, never in git.",
+  "effective_n": {
+    "independent_unit": "host star (unique TIC)",
+    "note": "Row count is NOT independent examples: multiple injections into the same host are correlated observations (same noise, same systematics, same host signal). The campaign reports n_hosts as the independent unit alongside n_trials; the same TIC injected in two sectors counts once toward effective-n."
+  },
+  "expected_counts": {
+    "eb_trials": 240,
+    "flagged_dip_trials": 120,
+    "n_hosts": 120,
+    "n_sectors": 2,
+    "n_trials": 1560,
+    "note": "planet_like_positives = 9/host (8 planet + 1 pricing_13p2) x 120 hosts. Scale target (Claude's flip condition): ~10^3 positives across 100+ hosts and several sectors. Sectors available for injection in Phase 3 are S95+S96 only (S97 held out, S98 locked); the 'several sectors' target is met in part -- the S97 hold-out is the third sector, reserved for validation rather than injection.",
+    "planet_like_positives": 1080,
+    "pricing_13p2_trials": 120,
+    "sinusoid_trials": 120,
+    "trials_per_host": 13
+  },
+  "holdout_reason": "S97 is the validation sector (P3-21) and the ranker's unseen-sector test (P3-18 names the distant-sector hold-out as the unseen-sector test). No S97 host is injected in Phase 3, so the hold-out stays unseen. S96 (+S95 for host count) carries the injections; S95 and S96 are the only sectors available for injection in Phase 3.",
+  "holdout_sector": 97,
+  "host_selection": {
+    "min_hosts": 100,
+    "note": "Hosts are NOT pre-filtered for known signals (TOI/VSX): a host's own strong signal can win BLS over an injection (host confusion, seen in M-6). That is a measured effect, not a defect -- the screen record keeps the found period, so analysis can separate host-confusion non-recoveries from genuine losses. Pre-filtering would need per-star cone queries and would bias the host sample toward quiet stars.",
+    "rule": "Per inject sector: read the window file's TIC list, sort numerically, draw n_hosts without replacement with numpy default_rng(SeedSequence([master_seed, sector])). Same rule + same window file = same host list; the runner records each window file's sha256 in the run summary.",
+    "source": "<cache>/target_lists/s<NNNN>_window_default.json",
+    "source_format": "{\"stats\": {...}, \"tics\": [<tic>, ...]} (bulk/build_target_list.py output)"
+  },
+  "inject_sectors": {
+    "95": 40,
+    "96": 80
+  },
+  "labels": {
+    "by_kind": {
+      "eb": {
+        "class": "astrophysical_fp",
+        "fine": "confirmed_eb"
+      },
+      "flagged_dip": {
+        "class": "instrumental_fp",
+        "fine": "instrumental_artifact"
+      },
+      "planet": {
+        "class": "planet_like",
+        "fine": "planet_like"
+      },
+      "pricing_13p2": {
+        "class": "planet_like",
+        "fine": "planet_like"
+      },
+      "sinusoid": {
+        "class": "astrophysical_fp",
+        "fine": "known_variable"
+      }
+    },
+    "classes": [
+      "planet_like",
+      "astrophysical_fp",
+      "instrumental_fp"
+    ],
+    "fine_classes": [
+      "planet_like",
+      "confirmed_eb",
+      "instrumental_artifact",
+      "known_variable",
+      "blend_photocopy"
+    ],
+    "inconclusive": "INCONCLUSIVE is never a label (3/3). No trial in this campaign carries it; the runner's label validation rejects it. 'blend_photocopy' is a fine class for real leads in the 3A training design (P3-17); no injected trial uses it -- blends are a property of the host's neighbourhood, not of an injection."
+  },
+  "locked_reason": "S98 is LOCKED for the final blind evaluation (TB-8 / P3-21): do not rescore, score, or peek at it in Phase 3. The runner refuses S98 (and S97) as inject sectors.",
+  "locked_sector": 98,
+  "master_seed": 20261115,
+  "p3_item": "P3-10",
+  "period_distribution": {
+    "hi_d": 15.0,
+    "kind": "loguniform",
+    "lo_d": 0.5,
+    "note": "Continuous LogUniform(0.5, 15) d -- NOT the discrete grid periods (5.123, 3.317, 2.17, 7.31 d), which a tree would memorise (Gemini, P3-10). Periods are drawn per trial from the per-host RNG, seeded by (master_seed, TIC, sector), so each host's trials are deterministic independent of the other hosts (parallel-safe, resume-safe)."
+  },
+  "recovery_tol": 0.01,
+  "splits": {
+    "holdout_sector_excluded_from_training": true,
+    "method": "TIC-grouped by construction: split = hash-based assignment on the TIC alone (sha256 of '<master_seed>:<tic>'), so the same star's sectors never straddle train/test and the assignment does not depend on host-list order.",
+    "test_frac": 0.3,
+    "train_frac": 0.7
+  },
+  "trial_templates": [
+    {
+      "depth_frac": 0.002,
+      "kind": "planet",
+      "period": "loguniform"
+    },
+    {
+      "depth_frac": 0.005,
+      "kind": "planet",
+      "period": "loguniform"
+    },
+    {
+      "depth_frac": 0.008,
+      "kind": "planet",
+      "period": "loguniform"
+    },
+    {
+      "depth_frac": 0.01,
+      "kind": "planet",
+      "period": "loguniform"
+    },
+    {
+      "depth_frac": 0.002,
+      "kind": "planet",
+      "period": "loguniform"
+    },
+    {
+      "depth_frac": 0.005,
+      "kind": "planet",
+      "period": "loguniform"
+    },
+    {
+      "depth_frac": 0.008,
+      "kind": "planet",
+      "period": "loguniform"
+    },
+    {
+      "depth_frac": 0.01,
+      "kind": "planet",
+      "period": "loguniform"
+    },
+    {
+      "depth_frac": 0.005,
+      "kind": "pricing_13p2",
+      "note": "P3-13 pricing: injected planets at 13.1-13.3 d measure the cost of demoting the 13.2 d family. Labelled planet_like (they ARE planets); the kind flag marks them for the pricing analysis.",
+      "period": "uniform_13p1_13p3"
+    },
+    {
+      "depth_frac": 0.02,
+      "kind": "eb",
+      "note": "V-shaped (triangular profile) + odd/even depth difference + secondary eclipse at phase 0.5.",
+      "odd_even_ratio": 0.6,
+      "period": "loguniform",
+      "secondary_frac": 0.3
+    },
+    {
+      "depth_frac": 0.05,
+      "kind": "eb",
+      "odd_even_ratio": 0.5,
+      "period": "loguniform",
+      "secondary_frac": 0.3
+    },
+    {
+      "amplitude_frac": 0.01,
+      "kind": "sinusoid",
+      "note": "Sinusoidal variable across the SDE range; all 36 real EBs are high-SDE, so the astrophysical-FP class needs low-SDE coverage.",
+      "period": "loguniform_0p5_10"
+    },
+    {
+      "depth_frac": 0.01,
+      "flag_bits": [
+        29,
+        30
+      ],
+      "kind": "flagged_dip",
+      "note": "Instrumental artifact: the dip exists ONLY on cadences already carrying quality bits 29/30 in the host's real QUALITY column (TIME and QUALITY untouched; flux modified on flagged cadences only). The 18-artifact class from the S96 v2 gauntlet, injected.",
+      "period": "loguniform"
+    }
+  ]
+}
