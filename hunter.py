@@ -136,6 +136,7 @@ from calibration import CalibrationError as _CalibrationError
 from calibration import load_profile as _load_profile
 from quality_flags import DEEP_V2_MASK as _DEEP_V2_MASK
 from quality_flags import SPOC_DEFAULT_MASK as _SPOC_DEFAULT_MASK
+from quality_flags import tally_unmasked_bits as _tally_unmasked_bits
 
 OUTPUT_DIR = "reports"
 DISCOVERIES_CSV = "discoveries.csv"
@@ -987,6 +988,48 @@ def _reader_dropped_rows(lc_collection):
     return dropped
 
 
+def _intransit_unmasked_stats(t, q, period, t0, duration,
+                              quality_mask):
+    """(fraction, per-bit counts, warn) for the BLS-input
+    in-transit cadences carrying flags the mask does NOT
+    exclude — bits 11/12 and any other unmasked bit (DF-13).
+
+    With "clean = kept by the mask", an artifact living only
+    in bit-11/12 cadences passes the re-fold gate; this
+    fraction is the only thing that makes that visible. The
+    fraction is over the BLS-INPUT in-transit cadences (the
+    post-mask curve) at the headline ephemeris. warn is True
+    above 50%: most of the dip's evidence is flagged cadences.
+
+    Returns (None, {}, False) when unmeasurable: no quality
+    column, no in-transit cadences, or a degenerate headline
+    (NaN ephemeris). Per-bit keys are strings (JSON-safe).
+    """
+    if (q is None or t is None or len(t) == 0
+            or period is None or t0 is None or duration is None):
+        return None, {}, False
+    try:
+        period = float(period)
+        t0 = float(t0)
+        duration = float(duration)
+    except (TypeError, ValueError):
+        return None, {}, False
+    if not (math.isfinite(period) and math.isfinite(t0)
+            and math.isfinite(duration)) or period <= 0:
+        return None, {}, False
+    phase = ((t - t0 + 0.5 * period) % period) - 0.5 * period
+    in_tr = np.abs(phase) <= duration / 2.0
+    n_in = int(in_tr.sum())
+    if n_in == 0:
+        return None, {}, False
+    q_in = np.asarray(q, dtype=np.int64)[in_tr]
+    unmasked = (q_in & ~int(quality_mask)) != 0
+    frac = float(unmasked.mean())
+    bits = {str(bit): count for bit, count
+            in _tally_unmasked_bits(q_in, quality_mask).items()}
+    return frac, bits, bool(frac > 0.5)
+
+
 def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
                   bls_points=25000, max_sectors=None, progress_callback=None,
                   detrend_window=101):
@@ -1086,6 +1129,22 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # POSITION is unchanged — the C-4 live/fixture hash test pins
     # the post-stitch normalisation, so this call stays here
     # rather than moving to the download.
+    # DF-13: capture the BLS-input (t, q) BEFORE normalise —
+    # normalise drops the quality column, and the in-transit
+    # unmasked-flag fraction is computed at the headline
+    # ephemeris (after BLS) from these arrays. q is None when
+    # the curve carries no usable quality column (fixtures
+    # without q, HLSP products) — the fraction is then
+    # unmeasurable and records None.
+    _bls_t = np.asarray(lc_raw.time.value, dtype=float)
+    _bls_q = None
+    if "quality" in getattr(lc_raw, "columns", ()):
+        try:
+            _q_raw = np.asarray(lc_raw.quality)
+            if _q_raw.dtype != object:
+                _bls_q = _q_raw.astype(np.int64)
+        except (TypeError, ValueError):
+            _bls_q = None
     lc_raw = _ingest.normalise_lightcurve(lc_raw)
 
     # --- Detrend window in TIME units (2026-11-08 upgrade) -------------
@@ -1486,6 +1545,14 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         _n_masked / _n_pre_mask_total if _n_pre_mask_total else 0.0
     )
 
+    # DF-13: the in-transit unmasked-flag fraction at the final
+    # headline ephemeris (after pass-2/TLS adoption), over the
+    # BLS-input cadences captured before normalise.
+    (_intransit_frac, _intransit_bits,
+     _intransit_warn) = _intransit_unmasked_stats(
+         _bls_t, _bls_q, best_period, t0, best_duration,
+         QUALITY_MASK)
+
     full = {
         "TIC": tic_id,
         "Period": best_period,
@@ -1505,6 +1572,13 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         "quality_mask_applied": int(QUALITY_MASK),
         "n_masked": int(_n_masked),
         "flagged_fraction": float(_flagged_fraction),
+        # DF-13: fraction of the BLS-input in-transit cadences
+        # carrying flags the mask does NOT exclude (bits 11/12
+        # etc.), with a per-bit breakdown; warn above 50%.
+        # None when unmeasurable (no quality column).
+        "intransit_unmasked_flag_frac": _intransit_frac,
+        "intransit_unmasked_flag_bits": _intransit_bits,
+        "intransit_unmasked_flag_warn": bool(_intransit_warn),
         # Layer 2 provenance (A-2): which inputs this result was
         # computed from (MAST products / fixture, BLS input hash).
         "input_identity": _input_identity,
@@ -1660,6 +1734,12 @@ def full_result_to_json_dict(full, max_points=DEFAULT_MAX_POINTS):
             "quality_mask_applied": full.get("quality_mask_applied"),
             "n_masked": full.get("n_masked"),
             "flagged_fraction": full.get("flagged_fraction"),
+            "intransit_unmasked_flag_frac": full.get(
+                "intransit_unmasked_flag_frac"),
+            "intransit_unmasked_flag_bits": full.get(
+                "intransit_unmasked_flag_bits", {}),
+            "intransit_unmasked_flag_warn": full.get(
+                "intransit_unmasked_flag_warn", False),
             "input_identity": full.get("input_identity", {}),
             "candidates": full.get("Candidates", []),
             "refined_signals": full.get("refined_signals", []),

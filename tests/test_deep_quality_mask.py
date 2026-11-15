@@ -360,6 +360,76 @@ class TestDeepQualityMaskPipeline(DeepCalibrationGuardCase):
         self.assertEqual(r["n_masked"], 0)
         self.assertEqual(r["flagged_fraction"], 0.0)
 
+    def _hand_intransit_frac(self, t, q, result):
+        # Independent recomputation of the DF-13 fraction at the
+        # RETURNED headline ephemeris, from the fixture arrays.
+        # (The synthetic fixtures carry no default-masked bits,
+        # so the BLS-input cadences are all fixture rows.)
+        ph = ((t - result["T0"] + 0.5 * result["Period"])
+              % result["Period"]) - 0.5 * result["Period"]
+        in_tr = np.abs(ph) <= result["Duration_Days"] / 2
+        q_in = q[in_tr]
+        unmasked = (q_in & ~qf.DEEP_V2_MASK) != 0
+        return float(unmasked.mean()), {
+            str(bit): int((((q_in & ~qf.DEEP_V2_MASK) >> bit) & 1).sum())
+            for bit in range(32)
+            if (((q_in & ~qf.DEEP_V2_MASK) >> bit) & 1).sum()}
+
+    def test_intransit_unmasked_warn_above_50pct(self):
+        # DF-13: a bit-12 transit — every in-transit cadence
+        # carries an unmasked flag — records a fraction near
+        # 1.0 with the WARN firing and the per-bit breakdown
+        # naming bit 12.
+        _t, _f, q = _make_fixture(
+            self._td.name, "900000011",
+            period=WASP29B_PERIOD, depth=WASP29B_DEPTH,
+            flag_bit=12)
+        r = self._run("900000011", "deep_v2")
+        self.assertGreater(r["intransit_unmasked_flag_frac"], 0.5)
+        self.assertTrue(r["intransit_unmasked_flag_warn"])
+        self.assertIn("12", r["intransit_unmasked_flag_bits"])
+        self.assertGreater(
+            r["intransit_unmasked_flag_bits"]["12"], 0)
+        frac, bits = self._hand_intransit_frac(_t, q, r)
+        self.assertAlmostEqual(
+            r["intransit_unmasked_flag_frac"], frac, places=6)
+        self.assertEqual(r["intransit_unmasked_flag_bits"], bits)
+
+    def test_intransit_unmasked_quiet_below_50pct(self):
+        # DF-13: bit 12 on ~25% of the in-transit cadences —
+        # the fraction records ~0.25 and the WARN stays silent.
+        rng = np.random.default_rng(23)
+        t = _times()
+        f = _inject_box(t, WASP29B_PERIOD, T0, DUR_D,
+                        WASP29B_DEPTH)
+        f = f * (1.0 + rng.normal(0, 0.001, len(t)))
+        ph = ((t - T0 + 0.5 * WASP29B_PERIOD) % WASP29B_PERIOD) \
+            - 0.5 * WASP29B_PERIOD
+        in_tr = np.abs(ph) <= DUR_D / 2
+        q = np.zeros(len(t), dtype=np.int64)
+        idx = np.where(in_tr)[0]
+        flagged = rng.choice(idx, size=len(idx) // 4,
+                             replace=False)
+        q[flagged] = np.int64(4096)
+        _write_fixture(self._td.name, "900000012", t, f, q)
+        r = self._run("900000012", "deep_v2")
+        self.assertLess(r["intransit_unmasked_flag_frac"], 0.5)
+        self.assertFalse(r["intransit_unmasked_flag_warn"])
+        frac, bits = self._hand_intransit_frac(t, q, r)
+        self.assertAlmostEqual(
+            r["intransit_unmasked_flag_frac"], frac, places=6)
+        self.assertEqual(r["intransit_unmasked_flag_bits"], bits)
+
+    def test_intransit_unmasked_clean_fixture(self):
+        # DF-13: a clean fixture records 0.0 with no WARN and
+        # an empty breakdown.
+        _make_fixture(self._td.name, "900000013",
+                      period=WASP29B_PERIOD, depth=WASP29B_DEPTH)
+        r = self._run("900000013", "deep_v2")
+        self.assertEqual(r["intransit_unmasked_flag_frac"], 0.0)
+        self.assertFalse(r["intransit_unmasked_flag_warn"])
+        self.assertEqual(r["intransit_unmasked_flag_bits"], {})
+
 
 class TestGauntletMaskGates(unittest.TestCase):
     """Through the real gauntlet gates (M-8 fixes)."""
