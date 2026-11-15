@@ -154,39 +154,44 @@ Same lesson earlier: TIC 344334378 (signal only in bit-30 cadences).
 
 ## Commits
 
-Original fix (8 commits on 4acbc16; the list previously showed
-7 — dd6602f was missing — fixed in M-12):
-- 169b0c8 — design record (this file)
-- 7e7770b — synth_fits: flag_bit parameter for flagged-only fixtures
-- 2e56634 — bulk_v3: quality mask excludes bits 29/30 at screen input (profile + registry + bulk_screen + rescore_v2)
-- 7444ea5 — quality-mask regression tests (5 tests, artifact cells + guards)
-- f92d583 — pin the NEW flagged-cadence behaviour under bulk_v3 (test_false_positives)
-- 3a3cb22 — bulk_v3 profile values + v3 clip-grid monotonicity tests
-- 535cc16 — v3 section in SENSITIVITY_MAP.md, bulk_v3 row in calibration/README.md, claims ledger completed
-- dd6602f — mark C-7 verified (frozen files untouched, full suite 393 PASS)
+Hashes below are the REBASED hashes (branch rebased onto
+origin/main e55eaf2 on 2026-11-15, clean, 16/16, no conflicts).
+Pre-rebase hashes: 169b0c8, 7e7770b, 2e56634, 7444ea5,
+f92d583, 3a3cb22, 535cc16, dd6602f (original fix); 77fea01,
+7e00ce3, b47afe8, 1c899fb, 0d5cd7d, 012a875, 365ae43, 5f24134
+(M-1…M-12).
+
+Original fix (8 commits; the list previously showed 7 —
+dd6602f was missing — fixed in M-12):
+- b353aba — design record (this file)
+- bd2c378 — synth_fits: flag_bit parameter for flagged-only fixtures
+- 0d031c5 — bulk_v3: quality mask excludes bits 29/30 at screen input (profile + registry + bulk_screen + rescore_v2)
+- 3700456 — quality-mask regression tests (5 tests, artifact cells + guards)
+- 899f3cf — pin the NEW flagged-cadence behaviour under bulk_v3 (test_false_positives)
+- 55f3e74 — bulk_v3 profile values + v3 clip-grid monotonicity tests
+- 165a66d — v3 section in SENSITIVITY_MAP.md, bulk_v3 row in calibration/README.md, claims ledger completed
+- 905a536 — mark C-7 verified (frozen files untouched, full suite 393 PASS)
 
 Vote follow-up (M-1…M-12, 2026-11-15):
-- 77fea01 — M-1: named flag constants (`quality_flags.py`,
+- 815e81a — M-1: named flag constants (`quality_flags.py`,
   cited sources) + pin 1610629823 in a test
-- 7e00ce3 — M-2: clean-refold gate uses QUALITY_MASK (not
+- 6696782 — M-2: clean-refold gate uses QUALITY_MASK (not
   quality==0) + bit-12 regression test through the actual gate
-- b47afe8 — M-3: rescore_v2 pins the v2 mask explicitly,
+- 0327428 — M-3: rescore_v2 pins the v2 mask explicitly,
   `--profile` flag for a future bulk_v3 rescore
-- 1c899fb — M-4: survivor records log raw in-transit flagged
+- edf217f — M-4: survivor records log raw in-transit flagged
   fraction + tally of unmasked bits
-- 0d5cd7d — M-5: flag-fraction sweep committed (seeded,
+- 3bf5ae2 — M-5: flag-fraction sweep committed (seeded,
   re-runnable) + contiguous-block variant
-- 012a875 — M-6: injection-recovery into real S96 light curves
+- 096ce7b — M-6: injection-recovery into real S96 light curves
   carrying 29/30 flags, v2 vs v3 (v2 2/12, v3 8/12)
-- 365ae43 — M-7: S96 25-lead replay under v3, v2 vs v3 (the
+- b2212e2 — M-7: S96 25-lead replay under v3, v2 vs v3 (the
   merge gate — artifact signals gone 18/18, gates PASS)
-- (docs, this commit) — M-8/M-9/M-10/M-11/M-12: grep record,
-  ledger-note pointer, 7/25 breakdown, deep_v2 follow-up
-  record, commit-list nit fixed (8 original commits listed),
-  C-6 /tmp path corrected to bulk/flag_fraction_sweep.py.
-  NOTE: hashes in this section are pre-rebase; they change
-  when the branch is rebased onto main — update after the
-  rebase.
+- 14fb71f — M-8/M-9/M-10/M-11/M-12: grep record, ledger-note
+  pointer, 7/25 breakdown, deep_v2 follow-up record,
+  commit-list nit fixed, C-6 /tmp path corrected to
+  bulk/flag_fraction_sweep.py
+- (docs, this commit) — rebase hash update (this list)
 
 ## Vote follow-up (M-7 replay) — expected outcome, written BEFORE the run
 
