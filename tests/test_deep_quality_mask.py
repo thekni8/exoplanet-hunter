@@ -237,6 +237,23 @@ class TestDeepQualityMaskPipeline(DeepCalibrationGuardCase):
         v2 = self._run("900000001", "deep_v2")
         self.assertLess(v2["SDE"], hunter.HIT_SDE)
 
+    def test_bit29_artifact_found_under_v1_gone_under_v2(self):
+        # DF-8: the bit-29 half of the mask, demonstrated on its
+        # own — a dip living ONLY on bit-29 cadences is a hit
+        # under deep_v1 and not a hit under deep_v2. Bit 29 has
+        # no published definition (masked on empirical evidence
+        # only), so its independence from bit 30 is pinned here
+        # rather than assumed from the bit-30 case.
+        _make_fixture(self._td.name, "900000006",
+                      period=WASP29B_PERIOD, depth=0.02,
+                      flag_bit=29)
+        v1 = self._run("900000006", "deep_v1")
+        self.assertAlmostEqual(v1["Period"], WASP29B_PERIOD,
+                               delta=0.01 * WASP29B_PERIOD)
+        self.assertGreaterEqual(v1["SDE"], hunter.HIT_SDE)
+        v2 = self._run("900000006", "deep_v2")
+        self.assertLess(v2["SDE"], hunter.HIT_SDE)
+
     def test_bit12_transit_survives_under_v2(self):
         # Selectivity guard: bit 12 (4096) is NOT in the mask —
         # TOI-700 c's transit sits on bit-12 cadences, and
