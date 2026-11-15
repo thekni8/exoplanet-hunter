@@ -1349,6 +1349,34 @@ measurements land). Session total ≈ 4.6–8.5 h (panel timing
 dominates the range). The parent runs it; results return as
 the panel verdicts + the P3-7 bands + the P3-8 measurements.
 
+**Panel prep verified 2026-11-15 ~19:55 IST; run BLOCKED
+pending the parent's explicit go on the driver install.**
+§5.1 read first: the C-10 VERIFICATION_REPORT.md shows NO
+contradiction with the §2 reconstruction (TRILEGAL path,
+seed/N/binning as briefed, no contrast curve; WASP-29b FPP
+0.169 / EB FPP 0.999998 as recorded). Actual C-10 layout is
+`triceratops-verify/tic-<TIC>/` with `tool-input.json`,
+`tool_lc.npz`, `tool-output-trilegal.json`,
+`triceratops_probs_trilegal.csv`, `<TIC>_TRILEGAL.csv` — the
+filenames differ from §5.2's expectation, which the doc
+anticipates ("use what find shows"). §6 fetch-verify passed
+read-only: `origin/standardize/phase-3` = 4787136, commit
+164db09 reachable, all 5 md5s match the gate exactly
+(hunter.py ef14fd7e…, run_triceratops.py e2713a53…,
+external_tool.py 9657b0e0…, desk.py 89467854…,
+external_tools_v2.yaml 7576fe1f…); the Mac was left on
+004f0c7, working tree untouched. Gaia TAP still down
+(curl exit 52, 2026-11-15 ~19:55 IST) — NOT a blocker: the
+panel is designed for the TRILEGAL path like C-10
+(Appendix gap 5). Dev lifted the 23:00 Snap-render
+constraint 2026-11-15 19:39 IST (Hunter is top priority;
+Snap creation paused tonight), so the panel may run
+straight through 23:00. **Blocker:** the panel doc's
+driver-install section was flagged by a safety check when
+read, so the driver was NOT installed and the panel did
+not start — it needs the parent's explicit approval naming
+that install step before a re-dispatch.
+
 **(D) DATED REVISIT (recorded).** Trigger for the Gaia-path
 re-run (WASP-29b verification): Gaia TAP back — the watch
 hook polls every 15 min and wakes on 2 consecutive HTTP
