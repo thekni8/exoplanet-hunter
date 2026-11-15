@@ -66,8 +66,8 @@ and their results are recorded, not gated on.
 * rest shard: everything else offline (the medium modules).
 * full (--fast): the standard gate — smoke + golden + injection
   + rest, offline, ~15 min. The live tests (test_golden_stars,
-  test_desk_live, test_concordance_live) are NOT in any
-  offline tier; they run weekly in live.yml.
+  test_desk_live, test_concordance_live, test_deep_mask_live)
+  are NOT in any offline tier; they run weekly in live.yml.
 
 CI split: golden.yml runs smoke (the PR check) plus the three
 shards in parallel; together the shards cover the full --fast
