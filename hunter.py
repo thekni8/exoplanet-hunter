@@ -131,6 +131,9 @@ from astroquery.mast import Catalogs
 import provenance as _prov
 import ingest as _ingest
 import netbound as _net
+from calibration import load_profile as _load_profile
+from quality_flags import DEEP_V2_MASK as _DEEP_V2_MASK
+from quality_flags import SPOC_DEFAULT_MASK as _SPOC_DEFAULT_MASK
 
 OUTPUT_DIR = "reports"
 DISCOVERIES_CSV = "discoveries.csv"
@@ -547,11 +550,65 @@ _AUTHOR_PRIORITY = ("SPOC", "TESS-SPOC", "QLP")
 # so the artifact forest stops taxing every real peak's SDE.
 _SYSTEMATIC_PERIODS = (13.7, 6.85, 27.4)
 
-# Deep-pipeline calibration (calibration/deep_v1.yaml — drift-tested
+# Deep-pipeline calibration (calibration/deep_v2.yaml — drift-tested
 # in tests/test_calibration.py; change the profile + the code together).
 HIT_SDE = 8.5     # discovery bar: a sweep hit needs SDE >= 8.5
 ACCEPT_SDE = 6.5  # refined-peak acceptance floor: a refined peak
                   # below this is not a signal
+
+# Quality mask (deep_v2, 2026-11-15): which QUALITY bits exclude a
+# cadence from BLS input. M-11 verified the deep pipeline was
+# exposed the same way as the bulk screen: hunter.py downloads
+# through lightkurve with no explicit quality_bitmask, so
+# lightkurve's default (17087) applies at read time and QLP
+# targets — the majority, since SPOC 2-min covers only ~10^5
+# stars/sector — keep TESS scattered-light bits 29/30. The bulk_v2
+# rescore gauntlet found 18/25 NEW S96 leads were dips living
+# only on bit-29/30 cadences. deep_v2 masks them at pipeline
+# input (1610629823 = 17087 + bits 29/30, the same integer as
+# bulk_v3). quality==0 is NOT used — the TOI-700 c lesson (bit 12
+# carries a real transit); bit 11 stays unmasked (2026-11-15
+# vote, 2/3). The mask is applied by _apply_quality_mask at both
+# stitch sites, BEFORE detrend/BLS — never after the search.
+# v1 profiles predate the field and mean the lightkurve default.
+CALIBRATION_VERSION = "deep_v2"
+QUALITY_MASK = _DEEP_V2_MASK
+
+
+def set_calibration(name):
+    """Load profile `name` (registry-verified) and re-derive the
+    quality mask. The default is deep_v2 (the fix); deep_v1 is
+    the sensitivity-comparison seam (the injection script and the
+    regression tests switch to it and restore). Restores are the
+    caller's job (tests: setUp/tearDown back to deep_v2)."""
+    global CALIBRATION_VERSION, QUALITY_MASK
+    prof = _load_profile(name)
+    CALIBRATION_VERSION = prof["version"]
+    QUALITY_MASK = prof.get("quality_mask", _SPOC_DEFAULT_MASK)
+    if isinstance(QUALITY_MASK, bool) \
+            or not isinstance(QUALITY_MASK, int) or QUALITY_MASK < 0:
+        raise ValueError(
+            f"calibration profile {prof['version']!r} declares "
+            f"quality_mask {QUALITY_MASK!r} — expected a "
+            f"non-negative integer bitmask")
+
+
+def _apply_quality_mask(lc, quality_mask=None):
+    """The stitched (or single) light curve with masked cadences
+    removed: rows whose QUALITY carries ANY bit in the mask are
+    dropped. A curve without a `quality` column (offline fixtures
+    built before the deep_v2 seam, HLSP products without QUALITY)
+    passes through unchanged — there is nothing to mask.
+
+    quality_mask defaults to the module QUALITY_MASK (the active
+    deep profile's mask). Callers that know their own profile
+    pass it explicitly."""
+    if quality_mask is None:
+        quality_mask = QUALITY_MASK
+    if "quality" not in getattr(lc, "columns", ()):
+        return lc
+    q = np.asarray(lc.quality, dtype=np.int64)
+    return lc[(q & int(quality_mask)) == 0]
 
 
 def _near_systematic(period):
@@ -806,8 +863,15 @@ def _fixture_lightcurve(tic_id, max_sectors):
             and meta.get("max_sectors") != max_sectors):
         return None
     import lightkurve as lk
-    lc = lk.LightCurve(time=np.asarray(z["t"], dtype=float),
-                       flux=np.asarray(z["f"], dtype=float))
+    kwargs = {"time": np.asarray(z["t"], dtype=float),
+              "flux": np.asarray(z["f"], dtype=float)}
+    if "q" in z.files:
+        # deep_v2 seam: a fixture may carry the stitched QUALITY
+        # column, so the quality mask is testable offline through
+        # the real path. Existing fixtures have no q array — they
+        # build exactly as before and the mask no-ops on them.
+        kwargs["quality"] = np.asarray(z["q"], dtype=np.int64)
+    lc = lk.LightCurve(**kwargs)
     return lc, int(meta.get("n_sectors", 1))
 
 
@@ -828,6 +892,11 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
     # del below must not fail on the fixture path (Phase 1.1, item 4).
     if _fixture is not None:
         lc_raw, n_sectors = _fixture
+        # deep_v2: mask at pipeline input. Fixtures built before
+        # the deep_v2 seam carry no quality column and pass
+        # through unchanged; fixtures WITH a q array are masked
+        # exactly as the live path is.
+        lc_raw = _apply_quality_mask(lc_raw)
         # Offline test data, not MAST products — marked as such so
         # a fixture result can never be mistaken for a live one.
         _input_identity = _prov.input_identity(
@@ -849,8 +918,13 @@ def _run_pipeline(tic_id, star_radius=1.0, min_p=0.5, max_p=25.0,
         lc_collection = _download_products(sectors_to_fetch, tic_id, progress_callback)
         n_sectors = len(lc_collection)
 
-        lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
-                  .remove_nans().remove_outliers(sigma=5.0))
+        # deep_v2: mask at pipeline input — BEFORE the NaN/outlier
+        # cleaning, so flagged cadences never reach the detrend or
+        # BLS (the bulk_v3 pattern: mask at screen input, not
+        # after the search).
+        lc_raw = lc_collection.stitch(corrector_func=_stitch_corrector)
+        lc_raw = _apply_quality_mask(lc_raw)
+        lc_raw = lc_raw.remove_nans().remove_outliers(sigma=5.0)
 
     # --- Float64 normalisation (Phase 1.2, item C-4; shared
     # ingest since follow-up F-4) ---------------------------------
@@ -1638,8 +1712,12 @@ def _fetch_stitched(tic_id, max_sectors=None, progress_callback=None):
     # corrector, the cleaning and the flatten all see float64
     # (FITS flux is typically float32; scipy's savgol
     # accumulates in the input dtype — see ingest.py).
+    # deep_v2: the mask goes BEFORE the normalisation —
+    # normalise_lightcurve rebuilds a time/flux/flux_err curve
+    # and drops the quality column, so masking after it would
+    # be a no-op.
     lc_collection = lk.LightCurveCollection(
-        [_ingest.normalise_lightcurve(lc)
+        [_ingest.normalise_lightcurve(_apply_quality_mask(lc))
          for lc in lc_collection])
     lc_raw = (lc_collection.stitch(corrector_func=_stitch_corrector)
               .remove_nans().remove_outliers(sigma=5.0))
