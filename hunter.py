@@ -131,6 +131,7 @@ from astroquery.mast import Catalogs
 import provenance as _prov
 import ingest as _ingest
 import netbound as _net
+from calibration import CalibrationError as _CalibrationError
 from calibration import load_profile as _load_profile
 from quality_flags import DEEP_V2_MASK as _DEEP_V2_MASK
 from quality_flags import SPOC_DEFAULT_MASK as _SPOC_DEFAULT_MASK
@@ -587,7 +588,7 @@ def set_calibration(name):
     QUALITY_MASK = prof.get("quality_mask", _SPOC_DEFAULT_MASK)
     if isinstance(QUALITY_MASK, bool) \
             or not isinstance(QUALITY_MASK, int) or QUALITY_MASK < 0:
-        raise ValueError(
+        raise _CalibrationError(
             f"calibration profile {prof['version']!r} declares "
             f"quality_mask {QUALITY_MASK!r} — expected a "
             f"non-negative integer bitmask")
