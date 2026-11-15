@@ -195,6 +195,65 @@ class TestDeepDrift(unittest.TestCase):
         self.assertEqual(p["hit_sde"], 8.5)
         self.assertEqual(p["acceptance_floor_sde"], 6.5)
 
+    def test_deep_v2_values(self):
+        p2 = load_profile("deep_v2")
+        p1 = load_profile("deep_v1")
+        self.assertEqual(p2["version"], "deep_v2")
+        self.assertEqual(p2["status"], "active")
+        self.assertTrue(p2["rationale"].strip())
+        # The only new field: the quality mask adds bits 29/30
+        # (TESS scattered light) to the lightkurve default.
+        self.assertEqual(p2["quality_mask"], 1610629823)
+        self.assertEqual(p2["quality_mask"],
+                         17087 | (1 << 29) | (1 << 30))
+        # Every v1 threshold carried over unchanged.
+        for key in ("hit_sde", "acceptance_floor_sde",
+                    "systematic_periods", "min_period_d",
+                    "max_period_d", "detrend_window_d"):
+            self.assertEqual(p2[key], p1[key], key)
+
+    def test_deep_v2_matches_hunter_constants(self):
+        # deep_v2 is the drift-tested snapshot of the CURRENT
+        # code: the mask constant is hunter.QUALITY_MASK under
+        # the default (deep_v2) calibration.
+        previous = hunter.CALIBRATION_VERSION
+        try:
+            hunter.set_calibration("deep_v2")
+            p = load_profile("deep_v2")
+            self.assertEqual(p["hit_sde"], hunter.HIT_SDE)
+            self.assertEqual(p["acceptance_floor_sde"],
+                             hunter.ACCEPT_SDE)
+            self.assertEqual(tuple(p["systematic_periods"]),
+                             hunter._SYSTEMATIC_PERIODS)
+            self.assertEqual(p["quality_mask"],
+                             hunter.QUALITY_MASK)
+            self.assertEqual(hunter.QUALITY_MASK, 1610629823)
+        finally:
+            hunter.set_calibration(previous)
+
+    def test_hunter_loads_v1_on_request(self):
+        # The v1 seam (sensitivity comparisons + the regression
+        # tests): v1 predates the field and means the lightkurve
+        # default mask (17087).
+        previous = hunter.CALIBRATION_VERSION
+        try:
+            hunter.set_calibration("deep_v1")
+            self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v1")
+            self.assertEqual(hunter.QUALITY_MASK, 17087)
+            hunter.set_calibration("deep_v2")
+            self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v2")
+            self.assertEqual(hunter.QUALITY_MASK, 1610629823)
+        finally:
+            hunter.set_calibration(previous)
+
+    def test_hunter_default_is_v2(self):
+        # The fix is the default: new deep runs mask bits 29/30.
+        # (Unlike the bulk screen, which kept v1 as its import
+        # default while sectors were mid-screen, the deep
+        # pipeline runs per-target on demand — there is no
+        # in-flight v1 deep run to protect.)
+        self.assertEqual(hunter.CALIBRATION_VERSION, "deep_v2")
+
 
 class TestGauntletDrift(unittest.TestCase):
     def test_gauntlet_profile_matches_code_constants(self):
@@ -279,6 +338,7 @@ class TestLoader(unittest.TestCase):
         names = calibration.available_profiles()
         self.assertIn("bulk_v1", names)
         self.assertIn("deep_v1", names)
+        self.assertIn("deep_v2", names)
         self.assertIn("gauntlet_v1", names)
 
 

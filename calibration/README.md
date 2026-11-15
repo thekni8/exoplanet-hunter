@@ -13,6 +13,7 @@ immutable once used in a run.
 | `bulk_v2.yaml` | bulk screen | same loader, selected with `--calibration bulk_v2` (or `EXHUNT_BULK_CALIBRATION=bulk_v2`); clip option `floor_10pct` + per-sector systematic windows (see `bulk/SENSITIVITY_MAP.md`) |
 | `bulk_v3.yaml` | bulk screen | same loader, selected with `--calibration bulk_v3` (or `EXHUNT_BULK_CALIBRATION=bulk_v3`); v2 thresholds unchanged + `quality_mask` 1610629823 (lightkurve default 17087 + TESS scattered-light bits 29/30) — the 2026-11-15 flagged-cadence artifact fix (see `bulk/SENSITIVITY_MAP.md` §v3) |
 | `deep_v1.yaml` | deep pipeline (`hunter.py`) | drift-tested: `tests/test_calibration.py` asserts the profile matches `hunter.py`'s named constants |
+| `deep_v2.yaml` | deep pipeline (`hunter.py`) | same drift test, against the new constants; `quality_mask` 1610629823 (lightkurve default 17087 + TESS scattered-light bits 29/30) — the 2026-11-15 flagged-cadence artifact fix for the deep pipeline (M-11: hunter.py's lightkurve downloads kept bits 29/30 on QLP targets) |
 | `gauntlet_v1.yaml` | vetting gauntlet | drift-tested against `gauntlet/` + `persistence.py` constants |
 
 ## Rules

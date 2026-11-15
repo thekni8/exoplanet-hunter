@@ -26,7 +26,7 @@
       "calibration_id": "gauntlet_v2",
       "sha256": "66c2ab6cec2b2666c177807fd58cd2d17c2e26b5e99e21e2dd3513df948c262a",
       "status": "active",
-      "rationale": "Gauntlet calibration v2 (2026-11-14, Phase 1.2 A-4): carries the stage-result decision policy (raw-flux/parity bars, minimum-data bars, blend bars) and the waiver allowlist. v1's thresholds carried over unchanged; the policy values were hardcoded constants in gauntlet/stage_result.py before this version. Pre-merge correction (Phase 1.2 follow-up F-1, 2026-11-14): neighbour_search_radius_arcsec added at 180.0 — the vetting manual's 180 arcsecond rule; the code census defaulted to 60 arcseconds and missed a blend host at 66.5 arcseconds (S97, TIC 139524628). gauntlet_v2 never reached main, so this pre-merge edit updates the registry entry in the same commit rather than minting a v3.",
+      "rationale": "Gauntlet calibration v2 (2026-11-14, Phase 1.2 A-4): carries the stage-result decision policy (raw-flux/parity bars, minimum-data bars, blend bars) and the waiver allowlist. v1's thresholds carried over unchanged; the policy values were hardcoded constants in gauntlet/stage_result.py before this version. Pre-merge correction (Phase 1.2 follow-up F-1, 2026-11-14): neighbour_search_radius_arcsec added at 180.0 \u2014 the vetting manual's 180 arcsecond rule; the code census defaulted to 60 arcseconds and missed a blend host at 66.5 arcseconds (S97, TIC 139524628). gauntlet_v2 never reached main, so this pre-merge edit updates the registry entry in the same commit rather than minting a v3.",
       "supersedes": "gauntlet_v1"
     },
     {
@@ -40,15 +40,22 @@
       "calibration_id": "bulk_v3",
       "sha256": "685ea756536e7a6600975c00d09d97350fd218c2377e6ac680237aa3b35c2aab",
       "status": "active",
-      "rationale": "Bulk calibration v3 (2026-11-15, quality-mask fix): extends the screen quality mask to exclude TESS scattered-light flags bits 29/30 (quality_mask 1610629823 = lightkurve default 17087 + bits 29/30). The bulk_v2 rescore gauntlet found 18/25 NEW S96 leads were flagged-cadence artifacts — dips only in bit-29/30 cadences, zero clean cadences in transit. All v2 thresholds carried over unchanged.",
+      "rationale": "Bulk calibration v3 (2026-11-15, quality-mask fix): extends the screen quality mask to exclude TESS scattered-light flags bits 29/30 (quality_mask 1610629823 = lightkurve default 17087 + bits 29/30). The bulk_v2 rescore gauntlet found 18/25 NEW S96 leads were flagged-cadence artifacts \u2014 dips only in bit-29/30 cadences, zero clean cadences in transit. All v2 thresholds carried over unchanged.",
       "supersedes": "bulk_v2"
     },
     {
       "calibration_id": "external_tools_v1",
       "sha256": "11109837358f80a91387bae7a94a13de8d90f99fd9e67c8a1d90dc9debee5a85",
       "status": "active",
-      "rationale": "External-tool configuration v1 (2026-11-15, Phase 2 2B): shared run settings (seed, timeout, memory cap) + per-tool venv paths and versions for LATTE and TRICERATOPS, + PROVISIONAL TRICERATOPS FPP/NFPP bars. The venv paths point at the Mac (/Volumes/NVME/...); on any host without them the tool stage reads UNMEASURED (missing_venv), never a crash. The FPP bars are PROVISIONAL — the Giacalone et al. 2021 validation bars (FPP < 0.015, NFPP < 0.001) and a 0.5 refute bar — and do not gate promotion until the Phase 2 vote ratifies them (see PHASE_2_PROGRESS.md, 2B/2C judgment call 3). P-10 (2026-11-15, pre-merge correction under the F-1 exception): added the full Giacalone et al. 2021 citation (AJ 161, 24, doi:10.3847/1538-3881/abc6af, arXiv:2002.00691) for the provisional FPP/NFPP bars; no threshold changed.",
+      "rationale": "External-tool configuration v1 (2026-11-15, Phase 2 2B): shared run settings (seed, timeout, memory cap) + per-tool venv paths and versions for LATTE and TRICERATOPS, + PROVISIONAL TRICERATOPS FPP/NFPP bars. The venv paths point at the Mac (/Volumes/NVME/...); on any host without them the tool stage reads UNMEASURED (missing_venv), never a crash. The FPP bars are PROVISIONAL \u2014 the Giacalone et al. 2021 validation bars (FPP < 0.015, NFPP < 0.001) and a 0.5 refute bar \u2014 and do not gate promotion until the Phase 2 vote ratifies them (see PHASE_2_PROGRESS.md, 2B/2C judgment call 3). P-10 (2026-11-15, pre-merge correction under the F-1 exception): added the full Giacalone et al. 2021 citation (AJ 161, 24, doi:10.3847/1538-3881/abc6af, arXiv:2002.00691) for the provisional FPP/NFPP bars; no threshold changed.",
       "supersedes": null
+    },
+    {
+      "calibration_id": "deep_v2",
+      "sha256": "ab622ac5e9c1070a74fe280a097ae9ef485b05a48dc27fdc70299e7f6fb40df1",
+      "status": "active",
+      "rationale": "Deep calibration v2 (2026-11-15, quality-mask fix): extends the deep pipeline quality mask to exclude TESS scattered-light flags bits 29/30 (quality_mask 1610629823 = lightkurve default 17087 + bits 29/30). M-11 verified hunter.py was exposed the same way as the bulk screen (lightkurve default read keeps bits 29/30 on QLP targets). All v1 thresholds carried over unchanged.",
+      "supersedes": "deep_v1"
     }
   ]
 }
