@@ -163,6 +163,8 @@ from mad_clip import ALL_OPTIONS as _CLIP_ALL_OPTIONS
 from mad_clip import mad_clip_mask as _mad_clip_mask
 import ingest as _ingest
 import search_health as _search_health
+from bulk.grid_edge import build_handoff_record as _build_handoff_record
+from bulk.grid_edge import disposition_grid_edge as _disposition_grid_edge
 from validation import validate_survivor as _validate_survivor
 
 # Thresholds — loaded from the versioned calibration profile
@@ -189,6 +191,7 @@ def _apply_profile(prof):
     global MIN_PERIOD_D, MAX_PERIOD_D, BLS_GRID_POINTS, BLS_DURATIONS_D
     global SYSTEMATIC_PERIODS, CLIP_OPTION, SYSTEMATIC_WINDOWS
     global QUALITY_MASK
+    global GRID_EDGE_MIN_IN_TRANSIT, GRID_EDGE_MAX_UNMASKED_FRACTION
     _BULK_CAL = prof
     CALIBRATION_VERSION = prof["version"]
     # Provenance map (A-2): per-subsystem bare versions, {"bulk": "v1"}.
@@ -243,6 +246,16 @@ def _apply_profile(prof):
             f"calibration profile {prof['version']!r} declares "
             f"quality_mask {QUALITY_MASK!r} — expected a "
             f"non-negative integer bitmask")
+    # Grid-edge floor (P3-14): the quality floor for
+    # SINGLE_TRANSIT_POOL — no unmasked in-transit flags and >= 4
+    # in-transit cadences. Profiles that predate the fields mean
+    # the vote's values (the quality_mask/clip_option pattern):
+    # the floor is a disposition rule, not a threshold change, so
+    # it applies under every profile.
+    GRID_EDGE_MIN_IN_TRANSIT = int(prof.get(
+        "grid_edge_min_in_transit_cadences", 4))
+    GRID_EDGE_MAX_UNMASKED_FRACTION = float(prof.get(
+        "grid_edge_max_unmasked_flag_fraction", 0.0))
 
 
 def set_calibration(name):
@@ -907,9 +920,10 @@ def _rescore(t, f, period, t0, duration):
 
 
 def _raw_in_transit_flags(t_raw, q_raw, period, t0, duration):
-    """(flagged fraction, unmasked-bit tally) of the in-transit
-    cadences on the RAW (pre-mask) arrays at an ephemeris
-    (M-4, 2026-11-15 vote).
+    """(flagged fraction, unmasked-bit tally, n_in_transit) of
+    the in-transit cadences on the RAW (pre-mask) arrays at an
+    ephemeris (M-4, 2026-11-15 vote; n_in_transit added P3-14
+    as the grid-edge floor's cadence-count input).
 
     The fraction is the share of in-transit cadences carrying ANY
     quality flag, measured BEFORE masking -- so a survivor whose
@@ -919,17 +933,50 @@ def _raw_in_transit_flags(t_raw, q_raw, period, t0, duration):
     exclude). The tally counts, per bit, the in-transit cadences
     carrying a bit the screen mask does NOT exclude -- it answers
     sector-wide whether bit 11 ever appears without bits 29/30.
-    Returns (None, {}) when no raw cadence falls in transit.
+    n_in_transit is the raw in-transit cadence count (0 when no
+    raw cadence falls in transit). Returns (None, {}, 0) when no
+    raw cadence falls in transit.
     `duration` is in days.
     """
     phase = ((t_raw - t0) / period + 0.5) % 1.0 - 0.5
     in_tr = np.abs(phase) < (duration / period) / 2
     n_in = int(in_tr.sum())
     if n_in == 0:
-        return None, {}
+        return None, {}, 0
     q_in = np.asarray(q_raw, dtype=np.int64)[in_tr]
     frac = float((q_in != 0).sum()) / n_in
-    return frac, _tally_unmasked_bits(q_in, QUALITY_MASK)
+    return frac, _tally_unmasked_bits(q_in, QUALITY_MASK), n_in
+
+
+def _header_int(value):
+    """FITS header value as an int, or None (P3-14 camera/CCD —
+    the hand-off record wants them when the header carries them)."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _attach_grid_edge_disposition(rec, camera=None, ccd=None):
+    """P3-14: attach the grid-edge disposition + hand-off record
+    to an above-floor screen record, when it is a grid-edge
+    record and the floor is evaluable on the available evidence.
+    No-op otherwise — the record keeps no disposition field.
+    The floor constants come from the profile (via the module
+    globals _apply_profile derives)."""
+    disposition, _reason = _disposition_grid_edge(
+        rec, max_period_d=MAX_PERIOD_D,
+        min_in_transit=GRID_EDGE_MIN_IN_TRANSIT,
+        max_unmasked_fraction=GRID_EDGE_MAX_UNMASKED_FRACTION)
+    if disposition is None:
+        return
+    rec["disposition"] = disposition
+    rec["grid_edge"] = _build_handoff_record(
+        rec, camera=camera, ccd=ccd, max_period_d=MAX_PERIOD_D,
+        min_in_transit=GRID_EDGE_MIN_IN_TRANSIT,
+        max_unmasked_fraction=GRID_EDGE_MAX_UNMASKED_FRACTION)
 
 
 def _screen_one(args):
@@ -964,6 +1011,11 @@ def _screen_one(args):
             t, flux, _ = _ingest.as_float64(data["TIME"],
                                             data[fcol])
             qual = np.asarray(data["QUALITY"], dtype=int)
+            # P3-14: camera/CCD for the grid-edge hand-off
+            # record (None when the header lacks them).
+            _hdr = hdul[0].header
+            camera = _header_int(_hdr.get("CAMERA"))
+            ccd = _header_int(_hdr.get("CCD"))
         # Quality mask — profile-driven (QUALITY_MASK, derived in
         # _apply_profile), NOT quality==0. v1/v2 mean lightkurve's
         # TESS DEFAULT bitmask (17087). Lesson (proof-run smoke
@@ -1083,10 +1135,13 @@ def _screen_one(args):
         # tally, on the pre-mask arrays at the found ephemeris.
         # Only for records that clear the record floor -- below
         # it there is no detection to diagnose.
-        frac, tally = _raw_in_transit_flags(t_raw, q_raw, period,
-                                            t0, duration)
+        frac, tally, n_in_transit = _raw_in_transit_flags(
+            t_raw, q_raw, period, t0, duration)
         rec["flagged_in_transit_frac"] = frac
         rec["unmasked_bits_in_transit"] = tally
+        # P3-14: the raw in-transit cadence count — the
+        # grid-edge floor's cadence-count input.
+        rec["n_in_transit"] = n_in_transit
 
         # --- free vetoes -------------------------------------------------
         flags = []
@@ -1146,6 +1201,11 @@ def _screen_one(args):
             rec["status"] = "survivor"
         else:
             rec["status"] = "recorded"
+        # P3-14: grid-edge disposition for non-demoted
+        # above-floor records. Demoted records keep their
+        # demotion — the EB veto is the verdict there.
+        if rec["status"] in ("survivor", "recorded"):
+            _attach_grid_edge_disposition(rec, camera, ccd)
         if rec["status"] == "survivor":
             # Input file hash, survivors only (bounded cost): the
             # file was just read, so it is warm in the page cache.
@@ -1172,7 +1232,8 @@ _EMIT_KEYS = ("tic", "period_days", "t0_btjd", "duration_hours",
               "known_source", "alt_peaks", "mes_pink",
               "cdpp_pct", "n_events", "n_strong_events",
               "max_event_snr", "v_ratio", "tier", "input_identity",
-              "flagged_in_transit_frac", "unmasked_bits_in_transit")
+              "flagged_in_transit_frac", "unmasked_bits_in_transit",
+              "n_in_transit", "disposition", "grid_edge")
 
 
 def emit_survivor_record(rec, prov):
