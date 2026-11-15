@@ -13,7 +13,9 @@
 #               expected-values checks run here.
 #   golden    — tests/run_golden.py --shard golden (the
 #               pipeline-run modules: fixtures, census, TOI
-#               population, perturbation).
+#               population, perturbation — plus the
+#               TRICERATOPS golden-fixture assertions, P3-7:
+#               offline, but the merge gate per TB-12).
 #   injection — tests/run_golden.py --shard injection (the
 #               injection harness + clip grid).
 #   rest      — tests/run_golden.py --shard rest (everything

@@ -150,9 +150,14 @@ SMOKE_MODULES = {
 # _run_pipeline on fixtures, ~2 min per module).
 # test_perturbation lands in F-12; naming it here now means it
 # is in the golden shard from its first commit.
+# test_triceratops_golden is here by TB-12, not because it runs
+# a pipeline (it is offline, seconds): the golden shard is the
+# required check, and the offline fixture assertions are the
+# merge gate — the nightly is monitoring, not a merge check.
 SHARD_GOLDEN = {
     "test_golden_fixtures", "test_census",
     "test_toi_population", "test_perturbation",
+    "test_triceratops_golden",
 }
 
 # Injection shard: the injection-recovery harness + clip grid.

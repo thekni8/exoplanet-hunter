@@ -1,0 +1,86 @@
+{
+  "expected": {
+    "fpp_band": null,
+    "fpp_max": 0.5,
+    "nfpp_max": 0.01,
+    "note": "TB-4: disposition INCONCLUSIVE; FPP within a >=5-seed band (pending); FPP < 0.5 (not a FAIL); NFPP < 0.01; STP-dominated split within a band (pending — the dominance check, STP > 50% of FPP, runs now). NO hard-coded FPP > 0.015 assertion; NO FPP-STP <= 0.015 assertion (tied to the deferred disposition, TB-2).",
+    "status": "inconclusive",
+    "stp_band": null,
+    "stp_share_min": 0.5
+  },
+  "fixture_version": 1,
+  "label": "WASP-29b (known planet, TOI-192) — the 3D calibration case",
+  "provenance": {
+    "measured_fields": [
+      "metrics.fpp",
+      "metrics.nfpp",
+      "metrics.prob_planet",
+      "scenario.tp",
+      "scenario.ptp",
+      "scenario.stp",
+      "scenario.seb",
+      "wall_time_s",
+      "seed",
+      "tool_version",
+      "n_samples"
+    ],
+    "placeholders": "input_hashes are placeholders ('pending-mac-extraction') — the real lightcurve/neighbours hashes come from the Mac extraction. prob_eb_target / prob_eb_neighbour / prob_hierarchical_eb are null (the bundle records on-target EB ~0 but not the exact split). most_likely_false_positive is 'STP' from the measured split (STP 0.160 is the largest FP scenario). artifacts is empty (probs CSV path pending extraction). n_transits is null (not recorded). These placeholders are NOT measurements; the assertions below depend only on measured fields.",
+    "run": "C-10 run on the Mac, 2026-11-15 (TRICERATOPS 1.1.0, seed 20261114, N=1,000,000 draws, no contrast curve, TRILEGAL path — Gaia TAP was down). 6 sectors, 93,410 points, phase-binned to ~200 bins. Policy at run time: external_tools_v1 (bars identical to v2).",
+    "sources": [
+      "Phase 3 BUNDLE.md §1.6 (FPP 0.169, NFPP 0.0, planet probability 0.831 = TP 0.697 + PTP 0.134, STP 0.160, SEB 0.009, on-target EB ~0, wall 1,553 s)",
+      "Merged PR #6 body / requirements-triceratops.lock header (FPP 0.169, C-10 bar 0.015 NOT met, STP-dominated)",
+      "Mac vetting_results/triceratops-verify/VERIFICATION_REPORT.md — NOT on the VM; full output pending extraction (P3-7)"
+    ]
+  },
+  "reconstructed": true,
+  "scenario": {
+    "eb_target": 0.0,
+    "note": "Scenario probabilities sum to 1.000 (TP + PTP + STP + SEB). STP is 0.160/0.169 = 95% of the FPP — the STP-dominated case that motivated disposition (A).",
+    "ptp": 0.134,
+    "seb": 0.009,
+    "stp": 0.16,
+    "tp": 0.697
+  },
+  "seed_band_pending": ">=5-seed runs on the Mac (P3-7). TB-4: the FPP band width comes from the seed spread, never invented; the STP-split band likewise.",
+  "seeds": [
+    {
+      "fpp": 0.169,
+      "nfpp": 0.0,
+      "seed": 20261114,
+      "stp": 0.16
+    }
+  ],
+  "tic": "183537452",
+  "tool_output": {
+    "artifacts": [],
+    "config_hash": "11109837358f80a91387bae7a94a13de8d90f99fd9e67c8a1d90dc9debee5a85",
+    "input_hashes": {
+      "lightcurve": "pending-mac-extraction",
+      "neighbours": "pending-mac-extraction"
+    },
+    "metrics": {
+      "contrast_curve_used": false,
+      "dilution_corrected": false,
+      "fpp": 0.169,
+      "fpp_degenerate": false,
+      "most_likely_false_positive": "STP (planet on an unresolved bound companion)",
+      "n_fold_points": null,
+      "n_samples": 1000000,
+      "nfpp": 0.0,
+      "prob_eb_neighbour": null,
+      "prob_eb_target": null,
+      "prob_hierarchical_eb": null,
+      "prob_planet": 0.831
+    },
+    "n_transits": null,
+    "seed": 20261114,
+    "status": "completed",
+    "tool": "triceratops",
+    "tool_version": "1.1.0",
+    "value": 0.169,
+    "wall_time_s": 1553,
+    "warnings": [
+      "no contrast curve: NFPP is an upper bound"
+    ]
+  }
+}

@@ -1,0 +1,264 @@
+"""TRICERATOPS golden-fixture assertions (Phase 3, P3-7 / TB-12).
+
+The C-10 runs, committed as fixtures
+(tests/fixtures/triceratops/), asserted OFFLINE in normal CI —
+the assertions, not the nightly, are the merge gate (TB-3 /
+TB-12). This module is in the golden shard (the required check).
+
+What is asserted (TB-4):
+  * EB TIC 308851365 reads FAIL / refute (FPP >= 0.5).
+  * WASP-29b TIC 183537452 reads INCONCLUSIVE; FPP < 0.5 (not
+    a FAIL); NFPP < 0.01; the STP split dominates the FPP
+    (STP > 50% of FPP). NO hard-coded FPP > 0.015 assertion,
+    NO FPP-STP <= 0.015 assertion (tied to the deferred
+    disposition, TB-2).
+  * The disposition re-derives identically under v1 and v2
+    (P-4) — v2 is a recording act, not a behaviour change.
+  * Seed stability (when >= 5 seeds are committed): same
+    disposition across seeds AND the FPP band clear of the
+    decision boundaries (0.015 / 0.5) — "same disposition"
+    alone is too simplistic for a Monte Carlo tool.
+
+What is NOT asserted yet (visible skips, Mac work pending):
+  * The >= 5-seed FPP / STP-split bands (fixtures carry one
+    seed each; band width comes from the seed spread, never
+    invented).
+  * TOI-700 c: no fixture until a measured run exists —
+    measure before asserting. The panel (P3-9) runs it.
+
+All bands are TOLERANCE BANDS, never exact floats:
+TRICERATOPS fetches neighbours and TRILEGAL remotely, so
+identical inputs do not guarantee bitwise-identical output.
+"""
+import json
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from calibration import load_profile  # noqa: E402
+from gauntlet.stage_result import triceratops_result  # noqa: E402
+from validation import validate_triceratops_output  # noqa: E402
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "triceratops"
+
+# Decision boundaries of disposition (A) — read from the
+# policy in the tests, never hard-coded here except as the
+# boundary list the stability check uses (it takes them from
+# the same policy dict).
+MIN_SEEDS_FOR_BAND = 5
+
+
+def load_fixture(tic):
+    with open(FIXTURE_DIR / f"{tic}.json") as fh:
+        return json.load(fh)
+
+
+def check_seed_stability(seeds, policy):
+    """Seed-stability with boundary separation (TB-4).
+
+    seeds: [{seed, fpp, nfpp, ...}] with >= MIN_SEEDS_FOR_BAND
+    entries. policy: the external-tools policy dict.
+    Returns (ok, reason). ok requires: every seed's FPP maps
+    to the SAME decision region (below the validate bar /
+    between the bars / above the refute bar — NFPP checked
+    separately by the caller where it matters), AND the FPP
+    band [min, max] does not touch either boundary — the
+    disposition must have adequate separation from the
+    decision boundary, not merely agree across seeds.
+    Raises ValueError when fewer than MIN_SEEDS_FOR_BAND
+    seeds are supplied (the band is unmeasured, not zero).
+    """
+    from gauntlet.stage_result import triceratops_disposition
+    if len(seeds) < MIN_SEEDS_FOR_BAND:
+        raise ValueError(
+            f"seed band needs >= {MIN_SEEDS_FOR_BAND} seeds, "
+            f"got {len(seeds)}")
+    tri = policy["triceratops"]
+    fpp_max = tri["fpp_validate_max"]
+    fpp_refute = tri["fpp_refute_min"]
+    statuses = set()
+    fpps = []
+    for entry in seeds:
+        status, _ = triceratops_disposition(
+            entry["fpp"], entry.get("nfpp", 0.0), False, policy)
+        statuses.add(status)
+        fpps.append(entry["fpp"])
+    if len(statuses) != 1:
+        return False, (f"disposition varies across seeds: "
+                       f"{sorted(statuses)}")
+    lo, hi = min(fpps), max(fpps)
+    for boundary in (fpp_max, fpp_refute):
+        if lo <= boundary <= hi:
+            return False, (f"FPP band [{lo:.4f}, {hi:.4f}] "
+                           f"touches the {boundary} boundary")
+    return True, (f"stable: {statuses.pop()} across "
+                  f"{len(seeds)} seeds, FPP band [{lo:.4f}, "
+                  f"{hi:.4f}] clear of {fpp_max}/{fpp_refute}")
+
+
+class TestGoldenFixtures(unittest.TestCase):
+    def _assert_fixture(self, tic):
+        fx = load_fixture(tic)
+        expected = fx["expected"]
+        # The fixture's tool output validates against the
+        # output schema (a reconstructed fixture must still
+        # be a well-formed tool output).
+        validate_triceratops_output(fx["tool_output"])
+        res = triceratops_result(fx["tool_output"])
+        self.assertEqual(res.status, expected["status"],
+                         f"TIC {tic}: disposition")
+        fpp = fx["tool_output"]["metrics"]["fpp"]
+        nfpp = fx["tool_output"]["metrics"]["nfpp"]
+        if "fpp_min" in expected:
+            self.assertGreaterEqual(fpp, expected["fpp_min"])
+        if "fpp_max" in expected:
+            self.assertLess(fpp, expected["fpp_max"])
+        if "nfpp_max" in expected:
+            self.assertLess(nfpp, expected["nfpp_max"])
+        return fx, res
+
+    def test_eb_refutes(self):
+        # TB-4: the EB must read FAIL/refute (FPP >= 0.5).
+        fx, res = self._assert_fixture("308851365")
+        self.assertEqual(res.policy_version, "external_tools_v2")
+        self.assertGreaterEqual(
+            fx["tool_output"]["metrics"]["fpp"], 0.5)
+
+    def test_wasp29b_inconclusive(self):
+        # TB-4: INCONCLUSIVE; FPP < 0.5 (not a FAIL);
+        # NFPP < 0.01. No FPP > 0.015 assertion, no
+        # FPP-STP assertion.
+        fx, res = self._assert_fixture("183537452")
+        self.assertEqual(res.policy_version, "external_tools_v2")
+        metrics = fx["tool_output"]["metrics"]
+        self.assertLess(metrics["fpp"], 0.5)
+        self.assertLess(metrics["nfpp"], 0.01)
+
+    def test_wasp29b_stp_dominates(self):
+        # The STP split dominates the FPP (0.160 of 0.169 =
+        # 95%) — the structural check that runs now; the
+        # STP-split BAND waits for >= 5 seeds.
+        fx = load_fixture("183537452")
+        scenario = fx["scenario"]
+        fpp = fx["tool_output"]["metrics"]["fpp"]
+        share = scenario["stp"] / fpp
+        self.assertGreater(
+            share, fx["expected"]["stp_share_min"],
+            f"STP share of FPP {share:.2f} below the "
+            f"dominance bar")
+        # The scenario probabilities sum to 1 (a fixture
+        # integrity check, not a science assertion).
+        total = (scenario["tp"] + scenario["ptp"]
+                 + scenario["stp"] + scenario["seb"])
+        self.assertAlmostEqual(total, 1.0, places=3)
+
+    def test_disposition_rederives_under_v1_and_v2(self):
+        # P-4: the same raw numbers read the same under v1
+        # and v2 — v2 is a recording act, not a behaviour
+        # change (the bars are identical).
+        v1 = load_profile("external_tools_v1")
+        v2 = load_profile("external_tools_v2")
+        for tic in ("308851365", "183537452"):
+            fx = load_fixture(tic)
+            s1 = triceratops_result(
+                fx["tool_output"], policy=v1).status
+            s2 = triceratops_result(
+                fx["tool_output"], policy=v2).status
+            self.assertEqual(
+                s1, s2, f"TIC {tic}: v1 reads {s1}, v2 {s2}")
+
+    def test_seed_band_pending(self):
+        # The >= 5-seed bands are unmeasured until the Mac
+        # runs them. This test skips visibly (not silently)
+        # while any fixture has < 5 seeds, and asserts the
+        # stability check once the seeds land.
+        policy = load_profile("external_tools_v2")
+        pending = []
+        for tic in ("308851365", "183537452"):
+            fx = load_fixture(tic)
+            if len(fx["seeds"]) < MIN_SEEDS_FOR_BAND:
+                pending.append(tic)
+                continue
+            ok, reason = check_seed_stability(fx["seeds"], policy)
+            self.assertTrue(ok, f"TIC {tic}: {reason}")
+        if pending:
+            self.skipTest(
+                "seed band pending >= 5-seed Mac runs (P3-7) "
+                f"for TIC {', '.join(pending)}")
+
+    def test_toi700c_fixture_pending(self):
+        # TOI-700 c: measure before asserting. No fixture
+        # exists until the panel (P3-9) runs it; this test
+        # skips visibly until then, and fails loudly if a
+        # fixture appears without a measured FPP.
+        path = FIXTURE_DIR / "150428135.json"
+        if not path.exists():
+            self.skipTest(
+                "TOI-700 c fixture pending a measured run "
+                "(panel, P3-9) — measure before asserting")
+        fx = load_fixture("150428135")
+        self.assertIsNotNone(
+            fx["tool_output"]["metrics"]["fpp"],
+            "TOI-700 c fixture must carry a measured FPP")
+        self.assertEqual(fx["expected"]["status"],
+                         triceratops_result(
+                             fx["tool_output"]).status)
+
+
+class TestSeedStabilityCheck(unittest.TestCase):
+    """The stability check itself, on synthetic seed sets."""
+
+    def _policy(self):
+        return {"triceratops": {"fpp_validate_max": 0.015,
+                                "nfpp_validate_max": 0.001,
+                                "fpp_refute_min": 0.5}}
+
+    def _seeds(self, fpps):
+        return [{"seed": 1000 + i, "fpp": f, "nfpp": 0.0}
+                for i, f in enumerate(fpps)]
+
+    def test_stable_inconclusive_passes(self):
+        ok, _ = check_seed_stability(
+            self._seeds([0.16, 0.17, 0.169, 0.171, 0.168]),
+            self._policy())
+        self.assertTrue(ok)
+
+    def test_boundary_crossing_fails(self):
+        # The band [0.012, 0.020] straddles the 0.015
+        # validate bar: the disposition flips across seeds
+        # (pass vs inconclusive) — not stable.
+        ok, reason = check_seed_stability(
+            self._seeds([0.012, 0.014, 0.016, 0.018, 0.020]),
+            self._policy())
+        self.assertFalse(ok)
+        self.assertIn("varies", reason)
+
+    def test_band_touching_boundary_fails(self):
+        # The subtle case: every seed reads inconclusive
+        # (NFPP 0.005 blocks the pass), but the FPP band
+        # [0.012, 0.020] straddles the 0.015 validate bar —
+        # the disposition agrees only because NFPP blocks it,
+        # so the separation is inadequate.
+        seeds = [{"seed": 1000 + i, "fpp": f, "nfpp": 0.005}
+                 for i, f in enumerate(
+                     [0.012, 0.014, 0.016, 0.018, 0.020])]
+        ok, reason = check_seed_stability(seeds, self._policy())
+        self.assertFalse(ok)
+        self.assertIn("touches", reason)
+        # The same NFPP with a clear band passes.
+        seeds = [{"seed": 1000 + i, "fpp": f, "nfpp": 0.005}
+                 for i, f in enumerate(
+                     [0.02, 0.021, 0.022, 0.023, 0.024])]
+        ok, _ = check_seed_stability(seeds, self._policy())
+        self.assertTrue(ok)
+
+    def test_too_few_seeds_raises(self):
+        with self.assertRaises(ValueError):
+            check_seed_stability(self._seeds([0.16, 0.17]),
+                                 self._policy())
+
+
+if __name__ == "__main__":
+    unittest.main()

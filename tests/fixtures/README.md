@@ -37,3 +37,14 @@ study (8 sectors, 35,323 points, 2226-d baseline). The smoke test
 with the repo's own `injection_harness.py` functions and asserts
 recovery. Copied from the study's substrate store, not
 regenerated per run: the smoke test must be deterministic.
+
+## triceratops/ — TRICERATOPS golden fixtures (Phase 3, P3-7)
+
+The C-10 runs (EB TIC 308851365, WASP-29b TIC 183537452),
+committed as JSON fixtures so the offline assertions in
+`tests/test_triceratops_golden.py` run in normal CI (TB-12:
+the assertions, not the nightly, are the merge gate). See
+`triceratops/README.md` for the format, the reconstruction
+status (the fixtures are rebuilt from the recorded C-10
+numbers; the full Mac outputs are pending extraction), and
+the pending items (≥5-seed bands, TOI-700 c).

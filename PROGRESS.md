@@ -1342,3 +1342,44 @@ the Gaia DR4 release on 2026-12-02, when the archive is
 stable). Note the planned DR4 shutdown window 2026-11-25
 12:00 CET → 2026-12-02, during which Gaia-dependent work
 is impossible. The revisit does not block Phase 3.
+
+## P3-7 — 3C: golden fixtures + offline assertions — PARTIAL 2026-11-15
+
+**Landed (offline, in CI):** fixtures
+`tests/fixtures/triceratops/308851365.json` (EB) +
+`183537452.json` (WASP-29b) + the generic runner
+`tests/test_triceratops_golden.py` (10 tests, 8 pass + 2
+visible skips). Fixture format: the TRICERATOPS output JSON
+(schema shape) + a `scenario` split block + `seeds` +
+`expected` TB-4 bands (tolerance bands, never exact
+floats). Assertions: EB FAIL/refute (FPP >= 0.5); WASP-29b
+INCONCLUSIVE + FPP < 0.5 + NFPP < 0.01 + STP dominance
+(STP 0.160 = 95% of FPP 0.169); disposition re-derives
+identically under v1 and v2 (P-4 — v2 is a recording act);
+seed-stability check (`check_seed_stability`: same
+disposition across seeds AND the FPP band clear of the
+0.015/0.5 boundaries) unit-tested on synthetic seed sets.
+The module is in SHARD_GOLDEN (the required check) by
+TB-12 — the assertions are the merge gate, the nightly is
+monitoring. Evidence: `python -m unittest
+tests.test_triceratops_golden` -> 10 tests, OK
+(skipped=2). Smoke after the item: 199 tests, OK.
+
+**Reconstruction status (honest):** the fixtures are
+RECONSTRUCTED from the recorded C-10 numbers (BUNDLE.md
+§1.6 + merged PR #6 body / lockfile header) — the full Mac
+outputs are not on the VM. Each fixture's `provenance`
+block states exactly which fields are measured and which
+are placeholders (input hashes, full per-scenario split,
+artifact paths). The assertions depend only on measured
+fields. The Mac extraction (prepared in
+`phase3-vote/p3-9-panel-mac-commands.md`) verifies and
+completes them; the fixtures gain their true hashes +
+splits then, in a follow-up commit.
+
+**Pending (Mac work, visible skips):** the >= 5-seed FPP /
+STP-split bands (fixtures carry one seed each; band width
+comes from the seed spread, never invented); TOI-700 c —
+NO fixture until a measured run exists (panel, P3-9).
+The fast Mac smoke test (N = 10,000 draws, P-16) lives in
+the nightly (P3-8), not in CI.
