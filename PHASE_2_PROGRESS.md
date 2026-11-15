@@ -386,6 +386,28 @@ bar pinned; LATTE REPORT_ONLY.
   policy comparisons), FPP 1.5 → fail (refute bar), the
   three process failures → unmeasured + EXEC_ERROR.
 
+### P-3 — RLIMIT_AS Linux-only, process-group kill, cap recorded
+
+- **Guard:** `_memory_cap_preexec` now installs RLIMIT_AS
+  only on Linux. macOS/XNU counts the whole virtual
+  address space against it, so the 2048 MB cap would kill
+  a healthy tool on the Mac (where the tools actually
+  run). On macOS the cap is not applied and the run
+  records `memory_cap_applied=False`; the timeout is the
+  only guard there until an RSS watchdog exists (the
+  vote's preferred direction — future work, a P-16 step
+  when the Mac venvs exist to test it against).
+- **Kill:** `run_external_tool` moved from `subprocess.run`
+  to Popen + `start_new_session=True` + `os.killpg` on
+  timeout — the wrapper's children die with it (LATTE
+  shells out, TRICERATOPS forks workers). Tested with a
+  spawner fake whose grandchild must be dead after the
+  timeout, not orphaned.
+- **Record:** `ToolRunResult.memory_cap_applied` (default
+  False) says whether the cap was actually installed —
+  False on macOS, with `memory_mb=0`, and when no process
+  was spawned at all.
+
 ## Frozen v1 calibration (verify at the end)
 
 Baseline md5 (2026-11-15, before any Phase 2 commit):

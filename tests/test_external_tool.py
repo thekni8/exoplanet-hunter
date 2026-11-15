@@ -18,9 +18,11 @@ hash. Nothing here touches the network or the real tools.
 """
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -34,8 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from gauntlet.external_tool import (  # noqa: E402
     DEFAULT_SEED, STATUS_COMPLETED, STATUS_FAILED,
     STATUS_MISSING_VENV, STATUS_TIMEOUT, ToolConfig,
-    build_tool_input, default_wrapper_path, run_external_tool,
-    tool_config_hash,
+    _memory_cap_preexec, build_tool_input,
+    default_wrapper_path, run_external_tool, tool_config_hash,
 )
 
 FAKE_OK = textwrap.dedent("""\
@@ -85,6 +87,19 @@ FAKE_BADJSON = textwrap.dedent("""\
 FAKE_SILENT = textwrap.dedent("""\
     # Exits 0 and writes nothing — the LATTE failure mode
     # (it swallows per-target failures and exits 0).
+    """)
+
+# P-3: spawns a grandchild (a 30 s sleep) and records its PID
+# in FAKE_GRANDCHILD_PID, then sleeps 30 s itself — the
+# process-group-kill test proves the timeout takes the
+# grandchild too, not just the wrapper.
+FAKE_SPAWNER = textwrap.dedent("""\
+    import os, subprocess, sys, time
+    pid_file = os.environ["FAKE_GRANDCHILD_PID"]
+    child = subprocess.Popen([sys.executable, "-c",
+                              "import time; time.sleep(30)"])
+    open(pid_file, "w").write(str(child.pid))
+    time.sleep(30)
     """)
 
 
@@ -282,6 +297,103 @@ class TestRunExternalTool(unittest.TestCase):
                 self._config(fake), self._input(), tmp)
             self.assertEqual(res.status, STATUS_FAILED)
             self.assertIn("no output JSON", res.stderr_tail)
+
+
+class TestMemoryCapGuard(unittest.TestCase):
+    """P-3 (Phase 2 vote follow-up): the RLIMIT_AS cap is
+    Linux-only, the timeout kills the whole process group,
+    and the run records whether the cap applied."""
+
+    def _write_fake(self, tmp, name, source):
+        path = Path(tmp) / name
+        path.write_text(source)
+        return str(path)
+
+    def _config(self, wrapper, **kw):
+        cfg = {"tool": "fake", "python": sys.executable,
+               "wrapper": wrapper, "timeout_s": 30,
+               "memory_mb": 2048, "seed": DEFAULT_SEED,
+               "tool_version": "0", "config_hash": "x" * 64}
+        cfg.update(kw)
+        return ToolConfig(**cfg)
+
+    def _input(self):
+        return build_tool_input(
+            "fake", "0", DEFAULT_SEED, "x" * 64, _target(),
+            _signal(), _lightcurve(), _neighbours())
+
+    def test_cap_is_linux_only(self):
+        # macOS/XNU counts the whole virtual address space
+        # against RLIMIT_AS — the cap must not be installed
+        # there. The platform seam makes this testable
+        # without monkeypatching sys.platform.
+        self.assertIsNone(_memory_cap_preexec(2048, "darwin"))
+        self.assertIsNone(_memory_cap_preexec(2048, "win32"))
+
+    @unittest.skipUnless(resource is not None,
+                         "RLIMIT_AS needs Unix resource module")
+    def test_cap_applies_on_linux(self):
+        self.assertIsNotNone(_memory_cap_preexec(2048, "linux"))
+        self.assertIsNone(_memory_cap_preexec(0, "linux"))
+
+    def test_cap_applied_recorded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_ok.py", FAKE_OK)
+            res = run_external_tool(
+                self._config(fake), self._input(), tmp)
+            self.assertEqual(res.status, STATUS_COMPLETED)
+            # On Linux the cap applies; on macOS it does not
+            # (P-3 guard) — the record must say which.
+            self.assertEqual(
+                res.memory_cap_applied,
+                sys.platform.startswith("linux"))
+
+    def test_cap_not_applied_without_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_ok.py", FAKE_OK)
+            res = run_external_tool(
+                self._config(fake, memory_mb=0),
+                self._input(), tmp)
+            self.assertEqual(res.status, STATUS_COMPLETED)
+            self.assertFalse(res.memory_cap_applied)
+
+    def test_timeout_kills_the_process_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_spawner.py",
+                                    FAKE_SPAWNER)
+            pid_file = str(Path(tmp) / "grandchild.pid")
+            os.environ["FAKE_GRANDCHILD_PID"] = pid_file
+            self.addCleanup(os.environ.pop,
+                            "FAKE_GRANDCHILD_PID", None)
+            res = run_external_tool(
+                self._config(fake, timeout_s=2),
+                self._input(), tmp)
+            self.assertEqual(res.status, STATUS_TIMEOUT)
+            self.assertIsNone(res.output)
+            grandchild = int(Path(pid_file).read_text())
+            # The grandchild must be dead, not orphaned: poll
+            # briefly (a SIGKILLed child can sit as a zombie
+            # until reaped). Clean up on failure so a
+            # regression does not leave a 30 s sleeper behind.
+            dead = False
+            try:
+                for _ in range(20):
+                    try:
+                        os.kill(grandchild, 0)
+                    except ProcessLookupError:
+                        dead = True
+                        break
+                    time.sleep(0.1)
+            finally:
+                if not dead:
+                    try:
+                        os.kill(grandchild, 9)
+                    except ProcessLookupError:
+                        pass
+            self.assertTrue(
+                dead,
+                msg="grandchild survived the timeout — the "
+                    "kill did not reach the process group")
 
 
 if __name__ == "__main__":

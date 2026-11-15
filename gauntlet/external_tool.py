@@ -16,12 +16,25 @@ guarded twice (Gemini's Phase 1.2 vote point: the tools'
 memory/IPC on the 1.5–2 GB VM is unplanned):
 
 * a wall-clock TIMEOUT (default 1800 s, the C-10 contract
-  value) enforced by subprocess.run — a hung tool is killed
-  and the stage reads UNMEASURED;
+  value) enforced by Popen + communicate — a hung tool is
+  killed and the stage reads UNMEASURED. The kill is a
+  process-GROUP kill (P-3): the child runs in its own
+  session (start_new_session), so SIGKILL to the group
+  takes the wrapper AND any children it spawned (LATTE
+  shells out, TRICERATOPS forks workers) — killing only
+  the wrapper would orphan them;
 * a MEMORY CAP (default 2048 MB) enforced by RLIMIT_AS in
   the child before exec — an allocation past the cap raises
   MemoryError inside the child, which exits non-zero and the
-  stage reads UNMEASURED.
+  stage reads UNMEASURED. The cap is LINUX-ONLY (P-3):
+  macOS/XNU counts the whole virtual address space against
+  RLIMIT_AS, and numpy/scipy map generously at import, so a
+  cap that is headroom on Linux would kill a healthy tool
+  on the Mac. On macOS the cap is not applied and the run
+  records memory_cap_applied=False — the timeout is the
+  only guard there. The vote's preferred direction, an RSS
+  watchdog, is future work (a P-16 step, when the Mac venvs
+  exist to test it against).
 
 On top of that, the tools are MAC-ONLY BY CONFIGURATION: the
 tool venv paths in the policy point at the Mac
@@ -63,6 +76,7 @@ adapter, never a pass and never a fail (C-10 constraint 4).
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -118,6 +132,11 @@ class ToolRunResult:
     wall_time_s: float
     returncode: int | None
     stderr_tail: str       # last ~2 KB of stderr, for the record
+    # P-3: whether the RLIMIT_AS memory cap was actually
+    # installed in the child. False on macOS (the cap is
+    # Linux-only), when no cap was requested (memory_mb=0),
+    # and when no process was spawned at all.
+    memory_cap_applied: bool = False
 
 
 def default_wrapper_path(tool):
@@ -195,16 +214,24 @@ def build_tool_input(tool, tool_version, seed, config_hash,
     return record
 
 
-def _memory_cap_preexec(memory_mb):
-    """preexec_fn setting RLIMIT_AS in the child (Unix only).
+def _memory_cap_preexec(memory_mb, platform=None):
+    """preexec_fn setting RLIMIT_AS in the child (Linux only).
 
-    Returns None when the resource module is unavailable or no
-    cap was requested — the caller records that the cap did
-    not apply. RLIMIT_AS counts virtual address space: numpy
-    imports map generously, so the cap must leave headroom
-    above a bare interpreter (the 2048 MB default does).
+    Returns None when the resource module is unavailable, no
+    cap was requested, or the host is not Linux — the caller
+    records that the cap did not apply
+    (ToolRunResult.memory_cap_applied). The Linux-only guard
+    is P-3 (Phase 2 vote): macOS/XNU counts the whole
+    virtual address space against RLIMIT_AS, and numpy/scipy
+    map generously at import, so a 2048 MB cap that is
+    headroom on Linux would kill a healthy tool on the Mac.
+    `platform` is a test seam (default: sys.platform).
     """
+    if platform is None:
+        platform = sys.platform
     if resource is None or not memory_mb:
+        return None
+    if not platform.startswith("linux"):
         return None
 
     limit = int(memory_mb) * 1024 * 1024
@@ -244,42 +271,69 @@ def run_external_tool(config, input_data, work_dir):
 
     cmd = [config.python, config.wrapper,
            "--input", input_path, "--output", output_path]
+    cap_fn = _memory_cap_preexec(config.memory_mb)
+    cap_applied = cap_fn is not None
     start = time.monotonic()
     try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True,
-            timeout=config.timeout_s,
-            preexec_fn=_memory_cap_preexec(config.memory_mb))
-    except subprocess.TimeoutExpired as exc:
-        # subprocess.run killed the child and waited for it.
-        err = (exc.stderr or b"").decode("utf-8", "replace") \
-            if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, start_new_session=True,
+            preexec_fn=cap_fn)
+    except OSError as exc:
+        # The spawn itself failed (e.g. the python binary is
+        # not executable) — a status, not a raise.
+        return ToolRunResult(
+            STATUS_FAILED, None, time.monotonic() - start, None,
+            f"could not spawn the tool: {exc}")
+    try:
+        _out, err = proc.communicate(timeout=config.timeout_s)
+    except subprocess.TimeoutExpired:
+        # Kill the WHOLE process group (P-3): the wrapper may
+        # have spawned children, and killing only the wrapper
+        # would orphan them. start_new_session put the child
+        # in its own group with the wrapper as leader, so
+        # SIGKILL to the group takes the wrapper and its
+        # children together. The group may already be gone
+        # (the child exited between the timeout and the kill)
+        # — that is not an error.
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        _out, err = proc.communicate()
         return ToolRunResult(
             STATUS_TIMEOUT, None, time.monotonic() - start, None,
-            (err or f"timed out after {config.timeout_s} s")[-2048:])
+            ((err or "")
+             or f"timed out after {config.timeout_s} s")[-2048:],
+            memory_cap_applied=cap_applied)
     wall = time.monotonic() - start
-    stderr_tail = (proc.stderr or "")[-2048:]
+    stderr_tail = (err or "")[-2048:]
     if proc.returncode != 0:
         return ToolRunResult(
             STATUS_FAILED, None, wall, proc.returncode,
-            stderr_tail or f"wrapper exited {proc.returncode}")
+            stderr_tail or f"wrapper exited {proc.returncode}",
+            memory_cap_applied=cap_applied)
     if not os.path.exists(output_path):
         return ToolRunResult(
             STATUS_FAILED, None, wall, proc.returncode,
-            "wrapper exited 0 but wrote no output JSON")
+            "wrapper exited 0 but wrote no output JSON",
+            memory_cap_applied=cap_applied)
     try:
         with open(output_path) as fh:
             output = json.load(fh)
     except (json.JSONDecodeError, OSError) as exc:
         return ToolRunResult(
             STATUS_FAILED, None, wall, proc.returncode,
-            f"output JSON unreadable: {exc}")
+            f"output JSON unreadable: {exc}",
+            memory_cap_applied=cap_applied)
     if not isinstance(output, dict):
         return ToolRunResult(
             STATUS_FAILED, None, wall, proc.returncode,
-            "output JSON is not an object")
+            "output JSON is not an object",
+            memory_cap_applied=cap_applied)
     return ToolRunResult(STATUS_COMPLETED, output, wall,
-                         proc.returncode, stderr_tail)
+                         proc.returncode, stderr_tail,
+                         memory_cap_applied=cap_applied)
 
 
 def python_executable():
