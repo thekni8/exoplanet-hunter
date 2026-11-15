@@ -55,7 +55,8 @@ permissions:
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 90 min: the full suite (589 tests + live MAST tests) outgrew the 45-min cap — run 43668659607 timed out 2026-11-15.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
