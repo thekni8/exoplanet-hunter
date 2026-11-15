@@ -175,6 +175,84 @@ class TestQualityMask(unittest.TestCase):
                                        WASP29B_PERIOD, delta=0.05,
                                        msg=cal)
 
+    def test_flagged_fraction_and_tally_on_artifact(self):
+        # M-4: the 70%-flagged artifact cell, measured on the RAW
+        # arrays. Under v2 it promotes -- and the record says so:
+        # ~70% of its in-transit cadences are flagged, and the
+        # tally names bit 30 as the unmasked bit carrying them.
+        # Under v3 the same fixture falls below the floor, and
+        # below-floor records carry NO M-4 fields: there is no
+        # detection to diagnose (the BLS argmax there is a noise
+        # peak, so a fraction at that ephemeris would measure
+        # noise, not the signal).
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "partial.fits"
+            make_qlp_fits(path, period_d=12.6438, depth_frac=0.02,
+                          duration_d=0.1, noise_pct=0.003, seed=42,
+                          flagged_only_frac=0.7, flag_bit=30,
+                          t0=1501.0)
+            v2 = self._screen(path, "bulk_v2")
+            self.assertEqual(v2["status"], "survivor")
+            self.assertAlmostEqual(v2["flagged_in_transit_frac"],
+                                   0.7, delta=0.15)
+            self.assertIn(30, v2["unmasked_bits_in_transit"])
+            self.assertGreater(
+                v2["unmasked_bits_in_transit"][30], 5)
+            v3 = self._screen(path, "bulk_v3")
+            self.assertEqual(v3["status"], "below_floor")
+            self.assertNotIn("flagged_in_transit_frac", v3)
+            self.assertNotIn("unmasked_bits_in_transit", v3)
+
+    def test_flagged_fraction_and_tally_on_bit12_transit(self):
+        # M-4: the TOI-700 c class -- a REAL transit with a
+        # flagged fraction of ~1.0. The fraction is a diagnostic,
+        # not a veto: it must be recorded, not acted on. The
+        # tally names bit 12 (unmasked under every calibration).
+        # The emitted record (JSON round-trip: int tally keys
+        # become strings) still validates against the schema.
+        import json
+
+        import provenance as prov
+        from bulk_screen import emit_survivor_record
+        from validation import validate_survivor
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "w29b-bit12.fits"
+            make_qlp_fits(path, period_d=WASP29B_PERIOD,
+                          depth_frac=WASP29B_DEPTH, duration_d=0.1,
+                          noise_pct=0.003, seed=42,
+                          quality=_flag_in_transit(12))
+            r = self._screen(path, "bulk_v3")
+            self.assertEqual(r["status"], "survivor")
+            self.assertGreater(r["flagged_in_transit_frac"], 0.9)
+            self.assertIn(12, r["unmasked_bits_in_transit"])
+            self.assertGreater(r["unmasked_bits_in_transit"][12],
+                               20)
+            h = prov.provenance_header(
+                "test-run-m4", {"bulk": "v3"}, sha="abc1234",
+                timestamp_utc="2026-11-15T06:00:00+00:00")
+            emitted = emit_survivor_record(r, h)
+            self.assertIn("flagged_in_transit_frac", emitted)
+            self.assertIn("unmasked_bits_in_transit", emitted)
+            round_tripped = json.loads(json.dumps(emitted))
+            self.assertEqual(
+                round_tripped["unmasked_bits_in_transit"],
+                {str(k): v for k, v in
+                 r["unmasked_bits_in_transit"].items()})
+            validate_survivor(round_tripped)  # must not raise
+
+    def test_clean_transit_has_zero_flagged_fraction(self):
+        # M-4 control: a clean transit carries fraction 0.0 and
+        # an empty tally under v3.
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "w29b.fits"
+            make_qlp_fits(path, period_d=WASP29B_PERIOD,
+                          depth_frac=WASP29B_DEPTH, duration_d=0.1,
+                          noise_pct=0.003, seed=42)
+            r = self._screen(path, "bulk_v3")
+            self.assertEqual(r["status"], "survivor")
+            self.assertEqual(r["flagged_in_transit_frac"], 0.0)
+            self.assertEqual(r["unmasked_bits_in_transit"], {})
+
 
 if __name__ == "__main__":
     unittest.main()

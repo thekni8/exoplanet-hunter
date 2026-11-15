@@ -157,6 +157,7 @@ from calibration import CalibrationError as _CalibrationError
 from calibration import load_profile as _load_profile
 from calibration import short_version as _short_version
 from quality_flags import SPOC_DEFAULT_MASK as _SPOC_DEFAULT_MASK
+from quality_flags import tally_unmasked_bits as _tally_unmasked_bits
 from mad_clip import PROFILE_OPTIONS as _CLIP_PROFILE_OPTIONS
 from mad_clip import ALL_OPTIONS as _CLIP_ALL_OPTIONS
 from mad_clip import mad_clip_mask as _mad_clip_mask
@@ -904,6 +905,32 @@ def _rescore(t, f, period, t0, duration):
             "v_ratio": (d_e / d_c) if d_c > 0 else 0.0}
 
 
+def _raw_in_transit_flags(t_raw, q_raw, period, t0, duration):
+    """(flagged fraction, unmasked-bit tally) of the in-transit
+    cadences on the RAW (pre-mask) arrays at an ephemeris
+    (M-4, 2026-11-15 vote).
+
+    The fraction is the share of in-transit cadences carrying ANY
+    quality flag, measured BEFORE masking -- so a survivor whose
+    signal lives mostly on flagged cadences is visible as a
+    flagged-cadence artifact suspect even when the mask kept its
+    cadences (e.g. bit 11/12, which the mask deliberately does not
+    exclude). The tally counts, per bit, the in-transit cadences
+    carrying a bit the screen mask does NOT exclude -- it answers
+    sector-wide whether bit 11 ever appears without bits 29/30.
+    Returns (None, {}) when no raw cadence falls in transit.
+    `duration` is in days.
+    """
+    phase = ((t_raw - t0) / period + 0.5) % 1.0 - 0.5
+    in_tr = np.abs(phase) < (duration / period) / 2
+    n_in = int(in_tr.sum())
+    if n_in == 0:
+        return None, {}
+    q_in = np.asarray(q_raw, dtype=np.int64)[in_tr]
+    frac = float((q_in != 0).sum()) / n_in
+    return frac, _tally_unmasked_bits(q_in, QUALITY_MASK)
+
+
 def _screen_one(args):
     """Worker: screen one star's cached QLP file. Returns a record dict
     (always, with 'status'), so the parent can count every outcome."""
@@ -949,6 +976,10 @@ def _screen_one(args):
         # gauntlet found 18/25 NEW S96 leads were dips living only
         # on bit-29/30 cadences, which 17087 keeps and v2's 10%
         # clip floor preserves.
+        # M-4: keep the pre-mask arrays — the raw in-transit
+        # flagged fraction + unmasked-bit tally are measured on
+        # them at the found ephemeris, after BLS.
+        t_raw, q_raw = t, qual
         ok = np.isfinite(t) & np.isfinite(flux) & ((qual & QUALITY_MASK) == 0)
         t, f = t[ok], flux[ok]
         if len(t) < 200:
@@ -1007,6 +1038,10 @@ def _screen_one(args):
                         product_ids=[Path(path).name],
                         sectors=[int(sector)], author=PRODUCT,
                         bls_input_hash=bls_hash)})
+        # (M-4 fields are attached below, after the record floor:
+        # a below-floor record has no detection, so its BLS argmax
+        # is a noise peak and an "in-transit flagged fraction" at
+        # that ephemeris would measure noise, not the signal.)
         # Next two distinct peaks (hunter v2 pattern) ride along: a
         # single-sector screen can pin the wrong alias on a lone transit
         # (proof control: sector 1 holds ONE TOI-700 c transit; the
@@ -1028,6 +1063,15 @@ def _screen_one(args):
         if sde < RECORD_FLOOR_SDE:
             rec["status"] = "below_floor"
             return rec
+
+        # M-4: raw in-transit flagged fraction + unmasked-bit
+        # tally, on the pre-mask arrays at the found ephemeris.
+        # Only for records that clear the record floor -- below
+        # it there is no detection to diagnose.
+        frac, tally = _raw_in_transit_flags(t_raw, q_raw, period,
+                                            t0, duration)
+        rec["flagged_in_transit_frac"] = frac
+        rec["unmasked_bits_in_transit"] = tally
 
         # --- free vetoes -------------------------------------------------
         flags = []
@@ -1111,7 +1155,8 @@ _EMIT_KEYS = ("tic", "period_days", "t0_btjd", "duration_hours",
               "secondary_depth_percent", "near_systematic", "control",
               "status", "known_source", "alt_peaks", "mes_pink",
               "cdpp_pct", "n_events", "n_strong_events",
-              "max_event_snr", "v_ratio", "tier", "input_identity")
+              "max_event_snr", "v_ratio", "tier", "input_identity",
+              "flagged_in_transit_frac", "unmasked_bits_in_transit")
 
 
 def emit_survivor_record(rec, prov):
