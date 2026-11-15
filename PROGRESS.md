@@ -1429,6 +1429,38 @@ stitch. Wall 476.2 s (C-10 no-curve: 1,553 s — the curve
 run was much faster), RSS 776.7 MB. Panel (§4) launched
 next, same night.
 
+**Panel first pass DONE ~00:53 IST 2026-11-16 — 4/10
+completed, 6 lost to a MAST outage.** Launched 20:35 IST
+(pid 33691, nohup + caffeinate). Completed: TOI-2384.01
+(confirmed planet) INCONCLUSIVE FPP 0.202, NFPP 5.9e-11
+(TP 0.652, PTP 0.146 — planet-favoured, same grey-zone
+pattern as WASP-29b without a curve; NOT a false refute);
+TOI-2624.01 (PC) FAIL FPP 0.690, EB 0.391 dominant;
+TOI-319.01 (APC) FAIL FPP 0.765, EBx2P 0.355 — the
+expected refute (V-shaped, odd/even 6.8σ), a true-positive
+refutation; TOI-2626.01 (PC) FAIL FPP 0.714, EB 0.433
+dominant. Walls 675/1150/661/1368 s; RSS 718–741 MB.
+Then MAST went slow (~16:30Z): TOI-330.01 TIMEOUT at
+1800.0 s (no output.json; only import warnings in
+time.log — no explicit stall signature, but the cost is
+anomalous vs the other targets and MAST was failing on
+the next target within minutes, so judged transient);
+TOI-4655.01, 6845.01, 302.01, 7689.01, 700c all
+driver_error — stitch searches timing out after 300 s
+per author, then the hunter fallback timing out at 300 s
+("MAST step timed out after 300s"; 7689.01 a hard MAST
+"Request failed" error). MAST probe during the outage:
+portal 301 in 1.4 s, TRILEGAL 200, but an astroquery
+search took 67.6 s (vs ~2–5 s healthy) — the search
+service itself was slow, not the network. **Retry pass
+launched ~00:57 IST** (panel-run.sh re-run, pid 38588 —
+the driver skips the 4 completed outputs, re-runs the 6
+failed targets at the same 1800 s budget; MAST probe
+just before launch: 20.4 s, recovering). The JSONL will
+carry two rows per retried target — the §8 analysis must
+use the latest row per target. §7 seeds + §5 fixtures
+follow the retry pass.
+
 **(D) DATED REVISIT (recorded).** Trigger for the Gaia-path
 re-run (WASP-29b verification): Gaia TAP back — the watch
 hook polls every 15 min and wakes on 2 consecutive HTTP
