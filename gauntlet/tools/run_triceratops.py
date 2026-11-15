@@ -243,6 +243,13 @@ def run(input_path, output_path):
     tic = str(inp["target"]["tic"])
     seed = inp["seed"]
     config_hash = inp["config_hash"]
+    # P3-8: the input may override the draw count — the
+    # golden-test nightly's fast smoke passes n_samples=10000
+    # for iteration; the default (and every C-10 / panel run)
+    # is the full 1,000,000. The output records the count
+    # actually used, so a fast run can never masquerade as a
+    # full one.
+    n_samples = int(inp.get("n_samples", N_SAMPLES))
     n_transits = inp["signal"].get("n_transits")
     dilution_corrected = bool(inp.get("dilution_corrected",
                                       False))
@@ -321,7 +328,7 @@ def run(input_path, output_path):
                         dilution_corrected=dilution_corrected)
         tgt.calc_probs(ph_bin, f_bin, flux_err, P_orb=period,
                        contrast_curve_file=cc_path,
-                       N=N_SAMPLES, exptime=cadence_s / 86400.0,
+                       N=n_samples, exptime=cadence_s / 86400.0,
                        nsamples=20, verbose=0,
                        dilution_corrected=dilution_corrected)
     except Exception as exc:  # noqa: BLE001 - tool failure
@@ -354,7 +361,7 @@ def run(input_path, output_path):
             probs, EB_NEIGHBOUR_SCENARIOS),
         "prob_hierarchical_eb": _scenario_sum(
             probs, EB_HIERARCHICAL_SCENARIOS),
-        "n_samples": N_SAMPLES,
+        "n_samples": n_samples,
         "most_likely_false_positive": _most_likely_fp(probs),
         "fpp_degenerate": degenerate,
         "dilution_corrected": dilution_corrected,

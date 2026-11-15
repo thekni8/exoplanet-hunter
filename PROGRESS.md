@@ -1383,3 +1383,96 @@ comes from the seed spread, never invented); TOI-700 c —
 NO fixture until a measured run exists (panel, P3-9).
 The fast Mac smoke test (N = 10,000 draws, P-16) lives in
 the nightly (P3-8), not in CI.
+
+## P3-8 — 3C: nightly readiness — PARTIAL 2026-11-15
+
+**Landed (offline, tested):** the nightly driver
+`scripts/triceratops_golden_nightly.py` — runs the golden
+targets through the REAL tool on the Mac, checks each fresh
+output against its fixture's TB-4 bands via the shared
+module `gauntlet/triceratops_golden.py` (one definition of
+"passes", shared with the CI assertions — the two can never
+drift apart), writes a timestamped receipt, and opens a
+GitHub issue on failure (deduplicated by title, live.yml's
+pattern). The driver sets SSL_CERT_FILE to the venv's
+certifi bundle (the TRILEGAL host omits a ZeroSSL
+intermediate). Modes: full (N = 1,000,000, gate-eligible)
+and `--fast` (N = 10,000, P-16 — plumbing only: a 10k-draw
+FPP is too noisy for the bands, so a fast receipt is never
+gate-eligible). The wrapper takes an `n_samples` input
+override (`gauntlet/tools/run_triceratops.py`) and records
+the count actually used, so a fast run can never masquerade
+as a full one.
+
+**RSS watchdog (P-3, scoped to this job):**
+`run_external_tool` takes `rss_watchdog_mb` / `rss_poll_s`
+— a daemon thread polls the child process group's RSS via
+`ps` and SIGKILLs the group above the cap, returning status
+`memory` (the desk driver maps it to UNMEASURED +
+EXEC_ERROR, never a pass). The watchdog records peak RSS
+even on a clean completion (the nightly's memory
+measurement). macOS applies no RLIMIT_AS cap, so the
+timeout was the only guard there; the general watchdog for
+all tool runs rides with future tool infrastructure (3.1).
+The default path is unchanged (no watchdog unless
+requested). Tests: 3 new watchdog tests in
+`tests/test_external_tool.py` (kill, peak recording, no
+watchdog = no peak) + 15 tests in
+`tests/test_triceratops_nightly.py` (green/red/crash/
+missing-input/fast runs, issue opening, FAILURE marker when
+`gh` is unavailable, and the receipt gate: hash tamper,
+stale, fast, override, red, missing). Evidence: `python -m
+unittest tests.test_triceratops_nightly
+tests.test_external_tool tests.test_triceratops_golden` ->
+OK (skipped=2, the P3-7 pending ones).
+
+**Receipt + gate (TB-3/TB-12):** the receipt lives at
+`vetting_results/triceratops-golden/receipt.json` on the
+Mac (run data — NOT in `calibration/`, which is
+registry-pinned code; a nightly artifact does not belong
+there and would dirty the repo every night). "Signed"
+means a `receipt_hash` (sha256 over the canonical receipt
+body) — tamper-evident, not a cryptographic signature:
+the project has no signing-key infrastructure, and the
+hash chain (fixture shas + code SHA + policy sha +
+results) is what makes the receipt verifiable from a copy.
+The gate (`--check`) requires: hash verifies + overall
+pass + full (not fast) run + no config override + < 7
+days old. The nightly is MONITORING, not a merge check —
+the offline fixture assertions in CI are the gate; the
+receipt gates Phase 3 completion.
+
+**CI macOS runner spike (research, 2026-11-15):** the
+lockfile is platform-agnostic by construction —
+`make_lockfile.py`'s `fetch_hashes` records the sha256 of
+EVERY distribution file PyPI lists for each pinned version
+(aiohttp carries ~20 hashes: macOS + Linux + Windows wheels
++ sdist), so a GitHub-hosted macOS runner's pip would find
+its wheel hashes in the list; no hash work is needed and
+no dependency verification is weakened. setup-python
+supports exact patch versions (it downloads from
+actions/python-versions, which aims to publish new
+releases as soon as they ship); 3.11.15 is a real release
+(the Mac venv runs it) — manifest presence is confirmed
+by the live install test, not assumed here. Open questions
+for that test (a 3.1-or-later decision, NOT a Phase 3
+deliverable): whether every pinned package ships a macOS
+arm64 wheel (notably pytransit), the run wall-time on a
+hosted runner (C-10 timings on the M4: EB 349 s, WASP-29b
+1,553 s), and cost — macOS runners bill at 10x the Linux
+minute rate, so a ~35-min nightly costs ~350 Linux-minute
+equivalents per run. The ZeroSSL cert-append step would
+need to be a workflow step. The Mac nightly is the Phase 3
+venue; the runner stays a recorded spike.
+
+**Pending (Mac measurements — no timeout changes until
+they land):** runtime percentiles + memory + largest-target
+measurements ride the 5-seed runs + panel (prepared in
+`phase3-vote/p3-9-panel-mac-commands.md` §7–§8). Gemini's
+2,700 s is the candidate timeout value to test, not a
+pre-commitment; re-binning 200 -> 120 is the alternative
+lever, tested with the FPP ± 0.01 check (TB-9). The first
+real nightly run (on the Mac, after the C-10 inputs are
+extracted) is still owed, as is the scheduling itself
+(cron/launchd + caffeinate; the job must be LOUD on
+failure — non-zero exit + issue + FAILURE marker).

@@ -188,3 +188,54 @@ Each invocation is capped at 1800 s / 2048 MB by the runner.
 - A killed wrapper can leave a LATTE process behind only if
   the runner's timeout fires first; the wrapper kills LATTE
   itself 60 s before that. Strays: `pkill -f "m LATTE"`.
+
+## 5. TRICERATOPS golden-test nightly (Phase 3, P3-8)
+
+The golden targets (the committed fixtures in
+`tests/fixtures/triceratops/`) re-run through the REAL tool
+nightly on the Mac. This is MONITORING, not a merge check
+(TB-3/TB-12): the offline fixture assertions in CI are the
+merge gate; the nightly catches tool/environment drift
+(a TRILEGAL change, a venv break, a Gaia outage) that CI
+cannot see. Phase 3 completion is gated on a green receipt
+< 7 days old.
+
+```bash
+# Full run (N = 1,000,000 per target; ~35 min at C-10
+# timings: EB 349 s + WASP-29b 1,553 s). Wrap in caffeinate
+# — clamshell sleep fires on AC.
+caffeinate -s -i .venv/bin/python \
+  scripts/triceratops_golden_nightly.py \
+  --inputs-dir vetting_results/triceratops-verify
+
+# Fast smoke (N = 10,000, P-16): plumbing only, never
+# gate-eligible.
+caffeinate -s -i .venv/bin/python \
+  scripts/triceratops_golden_nightly.py --fast \
+  --inputs-dir vetting_results/triceratops-verify
+
+# Gate-check a receipt (exit 0 = green).
+.venv/bin/python scripts/triceratops_golden_nightly.py \
+  --check vetting_results/triceratops-golden/receipt.json
+```
+
+- Inputs: `--inputs-dir` holds one subdirectory per golden
+  target with an `input.json` inside
+  (`<inputs-dir>/<tic>/input.json`) — the C-10 tool inputs,
+  re-run as-is. A golden test re-runs the SAME inputs and
+  expects the SAME outputs within bands.
+- Receipt: `vetting_results/triceratops-golden/receipt.json`
+  (run data, not a calibration profile). It carries a
+  `receipt_hash` (sha256 over the canonical body) —
+  tamper-evident, not a cryptographic signature. The gate
+  requires: hash verifies + overall pass + full run +
+  no config override + < 7 days old.
+- Memory: every run goes through the RSS watchdog at the
+  policy's `memory_mb` (P-3, scoped to this job); the
+  receipt records peak RSS per run.
+- Failure is LOUD: non-zero exit + a GitHub issue
+  (deduplicated by title, live.yml's pattern). When `gh`
+  is unavailable, a `FAILURE` marker is written next to
+  the receipt and the run prints a warning to stderr.
+  Silent cron failures are a known Mac risk — schedule
+  the job so a failure is seen.

@@ -39,84 +39,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from calibration import load_profile  # noqa: E402
 from gauntlet.stage_result import triceratops_result  # noqa: E402
+from gauntlet.triceratops_golden import (  # noqa: E402
+    MIN_SEEDS_FOR_BAND, check_fixture_output,
+    check_seed_stability, load_fixture)
 from validation import validate_triceratops_output  # noqa: E402
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "triceratops"
-
-# Decision boundaries of disposition (A) — read from the
-# policy in the tests, never hard-coded here except as the
-# boundary list the stability check uses (it takes them from
-# the same policy dict).
-MIN_SEEDS_FOR_BAND = 5
-
-
-def load_fixture(tic):
-    with open(FIXTURE_DIR / f"{tic}.json") as fh:
-        return json.load(fh)
-
-
-def check_seed_stability(seeds, policy):
-    """Seed-stability with boundary separation (TB-4).
-
-    seeds: [{seed, fpp, nfpp, ...}] with >= MIN_SEEDS_FOR_BAND
-    entries. policy: the external-tools policy dict.
-    Returns (ok, reason). ok requires: every seed's FPP maps
-    to the SAME decision region (below the validate bar /
-    between the bars / above the refute bar — NFPP checked
-    separately by the caller where it matters), AND the FPP
-    band [min, max] does not touch either boundary — the
-    disposition must have adequate separation from the
-    decision boundary, not merely agree across seeds.
-    Raises ValueError when fewer than MIN_SEEDS_FOR_BAND
-    seeds are supplied (the band is unmeasured, not zero).
-    """
-    from gauntlet.stage_result import triceratops_disposition
-    if len(seeds) < MIN_SEEDS_FOR_BAND:
-        raise ValueError(
-            f"seed band needs >= {MIN_SEEDS_FOR_BAND} seeds, "
-            f"got {len(seeds)}")
-    tri = policy["triceratops"]
-    fpp_max = tri["fpp_validate_max"]
-    fpp_refute = tri["fpp_refute_min"]
-    statuses = set()
-    fpps = []
-    for entry in seeds:
-        status, _ = triceratops_disposition(
-            entry["fpp"], entry.get("nfpp", 0.0), False, policy)
-        statuses.add(status)
-        fpps.append(entry["fpp"])
-    if len(statuses) != 1:
-        return False, (f"disposition varies across seeds: "
-                       f"{sorted(statuses)}")
-    lo, hi = min(fpps), max(fpps)
-    for boundary in (fpp_max, fpp_refute):
-        if lo <= boundary <= hi:
-            return False, (f"FPP band [{lo:.4f}, {hi:.4f}] "
-                           f"touches the {boundary} boundary")
-    return True, (f"stable: {statuses.pop()} across "
-                  f"{len(seeds)} seeds, FPP band [{lo:.4f}, "
-                  f"{hi:.4f}] clear of {fpp_max}/{fpp_refute}")
 
 
 class TestGoldenFixtures(unittest.TestCase):
     def _assert_fixture(self, tic):
         fx = load_fixture(tic)
-        expected = fx["expected"]
         # The fixture's tool output validates against the
         # output schema (a reconstructed fixture must still
         # be a well-formed tool output).
         validate_triceratops_output(fx["tool_output"])
-        res = triceratops_result(fx["tool_output"])
-        self.assertEqual(res.status, expected["status"],
-                         f"TIC {tic}: disposition")
-        fpp = fx["tool_output"]["metrics"]["fpp"]
-        nfpp = fx["tool_output"]["metrics"]["nfpp"]
-        if "fpp_min" in expected:
-            self.assertGreaterEqual(fpp, expected["fpp_min"])
-        if "fpp_max" in expected:
-            self.assertLess(fpp, expected["fpp_max"])
-        if "nfpp_max" in expected:
-            self.assertLess(nfpp, expected["nfpp_max"])
+        # The shared check (gauntlet/triceratops_golden.py) —
+        # the same definition of "passes" the nightly uses.
+        policy = load_profile("external_tools_v2")
+        failures = check_fixture_output(
+            fx, fx["tool_output"], policy)
+        self.assertEqual(failures, [], f"TIC {tic}")
+        res = triceratops_result(fx["tool_output"], policy=policy)
         return fx, res
 
     def test_eb_refutes(self):
