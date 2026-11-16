@@ -165,6 +165,14 @@ import ingest as _ingest
 import search_health as _search_health
 from bulk.grid_edge import build_handoff_record as _build_handoff_record
 from bulk.grid_edge import disposition_grid_edge as _disposition_grid_edge
+# P3-15: the adopted tier-B gates live in bulk/replay_matrix.py —
+# the screen calls them, it does not re-implement them.
+from bulk.replay_matrix import CLUSTER_MIN_SIZE as _RM_CLUSTER_MIN_SIZE
+from bulk.replay_matrix import CLUSTER_TOL_P as _RM_CLUSTER_TOL_P
+from bulk.replay_matrix import CLUSTER_TOL_T0_D as _RM_CLUSTER_TOL_T0_D
+from bulk.replay_matrix import (sector_epoch_cluster_tics as
+                                _sector_epoch_cluster_tics)
+from bulk.replay_matrix import two_event_combined as _two_event_combined
 from validation import validate_survivor as _validate_survivor
 
 # Thresholds — loaded from the versioned calibration profile
@@ -192,6 +200,9 @@ def _apply_profile(prof):
     global SYSTEMATIC_PERIODS, CLIP_OPTION, SYSTEMATIC_WINDOWS
     global QUALITY_MASK
     global GRID_EDGE_MIN_IN_TRANSIT, GRID_EDGE_MAX_UNMASKED_FRACTION
+    global TWO_COMBINED_ENABLED, EPOCH_CLUSTER_VETO_ENABLED
+    global EPOCH_CLUSTER_TOL_P, EPOCH_CLUSTER_TOL_T0_D
+    global EPOCH_CLUSTER_MIN_SIZE
     _BULK_CAL = prof
     CALIBRATION_VERSION = prof["version"]
     # Provenance map (A-2): per-subsystem bare versions, {"bulk": "v1"}.
@@ -256,6 +267,35 @@ def _apply_profile(prof):
         "grid_edge_min_in_transit_cadences", 4))
     GRID_EDGE_MAX_UNMASKED_FRACTION = float(prof.get(
         "grid_edge_max_unmasked_flag_fraction", 0.0))
+    # Tier-B tightening gates (P3-15, bulk_v4): profiles that
+    # predate the keys mean the gates OFF — a frozen profile's
+    # behaviour must not change. The epoch-cluster criterion
+    # defaults to the P3-13 values (inert while the veto is
+    # off). A profile that declares criterion values MUST match
+    # replay_matrix's P3-13 constants: the criterion is
+    # vote-frozen, and a profile declaring different values is
+    # a bug, not a feature — fail loud here, never silently at
+    # screen time.
+    TWO_COMBINED_ENABLED = bool(prof.get("two_combined_enabled",
+                                         False))
+    EPOCH_CLUSTER_VETO_ENABLED = bool(prof.get(
+        "epoch_cluster_veto_enabled", False))
+    EPOCH_CLUSTER_TOL_P = float(prof.get(
+        "epoch_cluster_tol_p", _RM_CLUSTER_TOL_P))
+    EPOCH_CLUSTER_TOL_T0_D = float(prof.get(
+        "epoch_cluster_tol_t0_d", _RM_CLUSTER_TOL_T0_D))
+    EPOCH_CLUSTER_MIN_SIZE = int(prof.get(
+        "epoch_cluster_min_size", _RM_CLUSTER_MIN_SIZE))
+    if (EPOCH_CLUSTER_TOL_P != _RM_CLUSTER_TOL_P
+            or EPOCH_CLUSTER_TOL_T0_D != _RM_CLUSTER_TOL_T0_D
+            or EPOCH_CLUSTER_MIN_SIZE != _RM_CLUSTER_MIN_SIZE):
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"epoch-cluster criterion ({EPOCH_CLUSTER_TOL_P}, "
+            f"{EPOCH_CLUSTER_TOL_T0_D}, {EPOCH_CLUSTER_MIN_SIZE}) "
+            f"— expected the P3-13 criterion "
+            f"({_RM_CLUSTER_TOL_P}, {_RM_CLUSTER_TOL_T0_D}, "
+            f"{_RM_CLUSTER_MIN_SIZE}) from bulk/replay_matrix.py")
 
 
 def set_calibration(name):
@@ -1195,6 +1235,27 @@ def _screen_one(args):
                     depth * 100.0 <= TIER_B_MAX_DEPTH_PCT:
                 tier = "B"
         rec["tier"] = tier
+        # P3-15 (bulk_v4): TWO-COMBINED — a 2-event tier-B row
+        # needs both events strong AND mes_pink >= 9.0 (the
+        # tier_a_mes bar, reused). Rows with n_events != 2 are
+        # unaffected (1-event rows are P3-14's singles; >=3
+        # -event rows already meet tier A's >=2-strong
+        # requirement). A failure demotes with flag
+        # TWO_EVENT_WEAK + gate_reason FAILED_TWO_COMBINED —
+        # the row is marked "unsure" for manual review, never
+        # deleted: it stays in screen_hits.jsonl, queryable
+        # (disposition == DEMOTED_SECTOR_EPOCH_CLUSTER OR
+        # gate_reason present). The tier field is kept (the row
+        # DID meet tier B) — the gate is the verdict, as with
+        # the EB vetoes. The implementation is replay_matrix's
+        # two_event_combined, called with the profile's
+        # tier_a_mes; bulk_v1/v2/v3 never reach this branch
+        # (TWO_COMBINED_ENABLED is False there).
+        if tier == "B" and TWO_COMBINED_ENABLED and \
+                not _two_event_combined(rec, mes_bar=TIER_A_MES):
+            flags.append("TWO_EVENT_WEAK")
+            demote.append("TWO_EVENT_WEAK")
+            rec["gate_reason"] = "FAILED_TWO_COMBINED"
         if demote:
             rec["status"] = "demoted"
         elif tier is not None:
@@ -1233,7 +1294,8 @@ _EMIT_KEYS = ("tic", "period_days", "t0_btjd", "duration_hours",
               "cdpp_pct", "n_events", "n_strong_events",
               "max_event_snr", "v_ratio", "tier", "input_identity",
               "flagged_in_transit_frac", "unmasked_bits_in_transit",
-              "n_in_transit", "disposition", "grid_edge")
+              "n_in_transit", "disposition", "grid_edge",
+              "gate_reason")
 
 
 def emit_survivor_record(rec, prov):
@@ -1384,6 +1446,159 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
     # ex.map loop preserved submission order).
     records.sort(key=lambda r: r["tic"])
     return records, counts
+
+
+# --- SECTOR_EPOCH_CLUSTER veto (P3-15, bulk_v4) --------------------------
+
+# Flag appended to every veto-cluster member (tier-B demoted,
+# tier-A flagged). The flag names the veto; the disposition
+# (tier-B only) names the verdict.
+SECTOR_EPOCH_CLUSTER_FLAG = "SECTOR_EPOCH_CLUSTER"
+
+# gate_reason value for TWO-COMBINED failures (set in
+# _screen_one). Rows carrying it are v3-tier survivors the v4
+# gate demoted — they join the veto's clustering input (see
+# apply_epoch_cluster_veto).
+GATE_REASON_TWO_COMBINED = "FAILED_TWO_COMBINED"
+
+
+def _append_flag(rec, flag):
+    """Append `flag` to rec["flags"] once (idempotent) —
+    the veto is safe to re-apply to an already-flagged set."""
+    flags = rec.get("flags")
+    if flags is None:
+        rec["flags"] = [flag]
+    elif flag not in flags:
+        flags.append(flag)
+
+
+def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
+                             tol_t0_d=None, min_size=None):
+    """Apply the SECTOR_EPOCH_CLUSTER veto (P3-15, bulk_v4) to
+    a sector's survivor set. Returns (kept_survivors, summary).
+
+    `survivors`: the sector's survivor records (v3 tiers —
+    the set the veto clusters). `hits`: the sector's full
+    screen-hits records, or None; when given, the veto updates
+    the hit copies in place (demoted rows carry the demotion
+    there; flagged tier-A rows carry the flag there), so the
+    merged screen_hits.jsonl stays consistent with the merged
+    survivors.jsonl. Tolerances default to the profile-derived
+    module globals (the P3-13 criterion).
+
+    Criterion (P3-13, implemented by replay_matrix's
+    sector_epoch_cluster_tics — called here, not
+    re-implemented): per sector, cluster (P, T0) within 1% /
+    3 h (union-find); clusters of >20 stars are
+    SECTOR_EPOCH_CLUSTER. Tier-B members are DEMOTED (status
+    "demoted", disposition DEMOTED_SECTOR_EPOCH_CLUSTER, flag
+    SECTOR_EPOCH_CLUSTER) and removed from the kept survivors;
+    tier-A members are FLAGGED (flag only) and stay survivors.
+    Rows with no tier are neither (matches the replay).
+
+    Clustering input: the v3-tier survivor set — the current
+    survivors PLUS the TWO-COMBINED-demoted rows (still in
+    hits with gate_reason FAILED_TWO_COMBINED).
+    TWO-COMBINED runs at screen time, before the veto; without
+    the demoted rows in the input, borderline clusters would
+    shrink below the >20 bar and escape the veto — the P3-11
+    replay clustered the full 4,692 v3 survivors, and the veto
+    must see the same population. The demoted rows are
+    clustering input only, never demotion targets (they are
+    already demoted).
+
+    P3-14 interaction (decision doc §6.1): P3-14 dispositions
+    at screen time, per record; the veto dispositions at merge
+    time, whole-set. The veto OVERWRITES a P3-14 disposition
+    on a demoted row — the veto is the later, stronger verdict
+    (the row is a cluster artifact, not a genuine single
+    transit) — and the P3-14 finding survives in the row's
+    grid_edge hand-off record. The reduction is counted once:
+    the veto's demotion count includes the grid-edge singles
+    it removes; the SINGLE_TRANSIT_POOL is defined over the
+    surviving rows after the veto, so a veto-demoted single is
+    not pool material.
+
+    Chaining (decision doc §6.2): union-find chaining can link
+    sparse rows into one wide cluster (clusters 8/11/10 in the
+    replay). A cluster-diameter cap was CONSIDERED and NOT
+    adopted here — the P3-13 criterion is measured as
+    specified, not re-tuned in this step; the cap is recorded
+    for 3.1.
+
+    Merge-only, never per-slice: clusters span slices, so a
+    per-slice veto would under-demote (a 25-star sector
+    cluster split 21/4 across slices would keep the 4). The
+    caller is run_chunked's merge (and only the merge — a
+    direct bulk_screen.py run does not apply the veto; see the
+    bulk_v4 profile header). Demotion is reversible: demoted
+    rows keep their disposition and stay queryable in
+    screen_hits.jsonl; the manual-review ("unsure") queue is
+    disposition == DEMOTED_SECTOR_EPOCH_CLUSTER OR gate_reason
+    present. Nothing is deleted anywhere.
+    """
+    if tol_p is None:
+        tol_p = EPOCH_CLUSTER_TOL_P
+    if tol_t0_d is None:
+        tol_t0_d = EPOCH_CLUSTER_TOL_T0_D
+    if min_size is None:
+        min_size = EPOCH_CLUSTER_MIN_SIZE
+    cluster_rows = list(survivors)
+    if hits is not None:
+        survivor_tics = {r["tic"] for r in survivors}
+        cluster_rows += [r for r in hits
+                         if r.get("gate_reason")
+                         == GATE_REASON_TWO_COMBINED
+                         and r["tic"] not in survivor_tics]
+    # Rows without (P, T0) cannot be shown to share an epoch —
+    # they stay unclustered (kept). Survivors always carry
+    # both; this is defence against malformed input, not a code
+    # path production reaches.
+    clusterable = [r for r in cluster_rows
+                   if r.get("period_days") is not None
+                   and r.get("t0_btjd") is not None]
+    clustered, clusters = _sector_epoch_cluster_tics(
+        clusterable, tol_p=tol_p, tol_t0_d=tol_t0_d, min_size=min_size)
+    hits_by_tic = {}
+    if hits is not None:
+        for r in hits:
+            hits_by_tic.setdefault(r["tic"], r)
+    kept = []
+    demoted_tics = []
+    flagged_tics = []
+    for r in survivors:
+        if r["tic"] not in clustered:
+            kept.append(r)
+            continue
+        if r.get("tier") == "A":
+            _append_flag(r, SECTOR_EPOCH_CLUSTER_FLAG)
+            hit = hits_by_tic.get(r["tic"])
+            if hit is not None and hit is not r:
+                _append_flag(hit, SECTOR_EPOCH_CLUSTER_FLAG)
+            flagged_tics.append(r["tic"])
+            kept.append(r)
+        elif r.get("tier") == "B":
+            hit = hits_by_tic.get(r["tic"])
+            target = hit if hit is not None else r
+            target["status"] = "demoted"
+            target["disposition"] = (
+                _search_health.DEMOTED_SECTOR_EPOCH_CLUSTER)
+            _append_flag(target, SECTOR_EPOCH_CLUSTER_FLAG)
+            demoted_tics.append(r["tic"])
+        else:
+            # No tier: not a veto target (matches the replay).
+            kept.append(r)
+    summary = {
+        "n_clusters": len(clusters),
+        "cluster_sizes": sorted((len(c) for c in clusters),
+                                reverse=True),
+        "n_clustered": len(clustered),
+        "demoted_tier_b": len(demoted_tics),
+        "flagged_tier_a": len(flagged_tics),
+        "demoted_tics": sorted(demoted_tics),
+        "flagged_tics": sorted(flagged_tics),
+    }
+    return kept, summary
 
 
 # ---------------------------------------------------------------------------

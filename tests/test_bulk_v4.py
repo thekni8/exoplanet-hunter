@@ -127,6 +127,26 @@ class TestBulkV4Scaffold(unittest.TestCase):
         finally:
             bs.set_calibration(previous)
 
+    def test_set_calibration_v4_derives_gates(self):
+        # The adopted gates are ON under bulk_v4, OFF under
+        # every earlier profile (a frozen profile's behaviour
+        # must not change). The veto criterion is the P3-13
+        # criterion.
+        previous = bs.CALIBRATION_VERSION
+        try:
+            bs.set_calibration("bulk_v4")
+            self.assertIs(bs.TWO_COMBINED_ENABLED, True)
+            self.assertIs(bs.EPOCH_CLUSTER_VETO_ENABLED, True)
+            self.assertEqual(bs.EPOCH_CLUSTER_TOL_P, 0.01)
+            self.assertEqual(bs.EPOCH_CLUSTER_TOL_T0_D, 0.125)
+            self.assertEqual(bs.EPOCH_CLUSTER_MIN_SIZE, 21)
+            for name in ("bulk_v1", "bulk_v2", "bulk_v3"):
+                bs.set_calibration(name)
+                self.assertIs(bs.TWO_COMBINED_ENABLED, False)
+                self.assertIs(bs.EPOCH_CLUSTER_VETO_ENABLED, False)
+        finally:
+            bs.set_calibration(previous)
+
     def test_screen_under_v4_records_floor_fields(self):
         previous = bs.CALIBRATION_VERSION
         try:
