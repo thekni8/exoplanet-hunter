@@ -262,5 +262,121 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(list(ranks), [3, 2])
 
 
+class TestRankOnlyEnforcement(unittest.TestCase):
+    """P3-19: permutation, SDE fallback, advisory-only boundary."""
+
+    def _toy_model(self):
+        rows, y = [], []
+        for i in range(30):
+            planet = i % 2 == 0
+            rows.append(_record(
+                tic=str(i),
+                sde=30.0 if planet else 10.0,
+                mes_pink=25.0 if planet else 8.0))
+            y.append(0 if planet else 1)
+        X = ranker.features_to_array(rows)
+        return rows, ranker.train_ranker(X, np.array(y))
+
+    def test_rank_queue_is_permutation(self):
+        """Output = input reordered: same rows, same count."""
+        rows, model = self._toy_model()
+        ranked = ranker.rank_queue(rows, model)
+        self.assertEqual(len(ranked), len(rows))
+        self.assertEqual({r["tic"] for r in ranked},
+                         {r["tic"] for r in rows})
+        # Planets (even TICs) rank above non-planets on toy data.
+        top_half = {r["tic"] for r in ranked[:15]}
+        self.assertTrue(all(int(t) % 2 == 0 for t in top_half))
+
+    def test_rank_queue_does_not_mutate_input(self):
+        """Ranking changes no row and no verdict (advisory only)."""
+        import copy
+        rows, model = self._toy_model()
+        before = copy.deepcopy(rows)
+        ranker.rank_queue(rows, model)
+        self.assertEqual(rows, before)
+
+    def test_rank_queue_empty(self):
+        rows, model = self._toy_model()
+        self.assertEqual(ranker.rank_queue([], model), [])
+        self.assertEqual(ranker.rank_queue_with_fallback([], model), [])
+
+    def test_sde_fallback_no_model(self):
+        rows, _ = self._toy_model()
+        ranked = ranker.rank_queue_with_fallback(rows, model=None)
+        sdes = [r["sde"] for r in ranked]
+        self.assertEqual(sdes, sorted(sdes, reverse=True))
+        self.assertEqual({r["tic"] for r in ranked},
+                         {r["tic"] for r in rows})
+
+    def test_sde_fallback_on_broken_model(self):
+        """A model that throws still yields an SDE-ordered queue."""
+
+        class Broken:
+            def predict_proba(self, X):
+                raise RuntimeError("boom")
+
+        rows, _ = self._toy_model()
+        ranked = ranker.rank_queue_with_fallback(rows, model=Broken())
+        sdes = [r["sde"] for r in ranked]
+        self.assertEqual(sdes, sorted(sdes, reverse=True))
+
+    def test_no_production_code_consumes_ranker(self):
+        """Grep-verified: no production module imports the ranker.
+
+        The ranker is an offline experiment. Only the experiment
+        script, the dataset builder, and the tests may touch it.
+        """
+        root = Path(__file__).resolve().parent.parent
+        allowed = {
+            root / "bulk" / "ranker.py",
+            root / "bulk" / "ranker_dataset.py",
+            root / "scripts" / "rank_experiment.py",
+        }
+        offenders = []
+        for path in root.rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            if path.parent.name == "tests":
+                continue
+            if path in allowed:
+                continue
+            text = path.read_text(errors="ignore")
+            for needle in ("bulk.ranker", "bulk import ranker",
+                           "ranker_dataset", "rank_experiment"):
+                if needle in text:
+                    offenders.append(f"{path.relative_to(root)}: "
+                                     f"{needle!r}")
+        self.assertEqual(offenders, [])
+
+    def test_desk_driver_takes_no_rank_input(self):
+        """The desk driver cannot be steered by rank output.
+
+        Parsed from source (ast) rather than imported — importing
+        gauntlet.desk pulls in the heavy MAST/astro stack, which
+        has no place in a fast offline test.
+        """
+        import ast
+
+        root = Path(__file__).resolve().parent.parent
+        tree = ast.parse((root / "gauntlet" / "desk.py").read_text())
+        funcs = {node.name: node for node in ast.walk(tree)
+                 if isinstance(node, ast.FunctionDef)}
+        classes = {node.name: node for node in ast.walk(tree)
+                   if isinstance(node, ast.ClassDef)}
+        self.assertIn("run_desk_gauntlet", funcs)
+        params = {a.arg for a in
+                  funcs["run_desk_gauntlet"].args.args}
+        self.assertNotIn("rank", params)
+        self.assertNotIn("score", params)
+        self.assertNotIn("ranker", params)
+        self.assertIn("Survivor", classes)
+        fields = {node.target.id for node in
+                  classes["Survivor"].body
+                  if isinstance(node, ast.AnnAssign)}
+        self.assertNotIn("rank", fields)
+        self.assertNotIn("score", fields)
+
+
 if __name__ == "__main__":
     unittest.main()

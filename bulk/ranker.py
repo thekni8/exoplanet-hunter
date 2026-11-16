@@ -410,3 +410,45 @@ def ranks_of(scores, mask):
     rank_of = np.empty(len(scores), dtype=int)
     rank_of[order] = np.arange(1, len(scores) + 1)
     return rank_of[np.asarray(mask, dtype=bool)]
+
+
+# ---------------------------------------------------------------------------
+# Rank-only enforcement (P3-19)
+# ---------------------------------------------------------------------------
+
+def rank_queue(rows, model):
+    """Reorder `rows` by P(planet-like) descending.
+
+    The output is a PERMUTATION of the input: same rows, same
+    count, new order. The ranker never adds, removes, or modifies
+    a row — it only orders. Input rows are not mutated.
+    """
+    if not rows:
+        return []
+    X = features_to_array(rows)
+    scores = planet_proba(model, X)
+    order = _rank_order(scores)
+    return [rows[i] for i in order]
+
+
+def rank_queue_sde(rows):
+    """SDE-order fallback: the queue ordered by SDE descending."""
+    order = _rank_order(sde_scores(rows))
+    return [rows[i] for i in order]
+
+
+def rank_queue_with_fallback(rows, model=None):
+    """Rank the queue, falling back to SDE order on any failure.
+
+    A ranker failure (no model, a scoring error) must never lose
+    the queue: the fallback is the SDE order the desk already
+    uses. The output is still a permutation of the input.
+    """
+    if not rows:
+        return []
+    if model is not None:
+        try:
+            return rank_queue(rows, model)
+        except Exception:  # noqa: BLE001 - any ranker failure
+            pass  # falls back to SDE order below
+    return rank_queue_sde(rows)

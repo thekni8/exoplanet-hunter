@@ -1973,3 +1973,121 @@ queue still exceeds desk capacity") is MET:
   decision gated on independent validation (P3-19's gate).
 
 P3-16–P3-19 dispatched next.
+
+## P3-16–P3-19 — 3A experimental ranker (offline experiment, 2026-11-16)
+
+**Status: COMPLETE.** The Stage 1 pre-desk bulk ranker is built,
+evaluated on the TIC-grouped test split, and enforced rank-only.
+It has NO production influence in Phase 3 (P3-19). Full
+evaluation: `phase3-vote/p3-18-ranker-eval.md` (+ `.json`).
+
+**P3-16 — Feature contract** (`bulk/ranker.py`,
+`docs/ranker-feature-contract.md`): Stage 1 is ten 1D screen
+features only (log SDE/MES/depth/max-event-SNR, odd_even_ratio,
+n_events, n_strong_events, three dimensionless ratios). One
+extractor for every population (feature symmetry by
+construction); fixed sentinels, never NaN; the real-data
+symmetry check shows all cross-class imputation gaps <= 0.01.
+Raw period/T0 absent entirely; tier excluded (baseline
+fairness); desk natives excluded from Stage 1. **Recorded gap:**
+duration-based features (incl. the implied-density ratio) and
+the fold sigmas (odd_even_sigma, phase_05_secondary_sigma,
+v_shape_metric) are NOT available — the campaign persists a
+reduced screen dict without duration_hours /
+secondary_depth_percent / v_ratio, and the VM has no
+light-curve cache. 3.1 item: persist the full screen record in
+future campaigns. No schema change (all features derive from
+existing schema fields). Stage 2 (post-desk) defined in writing
+only — not built (no desk natives for bulk survivors or
+injections; the full-desk-extractor alternative was rejected on
+cost for Phase 3).
+
+**P3-17 — Training design** (`bulk/ranker_dataset.py`):
+three-class (planet / astro_fp / instr_fp) with finer
+sub-labels from the campaign truth + the gauntlet LEDGER.
+1,806 rows (train 1,280, test 526); 419 recovered planet-like
+trials (412 planet + 7 pricing), 225 astro-FP (36 real EBs +
+43 injected EBs + 16 sinusoids + 130 gauntlet refuted), 1,162
+instr-FP (625 inverted-null + 456 random survivors + 81
+gauntlet instrumental). Random-survivor negatives included
+(weak labels — recorded). TIC-grouped splits (campaign host
+split anchors; memoised per-TIC assignment; asserted no TIC
+straddles). INCONCLUSIVE: none remain (asserted). No 3B-removed
+populations as negatives (1,630 P=20.0 + 4,081 cluster members
+excluded from the rescore pool; 1,189 + 3,252 from the null
+pool). No circular labels (campaign labels are injection
+truth; gauntlet labels come from desk stages, none of which
+are Stage 1 features). The 10 known planets in the rescore are
+held out of training entirely (TOI-700 c is not a rescore
+survivor). Class weights balanced on train. Effective n
+(train TICs): planet 67, astro_fp 153, instr_fp 745.
+
+**P3-18 — Baselines + EB evidence** (`scripts/rank_experiment.py`):
+test-split NDCG — **ranker 0.981 vs SDE-only 0.743 vs gates
+0.746 vs 5-feature logistic 0.855** (AP 0.901 vs 0.329 / 0.339 /
+0.495; Recall@Top-10% 0.510 vs 0.208 / 0.208 / 0.344). **All
+three baselines beaten by wide margins — R2 PASS.** Per-class
+recall: planet 0.844, astro_fp 0.463, instr_fp 0.873 (astro-FPs
+are confused with instr-FPs — the 1D features separate planets
+from FPs, not FP kinds). Ablation: odd_even_ratio and log_depth
+matter most (-0.021 NDCG each); SDE adds almost nothing beyond
+the combination (-0.001). Unseen-sector (train S96, score S95):
+NDCG 0.999 vs SDE 0.961 (S95 set is 84% planets — NDCG is the
+informative metric). Out-of-fold (5-fold, TIC-grouped): NDCG
+0.992; EBs median rank 819/1,806 (bottom half); per-SDE-bin EB
+ranks confirm Claude's concern — low-SDE EBs rank highest
+(SDE 12–24 median rank 441 vs SDE 53–100 median rank 1,188).
+Gemini's requirement: 0 batch-01 EBs in the top 25% (proxy —
+no phase-0.5 sigma is recorded for the batch-01 EBs, so the
+requirement as literally stated is untestable; the 4 rows with
+a recorded |sigma| > 10 all rank outside the top 25%).
+**Held-out validation: 7/10 known planets in the top decile —
+R3 PARTIAL.** The 3 misses (TOI-2384.01 rank 972, TOI-2624.01
+rank 1,081, TOI-4655.01 rank 2,418) are the 3 deepest held-out
+planets (2.87% / 1.79% / 1.49%); the campaign's planet depth
+grid caps at 1.0%, so the model learned "deep = FP". A
+training-data coverage gap, not a ranker defect — the 3.1 fix
+is planet injections across the full depth range. Untestable
+items recorded: the 18 v2 artifacts (no v3 records), TOI-700 c
+(not a rescore survivor), Gemini's phase-0.5 requirement as
+literally stated.
+
+**P3-19 — Rank-only enforcement:** permutation test passes
+(output is a permutation of the input — same rows, same count);
+SDE fallback works (no model / broken model -> SDE order);
+rank-advisory test passes (ranking mutates no row; the desk
+driver takes no rank/score input — verified by source parse);
+no production code path consumes ranker output (grep-verified
+test). The ranker orders, it does not reduce.
+
+### 3.1 promotion gate (3A) — recorded for 3.1 (P3-19, TB-1)
+
+Production deployment of the ranker is a 3.1 decision gated on
+ALL of the following (ChatGPT's condition + Claude's flip
+condition 3, from the Phase 3 vote):
+
+1. **Independent validation:** the ranker beats the gate
+   baseline out-of-fold on data it was not trained on —
+   including a sector it has never seen (the S97 validation
+   pass, P3-21, is the first such test; S98 stays locked for
+   the final blind evaluation).
+2. **Scale (Claude's flip condition 3):** ~10³ positives
+   across 100+ hosts + several sectors (Phase 3 has 419
+   recovered planets across 120 hosts in 2 sectors — the
+   positives are ~40% of the bar and the sectors are 2 of
+   "several").
+3. **Light-curve-only features** beating the gate baseline
+   out-of-fold (Phase 3: met on the test split and
+   out-of-fold — NDCG 0.981 / 0.992 vs gates 0.746).
+4. **The depth-coverage gap closed:** planet injections across
+   the full depth range (including >1%), with the held-out
+   known planets re-checked — R3 must reach 10/10 (or the
+   misses diagnosed and accepted) before production use.
+5. **The unavailable features resolved or waived:** duration /
+   fold-sigma features available symmetrically (full screen
+   record persisted in future campaigns) or explicitly waived
+   for the production feature set.
+
+Until all five are met, the ranker stays an offline experiment:
+it may order a queue for a human, it may never filter, veto, or
+promote a candidate on its own.
