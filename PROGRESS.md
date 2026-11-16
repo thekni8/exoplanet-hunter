@@ -2091,3 +2091,77 @@ condition 3, from the Phase 3 vote):
 Until all five are met, the ranker stays an offline experiment:
 it may order a queue for a human, it may never filter, veto, or
 promote a candidate on its own.
+
+## P3-21 — S97 validation: PREPPED, pending on the Mac (2026-11-16)
+
+**Status: preparation complete; the run waits for a free Mac
+slot.** The Mac is offline (last seen 2026-11-16 ~07:41 IST);
+the panel retry (P3-9) has priority when MAST recovers. The
+commands doc is
+`phase3-vote/p3-21-mac-commands.md` (exact commands, md5 gate,
+pre-flight, smoke, launch, resume, copy-back, scoring, S98
+verification). Nothing has been run on the Mac.
+
+**Design decisions (recorded — the doc carries the reasoning):**
+- The rescore uses `bulk/run_chunked.py --sector 97
+  --calibration bulk_v4 --skip-known-filter`, NOT the S96
+  `rescore_full_driver.py`: the driver screens via `_screen_one`
+  directly and emits survivors only, so it gets TWO-COMBINED but
+  NOT the merge-only epoch-cluster veto — a driver run would
+  silently measure a veto-less screen. run_chunked is the only
+  faithful bulk_v4 path.
+- `--skip-known-filter` by design: the merge-stage TOI/VSX joins
+  would remove the known S97 TOIs the ranker validation needs to
+  rank. The scored set is post-veto PRE-JOIN; the §8 report
+  counts the TOIs, so the post-join-equivalent count is still
+  derivable. No S97 vetting happens in Phase 3.
+- **The run-dir trap:** `bulk/run_s0097` holds the original v1
+  screen. run_chunked resumes from its checkpoint — if the v1
+  chunks are still there, the new run skips them and merges v1
+  slices under a v4 merge. The doc archives the old dir by
+  renaming (never deleting) before launch, and the launch log
+  must read `resuming: 0/29 slices already complete`.
+- **The scoring runs on the VM** (`scripts/score_sector.py`,
+  d3d64f8): the frozen model is reproduced by re-running the
+  committed P3-18 training procedure (same data, same seed —
+  the script imports rank_experiment.py's paths/split, it does
+  not re-implement them). Determinism PROVEN on the VM
+  (2026-11-16): scoring the S96 v3 rescore (4,692 rows, 24 s)
+  reproduced all 10 P3-18 held-out ranks EXACTLY (7/10 top
+  decile). The script refuses S98 by construction (filename +
+  record guards, tested) and records the git SHA + bulk_v4
+  registry sha256 in its report. 11 tests
+  (`tests/test_score_sector.py`), all passing.
+- Baselines: S97 v1 35,400 stars / 14,732 survivors; S96 v4
+  replay 734 (pre-join). Runtime estimate 30–60 min (null-run
+  anchor: 1,717 s / 36,075 stars, cache-only, 8 workers).
+- No tuning on S97 outcomes; the rescore runs once, the scoring
+  runs once; S98 stays locked (the doc's §9 verifies it three
+  ways).
+
+## P3-22 — Deferred-to-3.1 register (with re-attachment conditions)
+
+Everything the Phase 3 vote deferred, and the condition that
+re-attaches it. Nothing here is silently dropped — each item
+names its trigger. (Also recorded in GOAL.md.)
+
+| # | Deferred item | Re-attaches when |
+|---|---|---|
+| 1 | **P-1 real-TESS-cutout nulls** (TB-5) | Before relying on the pixel-check measurement path in production in 3.1 — build-entry requirement (ChatGPT's condition). |
+| 2 | **P-19 live A/B** (TB-5) | Before relying on the array-holdout measurement path in production in 3.1 — build-entry requirement (ChatGPT's condition). |
+| 3 | **P-12 full concordance replay** (TB-5) | In 3.1, as the concordance evidence for the automated desk (deferred 2/3; not a build-entry blocker like P-1/P-19). |
+| 4 | **Production ranker deployment** (TB-1) | When ALL FIVE conditions of the 3.1 promotion gate above (P3-19) are met — independent validation incl. an unseen sector, ~10³ positives / 100+ hosts / several sectors, light-curve-only features beating the gates out-of-fold, the depth-coverage gap closed, the unavailable features resolved or waived. Cross-reference, not duplicated: the gate is the authority. |
+| 5 | **SDE lowering** (Q9, 3/3) | A 3.1/4 question, decided on the measured precision/recall curve (P3-15) + the validated ranker. P3-11 evidence on file: SDE-8.0 costs 0 recovered planets; SDE-9.0/10.0 cost 1 (host 237955990, SDE 8.42). No lowered value is adopted in Phase 3. |
+| 6 | **CI macOS runner** (TB-3) | A 3.1-or-later decision; the spike is recorded in P3-8. |
+| 7 | **STP-excluded disposition** (TB-2) | Revisit in 3.1 on the known-planet panel's evidence (P3-9) — Gemini's LIKELY_PLANET_UNCONSTRAINED_STP was not adopted in Phase 3. |
+| 8 | **Full multi-sector ranker training** (ChatGPT's 3.1 list) | In 3.1, when the training set spans several sectors (feeds gate condition 2). |
+| 9 | **Model probability calibration** (ChatGPT's 3.1 list) | In 3.1, before ranker probabilities are shown to the desk as calibrated scores (Phase 3 reports ranks, not calibrated probabilities). |
+| 10 | **Automated rank-based queue orchestration** (ChatGPT's 3.1 list) | In 3.1, after the ranker validates (gate condition 1) — automation of the queue order, never of a veto. |
+| 11 | **Expanded contrast-curve integration** (ChatGPT's 3.1 list) | In 3.1, as more contrast curves become available (P3-9 B spike closed the general case: curves exist essentially only for TOIs via ExoFOP-TESS). |
+| 12 | **General P-3 RSS watchdog** (TB-6) | Rides with future tool infrastructure, beyond the nightly-scoped watchdog built in P3-8. |
+| 13 | **Dedicated long-period campaign** (Amendment A, P3-11) | In 3.1: ~1,400 trials → ~200 recovered 1–2-event planets, to measure the 1–2-event loss at the n ≥ 200 the adoption rule originally required (Phase 3 judged it on n=412 + a hard 0/16 point check instead). |
+| 14 | **PHASE-DEPTH odd/even investigation** | In 3.1: all 13 PHASE-DEPTH losses are odd_even_ratio = 0.000 exactly (n_events_found=2 with 3–4 injected) — a degenerate computation (the screen lost events), not alternating depths. Diagnose before any odd/even gate is adopted. |
+| 15 | **Epoch-cluster chaining diameter cap** | In 3.1: clusters 8/11/10 show union-find chaining in the P3-11 replay — evaluate a diameter cap on the veto's clustering before the veto is re-tuned. |
+| 16 | **TRICERATOPS timeout question** (TB-9) | In 3.1 (or when the nightly is scheduled): 1800 s vs Gemini's 2,700 s candidate. Evidence: the first nightly's WASP-29b run timed out at 1800 s on a slow TRILEGAL server (2026-11-16); WASP-29b's C-10 run already used 1,553 s (86% of budget). Decide from the timeout percentiles, not from one slow night. |
+| 17 | **Depth-coverage gap** (P3-18) | In 3.1, as promotion-gate condition 4: the campaign's planet depth grid caps at 1.0%, so the model learned "deep = FP" — the 3 deepest held-out planets missed the top decile (TOI-2384.01 rank 972 at 2.87%, TOI-2624.01 rank 1,081 at 1.79%, TOI-4655.01 rank 2,418 at 1.49%). Fix: planet injections across the full depth range, then re-check R3 to 10/10 (or diagnose + accept the misses). |
+| 18 | **Duration / fold-sigma features** (P3-16) | In 3.1, as promotion-gate condition 5: the implied-density ratio (duration / period^(1/3)) and the fold sigmas (odd_even_sigma, phase_05_secondary_sigma, v_shape_metric) are unavailable — the campaign persists a reduced screen dict (no duration_hours / secondary_depth_percent / v_ratio) and the VM has no light-curve cache. Fix: persist the full screen record in future campaigns, or explicitly waive them for the production feature set. |
