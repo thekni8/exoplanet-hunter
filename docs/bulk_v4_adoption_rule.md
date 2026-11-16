@@ -173,3 +173,51 @@ campaign prices its 1–2-event loss.
 exists.** Tonight's replay produces measurements; the adoption
 decision is a later step (P3-15, on the campaign's numbers +
 this rule), owned by the parent.
+
+---
+
+## Amendment A (2026-11-16, parent decision — the pre-registered text above is preserved verbatim)
+
+**What changed:** the n ≥ 200 floor in §2. The campaign
+(P3-10 v2, 2026-11-16) yielded **113 1–2-event planet trials /
+16 recovered**, not the "several hundred" the rule's §2
+reasoning (point 3) assumed. The floor's premise was wrong, so
+the floor as written is unmeasurable: at n = 16 recovered, even
+zero losses carry a 95% Wilson upper bound of 19.4%, and
+**every** candidate would be UNDECIDED forever on the rule as
+written — including gates with zero observed losses. That is a
+broken measuring instrument, not a safety result.
+
+**The amendment (parent decision 2026-11-16,
+phase3-vote/p3-11-decision.md §9):** §2's bar is now judged on
+the **full recovered-planet population (n = 412)** PLUS a hard
+**1–2-event point check of 0 losses among the 16** recovered
+1–2-event trials. The **5% / 10% bars are unchanged** — the
+point estimate must be ≤ 5% and the 95% Wilson upper bound
+≤ 10% on n = 412, and the 1–2-event check adds a stricter
+point condition (0/16) the original rule did not have. The
+amendment fixes an unmeasurable denominator and adds a
+stricter check — **it loosens nothing.**
+
+**What was rejected instead:** (a) judging §2 on all 113
+1–2-event trials (dilutes the loss by the 14.2% recovery
+factor — the denominator would include trials the screen never
+recovered, which no gate can lose); (b) a mixed-kind bin of
+n = 260 (pads the denominator with 147 non-planet trials —
+statistical padding). Both were considered and rejected in the
+decision doc.
+
+**Adoption under the amended rule (2026-11-16):** EPOCH-CLUSTER
++ TWO-COMBINED adopted (combined: 0/16 in-regime, 1/412
+overall — 0.24%, W95 1.4% — 0/7 pricing, 0 replay planet/EB
+losses; real 4,692 → 734, null floor 0.1085 → 0.0196).
+PHASE-DEPTH HELD (degenerate oe=0.000 computation — 3.1
+investigation). DEMOTE-SYS / DEMOTE-ALL REJECTED (DEMOTE-SYS
+eats real 13.2 d planets, 6/7 pricing). TWO-STRONG subsumed by
+TWO-COMBINED. SDE bars evidence-only (bulk 7.0 unchanged).
+
+**Still owed (3.1 rigor):** a dedicated long-period campaign
+to price the 1–2-event regime at n ≥ 200 recovered — the
+amendment makes the Phase 3 adoption measurable, it does not
+replace the large-n measurement the original rule wanted.
+Recorded in the 3.1 register (P3-22).
