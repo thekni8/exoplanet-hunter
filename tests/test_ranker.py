@@ -325,13 +325,21 @@ class TestRankOnlyEnforcement(unittest.TestCase):
         """Grep-verified: no production module imports the ranker.
 
         The ranker is an offline experiment. Only the experiment
-        script, the dataset builder, and the tests may touch it.
+        scripts (rank_experiment.py and the P3-21 validation
+        scorer score_sector.py), the dataset builder, and the
+        tests may touch it.
         """
         root = Path(__file__).resolve().parent.parent
         allowed = {
             root / "bulk" / "ranker.py",
             root / "bulk" / "ranker_dataset.py",
             root / "scripts" / "rank_experiment.py",
+            # P3-21: the frozen-ranker sector scorer is the
+            # validation pass of the same offline experiment —
+            # it reproduces the frozen model and writes an
+            # advisory ranking only. It is not a production
+            # module and no production code imports it.
+            root / "scripts" / "score_sector.py",
         }
         offenders = []
         for path in root.rglob("*.py"):
