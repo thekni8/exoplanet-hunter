@@ -31,6 +31,14 @@ Candidate gates (rule doc §3):
 Every candidate reports survivor reduction (counts + % by tier)
 AND per-class losses (known planets, gauntlet EBs, gauntlet
 refuted-other) — never reduction alone.
+
+P3-15: the adopted gates (TWO-COMBINED, EPOCH-CLUSTER) are
+implemented HERE and called by the screen (bulk_screen.py) —
+the screen does not re-implement them. The gate functions take
+their criterion as optional parameters defaulting to the
+frozen values below, so the screen can pass its
+profile-derived values while the replay (which always uses
+the defaults) reproduces the recorded P3-11 numbers exactly.
 """
 
 import json
@@ -100,15 +108,18 @@ def two_event_strong(row):
     return row["n_strong_events"] >= 2
 
 
-def two_event_combined(row):
+def two_event_combined(row, mes_bar=TIER_A_MES):
     """2-event rows need both events strong AND mes_pink >= 9.0.
 
     mes_pink is the combined (pink-noise) significance across
-    events; 9.0 reuses the frozen tier_a_mes bar.
+    events; 9.0 reuses the frozen tier_a_mes bar. `mes_bar` is
+    a parameter (default the frozen bar) so the screen can pass
+    its profile-derived tier_a_mes — the replay always uses the
+    default, so the recorded P3-11 numbers are unchanged.
     """
     if row["n_events"] != 2:
         return True
-    return row["n_strong_events"] >= 2 and row["mes_pink"] >= TIER_A_MES
+    return row["n_strong_events"] >= 2 and row["mes_pink"] >= mes_bar
 
 
 def phase_depth_consistent(row):
@@ -139,7 +150,8 @@ def demote_systematic(row):
 
 # --- epoch clustering (P3-13 criterion, whole survivor set) ------
 
-def epoch_clusters(rows):
+def epoch_clusters(rows, tol_p=CLUSTER_TOL_P,
+                   tol_t0_d=CLUSTER_TOL_T0_D):
     """Union-find clusters of rows sharing (P, T0) within 1% / 3 h.
 
     Returns a list of clusters (each a list of row indices),
@@ -147,6 +159,10 @@ def epoch_clusters(rows):
     symmetric form of P3-13's |pi-pj|/pi <= 1%: |pi-pj| <= 1%
     of the larger period (P3-13's form is order-dependent at
     the boundary; the symmetric form differs only there).
+    The tolerances are parameters (defaults the P3-13
+    criterion) so the screen can pass its profile values —
+    the replay always uses the defaults, so the recorded
+    P3-11 numbers are unchanged.
     """
     n = len(rows)
     parent = list(range(n))
@@ -168,8 +184,8 @@ def epoch_clusters(rows):
         pi, ti = periods[i], t0s[i]
         for j in range(i + 1, n):
             pj = periods[j]
-            if abs(pi - pj) <= CLUSTER_TOL_P * max(pi, pj) and \
-                    abs(ti - t0s[j]) <= CLUSTER_TOL_T0_D:
+            if abs(pi - pj) <= tol_p * max(pi, pj) and \
+                    abs(ti - t0s[j]) <= tol_t0_d:
                 union(i, j)
     groups = defaultdict(list)
     for i in range(n):
@@ -178,14 +194,19 @@ def epoch_clusters(rows):
                   key=len, reverse=True)
 
 
-def sector_epoch_cluster_tics(rows):
+def sector_epoch_cluster_tics(rows, tol_p=CLUSTER_TOL_P,
+                              tol_t0_d=CLUSTER_TOL_T0_D,
+                              min_size=CLUSTER_MIN_SIZE):
     """TICs in SECTOR_EPOCH_CLUSTERs: clusters of >20 stars.
 
     Returns (clustered_tics, clusters): the set of TICs in
     >20-star clusters and the list of those clusters (each a
-    list of TICs, largest first).
+    list of TICs, largest first). Parameters default to the
+    P3-13 criterion (see epoch_clusters).
     """
-    big = [c for c in epoch_clusters(rows) if len(c) >= CLUSTER_MIN_SIZE]
+    big = [c for c in epoch_clusters(rows, tol_p=tol_p,
+                                    tol_t0_d=tol_t0_d)
+           if len(c) >= min_size]
     clusters = [[rows[i]["tic"] for i in c] for c in big]
     clustered = {t for c in clusters for t in c}
     return clustered, clusters

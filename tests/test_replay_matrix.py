@@ -180,6 +180,44 @@ class TestEpochClusters(unittest.TestCase):
         self.assertEqual(len(clustered), 0)
 
 
+class TestGateParameters(unittest.TestCase):
+    """P3-15: the gate functions take their criterion as
+    parameters (defaults the frozen values) so the screen can
+    pass its profile values. Defaults reproduce the recorded
+    replay; non-defaults are live, not ignored."""
+
+    def test_two_combined_default_matches_frozen_bar(self):
+        row = _row(n_events=2, n_strong_events=2, mes_pink=9.0)
+        self.assertTrue(rm.two_event_combined(row))
+        self.assertTrue(rm.two_event_combined(row, mes_bar=9.0))
+        self.assertFalse(rm.two_event_combined(row, mes_bar=9.5))
+
+    def test_cluster_params_default_to_p3_13(self):
+        rows = [_row(tic=str(6000 + i), period_days=13.2,
+                     t0_btjd=3920.0, tier="B") for i in range(21)]
+        clustered, _ = rm.sector_epoch_cluster_tics(rows)
+        self.assertEqual(len(clustered), 21)
+        clustered, _ = rm.sector_epoch_cluster_tics(
+            rows, tol_p=0.01, tol_t0_d=0.125, min_size=21)
+        self.assertEqual(len(clustered), 21)
+        # Non-default min_size is live: 21 rows are not a
+        # >25-star cluster.
+        clustered, _ = rm.sector_epoch_cluster_tics(rows, min_size=26)
+        self.assertEqual(len(clustered), 0)
+        # Non-default tolerance is live: rows 0.1 d apart in T0
+        # chain into one cluster at the 3 h default (total span
+        # 2.0 d — union-find chaining, decision doc §6.2), but
+        # a 0.05 d window breaks every link.
+        rows = [_row(tic=str(7000 + i), period_days=13.2,
+                     t0_btjd=3920.0 + 0.1 * i, tier="B")
+                for i in range(21)]
+        clustered, _ = rm.sector_epoch_cluster_tics(rows)
+        self.assertEqual(len(clustered), 21)  # chained at 3 h
+        clustered, _ = rm.sector_epoch_cluster_tics(
+            rows, tol_t0_d=0.05)
+        self.assertEqual(len(clustered), 0)  # 0.1 d gaps break it
+
+
 class TestRunMatrix(unittest.TestCase):
     def test_sde_bars_report_reduction_without_mutating_rows(self):
         rows = [_row(tic=str(i), sde=float(sde))
