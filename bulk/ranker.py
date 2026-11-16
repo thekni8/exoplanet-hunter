@@ -43,6 +43,10 @@ and a 5-feature logistic regression.
 import math
 
 import numpy as np
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 # ---------------------------------------------------------------------------
 # Feature contract (P3-16)
@@ -235,3 +239,174 @@ def features_to_array(records):
          for r in records],
         dtype=float,
     )
+
+
+# ---------------------------------------------------------------------------
+# Model + baselines (P3-18)
+# ---------------------------------------------------------------------------
+
+# Class order for the 3-class model. Index 0 is the ranked class.
+CLASS_NAMES = ("planet", "astro_fp", "instr_fp")
+PLANET_INDEX = 0
+
+# The 5 features of the logistic-regression baseline (P3-18).
+LOGISTIC_FEATURES = (
+    "log_sde", "log_mes", "log_depth", "n_events",
+    "log_max_event_snr",
+)
+
+# Tier separation for the gate baseline: SDE tops out at ~168 in
+# this data, so +1000 puts every tier-A row above every tier-B
+# row while preserving the SDE order within each tier.
+_TIER_A_BONUS = 1000.0
+
+
+def train_ranker(X, y, sample_weight=None, random_state=20261116):
+    """Train the 3-class ranker (HistGradientBoosting).
+
+    `X` is the feature matrix, `y` the integer class labels
+    (0 = planet, 1 = astro_fp, 2 = instr_fp). Returns the fitted
+    model. Deterministic for a fixed random_state.
+    """
+    model = HistGradientBoostingClassifier(
+        max_iter=300, learning_rate=0.08, max_leaf_nodes=31,
+        min_samples_leaf=10, l2_regularization=0.1,
+        random_state=random_state)
+    model.fit(X, y, sample_weight=sample_weight)
+    return model
+
+
+def planet_proba(model, X):
+    """P(planet-like) for each row (the ranking score)."""
+    proba = model.predict_proba(X)
+    idx = list(model.classes_).index(PLANET_INDEX)
+    return proba[:, idx]
+
+
+def train_logistic(X, y, sample_weight=None, random_state=20261116):
+    """The 5-feature logistic-regression baseline (P3-18).
+
+    `X` is the FULL feature matrix — the five baseline features
+    are selected inside, so the caller passes the same matrix.
+    Standardised; deterministic.
+    """
+    cols = [FEATURE_NAMES.index(f) for f in LOGISTIC_FEATURES]
+    model = make_pipeline(
+        StandardScaler(),
+        LogisticRegression(max_iter=1000, class_weight="balanced",
+                           random_state=random_state))
+    model.fit(X[:, cols], y, logisticregression__sample_weight=sample_weight)
+    return model
+
+
+def logistic_planet_proba(model, X):
+    """P(planet-like) under the logistic baseline."""
+    cols = [FEATURE_NAMES.index(f) for f in LOGISTIC_FEATURES]
+    proba = model.predict_proba(X[:, cols])
+    idx = list(model.classes_).index(PLANET_INDEX)
+    return proba[:, idx]
+
+
+def sde_scores(records):
+    """SDE-only baseline scores (higher = more planet-like)."""
+    return np.array(
+        [_num(r.get("sde"), 0.0) or 0.0 for r in records], dtype=float)
+
+
+def gate_scores(records):
+    """Tier-B gates as a ranker (P3-18 baseline).
+
+    Tier A outranks tier B; SDE orders within each tier. The
+    tier-B gates (TWO-COMBINED + veto) demote rows out of the
+    queue — this baseline ranks the rows that remain, tier
+    first, SDE second. Rows with no tier (recorded, not
+    survivors) sort below tier B.
+    """
+    out = []
+    for r in records:
+        sde = _num(r.get("sde"), 0.0) or 0.0
+        tier = r.get("tier")
+        if tier == "A":
+            out.append(sde + _TIER_A_BONUS)
+        elif tier == "B":
+            out.append(sde)
+        else:
+            out.append(sde - _TIER_A_BONUS)
+    return np.array(out, dtype=float)
+
+
+# ---------------------------------------------------------------------------
+# Ranking metrics (P3-18) — pure functions over (y_true, scores)
+# ---------------------------------------------------------------------------
+
+def _rank_order(scores):
+    """Indices that sort scores descending (ties: stable order)."""
+    return np.argsort(-np.asarray(scores), kind="stable")
+
+
+def recall_at_k(y_true, scores, k):
+    """Fraction of positives ranked in the top k positions."""
+    y = np.asarray(y_true, dtype=bool)
+    n_pos = int(y.sum())
+    if n_pos == 0 or k <= 0:
+        return 0.0
+    order = _rank_order(scores)[:k]
+    return float(y[order].sum()) / n_pos
+
+
+def recall_at_fraction(y_true, scores, fraction):
+    """Fraction of positives ranked in the top `fraction` of rows."""
+    n = len(y_true)
+    k = max(1, int(round(n * fraction)))
+    return recall_at_k(y_true, scores, k)
+
+
+def ndcg(y_true, scores):
+    """Normalised discounted cumulative gain (binary relevance)."""
+    y = np.asarray(y_true, dtype=float)
+    order = _rank_order(scores)
+    gains = y[order]
+    discounts = 1.0 / np.log2(np.arange(2, len(y) + 2))
+    dcg = float(np.sum(gains * discounts))
+    ideal = np.sort(y)[::-1]
+    idcg = float(np.sum(ideal * discounts))
+    return dcg / idcg if idcg > 0 else 0.0
+
+
+def average_precision(y_true, scores):
+    """Average precision (area under the precision-recall curve)."""
+    y = np.asarray(y_true, dtype=bool)
+    n_pos = int(y.sum())
+    if n_pos == 0:
+        return 0.0
+    order = _rank_order(scores)
+    ranked = y[order]
+    hits = np.cumsum(ranked)
+    precision_at_hit = hits[ranked] / (np.flatnonzero(ranked) + 1)
+    return float(precision_at_hit.sum()) / n_pos
+
+
+def confusion_3class(y_true, y_pred):
+    """3x3 confusion matrix (rows = true, cols = predicted)."""
+    mat = np.zeros((3, 3), dtype=int)
+    for t, p in zip(y_true, y_pred):
+        mat[int(t), int(p)] += 1
+    return mat
+
+
+def per_class_recall(y_true, y_pred):
+    """Per-class recall from the 3-class confusion matrix."""
+    mat = confusion_3class(y_true, y_pred)
+    out = {}
+    for i, name in enumerate(CLASS_NAMES):
+        denom = mat[i].sum()
+        out[name] = float(mat[i, i]) / denom if denom else 0.0
+    return out
+
+
+def ranks_of(scores, mask):
+    """1-based ranks (1 = top) of the masked rows under `scores`."""
+    order = _rank_order(scores)
+    rank_of = np.empty(len(scores), dtype=int)
+    rank_of[order] = np.arange(1, len(scores) + 1)
+    return rank_of[np.asarray(mask, dtype=bool)]

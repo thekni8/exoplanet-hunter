@@ -153,5 +153,114 @@ class TestFeatureContract(unittest.TestCase):
         self.assertAlmostEqual(arr[1, 0], math.log10(10.0))
 
 
+class TestModelAndBaselines(unittest.TestCase):
+    """P3-18: the 3-class model + the three baselines."""
+
+    def _toy_data(self, n=60, seed=1):
+        """Separable toy data: planets high-SDE + high-MES."""
+        rng = np.random.RandomState(seed)
+        rows, y = [], []
+        for i in range(n):
+            planet = i % 3 == 0
+            rows.append(_record(
+                sde=30.0 if planet else 10.0,
+                mes_pink=25.0 if planet else 8.0,
+                depth_percent=0.5 if planet else 2.0,
+                n_events=4 if planet else 2))
+            y.append(0 if planet else (1 if i % 3 == 1 else 2))
+        return rows, np.array(y)
+
+    def test_train_ranker_and_proba(self):
+        rows, y = self._toy_data()
+        X = ranker.features_to_array(rows)
+        model = ranker.train_ranker(X, y)
+        proba = ranker.planet_proba(model, X)
+        self.assertEqual(proba.shape, (len(rows),))
+        self.assertTrue(np.all((proba >= 0) & (proba <= 1)))
+        # Planets score above non-planets on separable toy data.
+        self.assertGreater(proba[y == 0].mean(),
+                           proba[y != 0].mean())
+
+    def test_logistic_baseline(self):
+        rows, y = self._toy_data()
+        X = ranker.features_to_array(rows)
+        model = ranker.train_logistic(X, y)
+        proba = ranker.logistic_planet_proba(model, X)
+        self.assertEqual(proba.shape, (len(rows),))
+        self.assertTrue(np.all((proba >= 0) & (proba <= 1)))
+
+    def test_sde_scores(self):
+        scores = ranker.sde_scores(
+            [_record(sde=10.0), _record(sde=30.0)])
+        self.assertEqual(list(scores), [10.0, 30.0])
+
+    def test_gate_scores_tier_then_sde(self):
+        """Tier A outranks tier B at any SDE; SDE within tier."""
+        rows = [
+            _record(sde=50.0, tier="B"),
+            _record(sde=8.0, tier="A"),
+            _record(sde=20.0, tier="B"),
+            _record(sde=9.0, tier=None),
+        ]
+        scores = ranker.gate_scores(rows)
+        self.assertGreater(scores[1], scores[0])  # A/8 > B/50
+        self.assertGreater(scores[0], scores[2])  # B/50 > B/20
+        self.assertGreater(scores[2], scores[3])  # B/20 > no-tier
+
+
+class TestMetrics(unittest.TestCase):
+    """P3-18: ranking metrics on hand-computed cases."""
+
+    def test_recall_at_k(self):
+        y = [1, 0, 1, 0, 0]
+        scores = [0.9, 0.8, 0.7, 0.6, 0.5]
+        self.assertEqual(ranker.recall_at_k(y, scores, 2), 0.5)
+        self.assertEqual(ranker.recall_at_k(y, scores, 3), 1.0)
+        self.assertEqual(ranker.recall_at_k(y, scores, 0), 0.0)
+        self.assertEqual(ranker.recall_at_k([0, 0], scores[:2], 2), 0.0)
+
+    def test_recall_at_fraction(self):
+        y = [1, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+        scores = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0]
+        # Top 20% = top 2 rows -> 1 of 2 positives.
+        self.assertEqual(ranker.recall_at_fraction(y, scores, 0.2), 0.5)
+
+    def test_ndcg(self):
+        y = [1, 1, 0, 0]
+        self.assertEqual(
+            ranker.ndcg(y, [0.9, 0.8, 0.7, 0.6]), 1.0)
+        self.assertLess(
+            ranker.ndcg(y, [0.6, 0.7, 0.8, 0.9]), 1.0)
+        self.assertEqual(ranker.ndcg([0, 0], [0.9, 0.8]), 0.0)
+
+    def test_average_precision(self):
+        y = [1, 1, 0, 0]
+        self.assertEqual(
+            ranker.average_precision(y, [0.9, 0.8, 0.7, 0.6]), 1.0)
+        ap = ranker.average_precision(y, [0.6, 0.9, 0.8, 0.7])
+        # Ranked y = [1, 0, 0, 1]: hits at positions 1 and 4.
+        self.assertAlmostEqual(ap, (1.0 + 0.5) / 2.0)
+
+    def test_confusion_and_per_class_recall(self):
+        y_true = [0, 0, 1, 1, 2, 2]
+        y_pred = [0, 1, 1, 2, 2, 0]
+        mat = ranker.confusion_3class(y_true, y_pred)
+        self.assertEqual(mat[0, 0], 1)
+        self.assertEqual(mat[0, 1], 1)
+        self.assertEqual(mat[1, 1], 1)
+        self.assertEqual(mat[1, 2], 1)
+        self.assertEqual(mat[2, 2], 1)
+        self.assertEqual(mat[2, 0], 1)
+        recall = ranker.per_class_recall(y_true, y_pred)
+        self.assertEqual(recall["planet"], 0.5)
+        self.assertEqual(recall["astro_fp"], 0.5)
+        self.assertEqual(recall["instr_fp"], 0.5)
+
+    def test_ranks_of(self):
+        scores = [0.5, 0.9, 0.7]
+        ranks = ranker.ranks_of(scores, [True, False, True])
+        self.assertEqual(list(ranks), [3, 2])
+
+
 if __name__ == "__main__":
     unittest.main()
