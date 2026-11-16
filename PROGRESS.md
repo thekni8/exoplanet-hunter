@@ -2095,8 +2095,10 @@ promote a candidate on its own.
 ## P3-21 — S97 validation: PREPPED, pending on the Mac (2026-11-16)
 
 **Status: preparation complete; the run waits for a free Mac
-slot.** The Mac is offline (last seen 2026-11-16 ~07:41 IST);
-the panel retry (P3-9) has priority when MAST recovers. The
+slot.** The panel retry (P3-9) launched 2026-11-16 08:31 IST via
+the S3 QLP fallback (Dev's go; the MAST probe cron was disabled
+before launch) — the rescore starts only when the panel is done
+(§2a no-concurrency check enforces it). The
 commands doc is
 `phase3-vote/p3-21-mac-commands.md` (exact commands, md5 gate,
 pre-flight, smoke, launch, resume, copy-back, scoring, S98
@@ -2138,6 +2140,24 @@ verification). Nothing has been run on the Mac.
 - No tuning on S97 outcomes; the rescore runs once, the scoring
   runs once; S98 stays locked (the doc's §9 verifies it three
   ways).
+- **Smoke-test design (corrected during prep):** a small
+  run_chunked run via `--limit-ids` does NOT work — limit_ids
+  is a window-build-time cap recorded in the window file, and
+  `_verify_window` refuses a run-time mismatch (the S97 window
+  was built with limit_ids null). The doc's §3 is instead a
+  two-part smoke: direct bulk_screen.py on 5 cached stars under
+  bulk_v4, plus the veto function on a synthetic 25-star
+  cluster (verified on the VM: 25 tier-B demoted, 1 tier-A
+  flagged and kept).
+- **Verification (2026-11-16):** smoke tier 200/200 PASS; full
+  offline suite 891/891 PASS (skipped=2, expected failures=1).
+  The first full run failed on exactly one test —
+  `test_no_production_code_consumes_ranker` — because the new
+  scorer imports the ranker; fixed in 22a1e40 by adding
+  score_sector.py to the test's allowlist (it is an offline
+  experiment script, not a production module; no production
+  file imports it, grep-verified; the assertion itself is
+  unchanged).
 
 ## P3-22 — Deferred-to-3.1 register (with re-attachment conditions)
 
