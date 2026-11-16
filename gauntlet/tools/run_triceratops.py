@@ -69,19 +69,36 @@ TRICERATOPS specifics, verified against the 1.1.0 source:
   evidence is preserved; the ADAPTER maps degenerate to
   UNMEASURED + EXEC_ERROR.
 * N=1,000,000 is the tool default (the published cost,
-  ~5–15 min/target). There is no nested timeout: calc_probs
-  is a blocking in-process call, so the RUNNER's timeout
-  (1800 s) is the enforcement — the wrapper is killed, and
-  the stage reads UNMEASURED.
-* PROVENANCE LIMIT (P-4): inside calc_probs the tool
-  fetches neighbour-star data and TRILEGAL simulations
-  from remote catalogs — the wrapper cannot hash what it
-  does not download through its own code path, so
-  input_hashes cover only the files the pipeline handed
-  the tool (light curve + census). The seed +
-  tool_version + policy_version make the run reproducible
-  in principle, but a remote catalog change could move
-  the number; the record does not pretend otherwise.
+  ~5–15 min/target). calc_probs is a blocking in-process
+  call, so the RUNNER's timeout is the enforcement for
+  the compute — the wrapper is killed, and the stage
+  reads UNMEASURED. The NETWORK phases are different:
+  the tool's remote calls (MAST TIC cone, Gaia TAP,
+  per-sector TessCut) carry no timeout of their own, and
+  on 2026-11-16 a WASP-29b run sat 50 minutes in a
+  blocking SSL read on a MAST connection (7 s of CPU in
+  50 min of wall) until the runner's cap killed it. The
+  wrapper therefore bounds every socket read
+  (socket.setdefaulttimeout, 300 s) and the target build
+  (a SIGALRM phase budget, 600 s, retried once), and
+  records per-phase seconds in metrics.phase_seconds
+  plus a timestamped phase_log.txt in the workdir — so
+  the next stall fails fast and names its phase instead
+  of burning the whole cap in silence.
+* PROVENANCE LIMIT (P-4): inside target construction
+  the tool fetches neighbour-star data from MAST and a
+  background-star population from Gaia DR3 (the 1.1.0
+  default; TRILEGAL only when explicitly requested) —
+  the wrapper cannot hash what it does not download
+  through its own code path, so input_hashes cover only
+  the files the pipeline handed the tool (light curve +
+  census). The seed + tool_version + policy_version make
+  the run reproducible in principle, but a remote
+  catalog change could move the number; the record does
+  not pretend otherwise. When a Gaia background CSV the
+  tool itself wrote for this target is already on disk,
+  the wrapper passes it as trilegal_fname so a retry
+  skips the live Gaia query with identical data.
 * The per-scenario probability table is saved as
   triceratops_probs.csv in the run workdir (evidence
   artifact). No corner plot in v1.
@@ -92,8 +109,11 @@ non-zero exit means the wrapper itself crashed before
 writing one.
 """
 import argparse
+import contextlib
 import json
 import os
+import signal
+import socket
 import sys
 import time
 
@@ -106,6 +126,20 @@ SEARCH_RADIUS_PX = 10
 # window around mid-transit.
 N_FOLD_BINS = 200
 FOLD_WINDOW_DURATIONS = 3.0
+# Network resilience (2026-11-16): the tool's remote calls
+# carry no timeout of their own — a stalled call waits
+# forever and only the runner's cap ends it. The wrapper
+# bounds every socket read AND the target build, and
+# retries a stalled build once. Budgets are generous
+# against healthy runs (a normal target init is a few
+# minutes) and overridable by environment for tests.
+SOCKET_TIMEOUT_S = 300
+TARGET_INIT_TIMEOUT_S = 600
+TARGET_INIT_ATTEMPTS = 2
+# The repo root, for finding a cached Gaia population CSV
+# the tool itself wrote on an earlier run.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
 # Planet scenarios in the tool's naming (FPP = 1 - their sum,
 # per the tool's own definition).
 PLANET_SCENARIOS = ("TP", "PTP", "DTP")
@@ -125,6 +159,71 @@ def _installed_version(fallback):
         return fallback, ("could not read the installed "
                           "triceratops version; reporting the "
                           "input's expected version")
+
+
+class _PhaseTimeout(TimeoutError):
+    """A named tool phase ran past its budget."""
+
+    def __init__(self, phase, budget_s):
+        super().__init__(f"{phase} timed out after "
+                         f"{budget_s}s")
+        self.phase = phase
+        self.budget_s = budget_s
+
+
+@contextlib.contextmanager
+def _phase_timeout(phase, budget_s):
+    """Raise _PhaseTimeout if the phase runs longer than
+    budget_s. SIGALRM-based: it interrupts blocking
+    socket reads, which is the failure mode the tool's
+    own calls have no defence against (a library that
+    sets its own socket timeout defeats setdefaulttimeout,
+    but nothing defeats the alarm). No-op on platforms
+    without SIGALRM, and with a non-positive budget."""
+    if budget_s is None or budget_s <= 0:
+        yield
+        return
+    if not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    def _handler(signum, frame):
+        raise _PhaseTimeout(phase, budget_s)
+
+    old_handler = signal.signal(signal.SIGALRM, _handler)
+    old_timer = signal.getitimer(signal.ITIMER_REAL)
+    signal.setitimer(signal.ITIMER_REAL, budget_s)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, old_timer[0],
+                         old_timer[1])
+        signal.signal(signal.SIGALRM, old_handler)
+
+
+def _env_int(name, default):
+    """An integer environment override, or the default
+    when unset or unparsable."""
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _cached_gaia_population(tic_id):
+    """A Gaia background CSV the tool itself wrote for
+    this target (same defaults every run), if one is on
+    disk: passing it as trilegal_fname skips the live
+    Gaia query with identical data. Looks in the working
+    directory first, then the repo root (the tool writes
+    the file to its cwd, which is the repo root for the
+    nightly and panel drivers)."""
+    name = f"{tic_id}_gaia_background.csv"
+    for path in (os.path.join(os.getcwd(), name),
+                 os.path.join(REPO_ROOT, name)):
+        if os.path.isfile(path) and os.path.getsize(path) > 0:
+            return path
+    return None
 
 
 def _robust_sigma(values):
@@ -215,7 +314,7 @@ def _output(tool_version, seed, config_hash, status, value,
 
 
 def _null_metrics(dilution_corrected, contrast_curve_used,
-                  n_fold_points=None):
+                  n_fold_points=None, phase_seconds=None):
     return {
         "fpp": None, "nfpp": None, "prob_planet": None,
         "prob_eb_target": None, "prob_eb_neighbour": None,
@@ -225,6 +324,7 @@ def _null_metrics(dilution_corrected, contrast_curve_used,
         "dilution_corrected": dilution_corrected,
         "contrast_curve_used": contrast_curve_used,
         "n_fold_points": n_fold_points,
+        "phase_seconds": phase_seconds,
     }
 
 
@@ -272,15 +372,34 @@ def run(input_path, output_path):
     # P-15: the fold-point count, known once the curve is
     # binned; failure records carry it when it is known.
     n_fold_points = None
+    # Network-resilience record: per-phase wall seconds
+    # (partial when a phase never started) and a
+    # timestamped phase log that survives even if the
+    # runner kills this process mid-run.
+    phase_seconds = {}
+    phase_log_path = os.path.join(workdir, "phase_log.txt")
+
+    def _log_phase(msg):
+        line = (f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} "
+                f"{msg}")
+        print(line, flush=True)
+        try:
+            with open(phase_log_path, "a") as fh:
+                fh.write(line + "\n")
+        except OSError:
+            pass
 
     def _failed(reason):
         warnings.append(reason)
+        artifacts = ([phase_log_path]
+                     if os.path.exists(phase_log_path) else [])
         return _output(
             tool_version, seed, config_hash, "failed", None,
             _null_metrics(dilution_corrected,
                           contrast_curve_used,
-                          n_fold_points),
-            input_hashes, [], warnings,
+                          n_fold_points,
+                          phase_seconds or None),
+            input_hashes, artifacts, warnings,
             time.monotonic() - start, n_transits)
 
     # ---- phase-fold the stitched light curve -------------------
@@ -320,17 +439,88 @@ def run(input_path, output_path):
     except ImportError as exc:
         return _failed(f"triceratops is not importable in "
                        f"this venv: {exc}")
+    # Network resilience: bound every socket read (a
+    # stalled socket raises after this long with no bytes;
+    # a flowing download is unaffected), and make stdout
+    # line-buffered so the tool's own per-sector prints
+    # land in the log live instead of dying in the buffer
+    # when the process is killed.
+    socket_timeout_s = _env_int("TRICERATOPS_SOCKET_TIMEOUT_S",
+                                SOCKET_TIMEOUT_S)
+    init_timeout_s = _env_int("TRICERATOPS_INIT_TIMEOUT_S",
+                              TARGET_INIT_TIMEOUT_S)
+    init_attempts = max(1, _env_int(
+        "TRICERATOPS_INIT_ATTEMPTS", TARGET_INIT_ATTEMPTS))
+    socket.setdefaulttimeout(socket_timeout_s)
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+    _log_phase(f"network budgets: socket_timeout="
+               f"{socket_timeout_s}s target_init="
+               f"{init_timeout_s}s x{init_attempts} attempt(s)")
+    # Target construction is the network phase (MAST TIC
+    # cone + Gaia background + one TessCut fetch per
+    # sector) and the phase that hung on 2026-11-16, so it
+    # gets the alarm and the retry; a non-network error
+    # still fails fast with no retry.
+    trilegal_fname = _cached_gaia_population(tic)
+    if trilegal_fname:
+        _log_phase("reusing cached Gaia population "
+                   f"{trilegal_fname}")
+    tgt = None
+    last_error = None
+    for attempt in range(1, init_attempts + 1):
+        np.random.seed(seed)
+        _log_phase(f"target_init attempt {attempt}/"
+                   f"{init_attempts} (TIC {tic}, sectors "
+                   f"{sectors})")
+        t_init = time.monotonic()
+        try:
+            with _phase_timeout("target_init", init_timeout_s):
+                tgt = target(ID=int(tic),
+                             sectors=np.array(sectors),
+                             search_radius=SEARCH_RADIUS_PX,
+                             trilegal_fname=trilegal_fname)
+        except _PhaseTimeout as exc:
+            last_error = str(exc)
+            _log_phase(f"target_init attempt {attempt} "
+                       f"TIMED OUT after {exc.budget_s}s")
+            continue
+        except (TimeoutError, ConnectionError,
+                OSError) as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+            _log_phase(f"target_init attempt {attempt} "
+                       f"network error: {last_error}")
+            continue
+        except Exception as exc:  # noqa: BLE001 - non-network
+            return _failed(f"target construction raised "
+                           f"{type(exc).__name__}: {exc}")
+        phase_seconds["target_init"] = time.monotonic() - t_init
+        _log_phase(f"target_init attempt {attempt} done in "
+                   f"{phase_seconds['target_init']:.1f}s")
+        break
+    if tgt is None:
+        return _failed(f"target construction failed after "
+                       f"{init_attempts} attempt(s): "
+                       f"{last_error}")
     np.random.seed(seed)
     try:
-        tgt = target(ID=int(tic), sectors=np.array(sectors),
-                     search_radius=SEARCH_RADIUS_PX)
+        t_phase = time.monotonic()
         tgt.calc_depths(tdepth=depth_frac,
                         dilution_corrected=dilution_corrected)
+        phase_seconds["calc_depths"] = time.monotonic() - t_phase
+        _log_phase(f"calc_depths done in "
+                   f"{phase_seconds['calc_depths']:.1f}s")
+        t_phase = time.monotonic()
         tgt.calc_probs(ph_bin, f_bin, flux_err, P_orb=period,
                        contrast_curve_file=cc_path,
                        N=n_samples, exptime=cadence_s / 86400.0,
                        nsamples=20, verbose=0,
                        dilution_corrected=dilution_corrected)
+        phase_seconds["calc_probs"] = time.monotonic() - t_phase
+        _log_phase(f"calc_probs done in "
+                   f"{phase_seconds['calc_probs']:.1f}s")
     except Exception as exc:  # noqa: BLE001 - tool failure
         return _failed(f"TRICERATOPS raised "
                        f"{type(exc).__name__}: {exc}")
@@ -352,6 +542,8 @@ def run(input_path, output_path):
     except Exception:  # noqa: BLE001 - evidence write failure
         artifacts = []
         warnings.append("could not write the scenario table")
+    if os.path.exists(phase_log_path):
+        artifacts.append(phase_log_path)
     metrics = {
         "fpp": fpp, "nfpp": nfpp,
         "prob_planet": 1.0 - fpp,
@@ -367,6 +559,7 @@ def run(input_path, output_path):
         "dilution_corrected": dilution_corrected,
         "contrast_curve_used": contrast_curve_used,
         "n_fold_points": n_fold_points,
+        "phase_seconds": phase_seconds,
     }
     return _output(tool_version, seed, config_hash, "completed",
                    fpp, metrics, input_hashes, artifacts,

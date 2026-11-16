@@ -265,7 +265,7 @@ class TestTriceratopsResult(unittest.TestCase):
 
 
 FAKE_TRI = textwrap.dedent("""\
-    import json, os
+    import json, os, socket, time
     import numpy as np
     import pandas as pd
 
@@ -283,7 +283,28 @@ FAKE_TRI = textwrap.dedent("""\
         def __init__(self, ID, sectors, search_radius=10,
                      **kw):
             _obs(ID=int(ID), sectors=[int(s) for s in sectors],
-                 search_radius=int(search_radius))
+                 search_radius=int(search_radius),
+                 trilegal_fname=kw.get("trilegal_fname"),
+                 socket_timeout=socket.getdefaulttimeout())
+            behaviour = os.environ.get(
+                "FAKE_TRI_BEHAVIOUR", "planet")
+            if behaviour == "hang_init":
+                time.sleep(5)
+            if behaviour == "flaky_init":
+                state_path = os.path.join(
+                    os.path.dirname(
+                        os.environ.get("FAKE_TRI_OBS", "")),
+                    "init_attempts.txt")
+                count = 0
+                if os.path.exists(state_path):
+                    count = int(open(state_path).read())
+                count += 1
+                open(state_path, "w").write(str(count))
+                failures = int(os.environ.get(
+                    "FAKE_TRI_INIT_FAILURES", "0"))
+                if count <= failures:
+                    raise ConnectionError(
+                        "simulated MAST stall")
             self.ID = ID
             self.sectors = sectors
             self.FPP_degenerate = False
@@ -382,7 +403,8 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
         return str(fakevenv)
 
     def _run_wrapper(self, tmp, fakevenv, inp,
-                     behaviour="planet"):
+                     behaviour="planet", cwd=None,
+                     extra_env=None):
         work = Path(tmp) / "work"
         work.mkdir(exist_ok=True)
         input_path = work / "input.json"
@@ -394,10 +416,13 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
             "PYTHONPATH", "")
         env["FAKE_TRI_OBS"] = obs_path
         env["FAKE_TRI_BEHAVIOUR"] = behaviour
+        if extra_env:
+            env.update(extra_env)
         proc = subprocess.run(
             [sys.executable, WRAPPER, "--input", str(input_path),
              "--output", str(output_path)],
-            capture_output=True, text=True, env=env, timeout=120)
+            capture_output=True, text=True, env=env, timeout=120,
+            cwd=cwd)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         out = json.loads(output_path.read_text())
         obs = (json.loads(Path(obs_path).read_text())
@@ -533,6 +558,79 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
             self.assertEqual(out["status"], "failed")
             self.assertTrue(any("not importable" in w
                                 for w in out["warnings"]))
+
+    def test_hang_init_fails_fast_with_phase_named(self):
+        # 2026-11-16: a stalled target build must fail fast
+        # and name its phase — not burn the runner's cap in
+        # silence. The fake hangs 5 s per attempt; the 1 s
+        # phase budget fires twice and the wrapper gives up.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            _w, out, _obs = self._run_wrapper(
+                tmp, fakevenv, _input_dict(tmp),
+                behaviour="hang_init",
+                extra_env={"TRICERATOPS_INIT_TIMEOUT_S": "1",
+                           "TRICERATOPS_INIT_ATTEMPTS": "2"})
+            self.assertEqual(out["status"], "failed")
+            self.assertTrue(any("target_init" in w
+                                for w in out["warnings"]))
+            self.assertTrue(any("2 attempt" in w
+                                for w in out["warnings"]))
+            self.assertLess(out["wall_time_s"], 20)
+            validate_triceratops_output(out)
+            log = Path(tmp) / "work" / "phase_log.txt"
+            self.assertTrue(log.exists())
+            self.assertIn("TIMED OUT", log.read_text())
+
+    def test_flaky_init_retries_and_completes(self):
+        # One stalled attempt, then success: the retry
+        # recovers the target instead of failing the run.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            _w, out, _obs = self._run_wrapper(
+                tmp, fakevenv, _input_dict(tmp),
+                behaviour="flaky_init",
+                extra_env={"FAKE_TRI_INIT_FAILURES": "1"})
+            self.assertEqual(out["status"], "completed")
+            self.assertEqual(out["value"], 0.0032)
+            log = Path(tmp) / "work" / "phase_log.txt"
+            text = log.read_text()
+            self.assertIn("attempt 1 network error", text)
+            self.assertIn("attempt 2 done", text)
+
+    def test_cached_gaia_population_passed(self):
+        # A Gaia CSV the tool itself wrote for this target
+        # is passed as trilegal_fname, so a retry skips the
+        # live Gaia query with identical data.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            csv_path = (Path(tmp)
+                        / "423498314_gaia_background.csv")
+            csv_path.write_text("ID,Tmag\n423498314,13.45\n")
+            _w, out, obs = self._run_wrapper(
+                tmp, fakevenv, _input_dict(tmp), cwd=tmp)
+            self.assertEqual(out["status"], "completed")
+            self.assertEqual(obs["trilegal_fname"],
+                             str(csv_path))
+
+    def test_phase_seconds_and_socket_timeout_recorded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            _w, out, obs = self._run_wrapper(
+                tmp, fakevenv, _input_dict(tmp),
+                extra_env={"TRICERATOPS_SOCKET_TIMEOUT_S": "42"})
+            self.assertEqual(out["status"], "completed")
+            self.assertEqual(obs["socket_timeout"], 42)
+            phases = out["metrics"]["phase_seconds"]
+            self.assertEqual(set(phases),
+                             {"target_init", "calc_depths",
+                              "calc_probs"})
+            self.assertTrue(all(v >= 0 for v in phases.values()))
+            validate_triceratops_output(out)
+            log = Path(tmp) / "work" / "phase_log.txt"
+            self.assertIn("target_init attempt 1 done",
+                          log.read_text())
+            self.assertIn(str(log), out["artifacts"])
 
 
 class TestBinFold(unittest.TestCase):
