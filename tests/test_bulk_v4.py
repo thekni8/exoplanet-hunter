@@ -1,14 +1,15 @@
-"""Golden-suite skeleton for bulk_v4 (Phase 3, P3-15).
+"""Golden-suite tests for bulk_v4 (Phase 3, P3-15).
 
-bulk_v4 is a SCAFFOLD: all bulk_v3 gates carried over verbatim,
-plus the P3-14 grid-edge floor constants. The tier-B tightening
-gates land only after the P3-11 replay matrix reports and the
-pre-registered adoption rule clears them against the P3-10
-campaign loss measurement. These tests pin the scaffold state —
-status provisional, gates identical to v3, frozen profiles
-byte-identical — so the gate-landing change is a deliberate,
-reviewed update to this file in its own commit, not a silent
-drift.
+bulk_v4 is ACTIVE (2026-11-16, P3-15 gate landing): all bulk_v3
+gates carried over verbatim, plus the P3-14 grid-edge floor
+constants, plus the two tier-B gates the P3-11 decision adopted
+(parent 2026-11-16, Amendment A approved) — EPOCH-CLUSTER +
+TWO-COMBINED. PHASE-DEPTH is held, DEMOTE-SYS/DEMOTE-ALL
+rejected, SDE bars unchanged. These tests pin the landed state
+— status active, gates as decided, frozen profiles
+byte-identical — so a later drift is a deliberate, reviewed
+update, not a silent change. The gate BEHAVIOUR tests live in
+test_bulk_v4_gates.py; this file pins the profile shape.
 
 Offline, no downloads.
 """
@@ -49,12 +50,15 @@ FROZEN = {
 
 
 class TestBulkV4Scaffold(unittest.TestCase):
-    def test_v4_loads_and_is_provisional(self):
+    def test_v4_loads_and_is_active(self):
         prof = load_profile("bulk_v4")
         self.assertEqual(prof["version"], "bulk_v4")
-        # The scaffold state, pinned: this assertion changes (in
-        # its own commit, with review) when the gates land.
-        self.assertEqual(prof["status"], "provisional")
+        # The landed state (P3-15, 2026-11-16): the gates are
+        # adopted and the profile is the screening profile.
+        # This assertion changed from "provisional" in the
+        # landing commit, with the parent decision behind it
+        # (phase3-vote/p3-11-decision.md §9).
+        self.assertEqual(prof["status"], "active")
         self.assertTrue(prof["rationale"].strip())
 
     def test_v4_registry_sha_matches(self):
@@ -63,7 +67,24 @@ class TestBulkV4Scaffold(unittest.TestCase):
         self.assertEqual(registry["bulk_v4"]["sha256"],
                          profile_sha256("bulk_v4"))
         self.assertEqual(registry["bulk_v4"]["supersedes"], "bulk_v3")
-        self.assertEqual(registry["bulk_v4"]["status"], "provisional")
+        self.assertEqual(registry["bulk_v4"]["status"], "active")
+
+    def test_v4_adopted_gates_enabled(self):
+        # The P3-11 decision (§9): ADOPT EPOCH-CLUSTER +
+        # TWO-COMBINED; HOLD PHASE-DEPTH; REJECT DEMOTE-SYS /
+        # DEMOTE-ALL. The profile enables exactly the two
+        # adopted gates — no enablement key exists for the
+        # held/rejected ones.
+        v4 = load_profile("bulk_v4")
+        self.assertIs(v4["two_combined_enabled"], True)
+        self.assertIs(v4["epoch_cluster_veto_enabled"], True)
+        self.assertEqual(v4["epoch_cluster_tol_p"], 0.01)
+        self.assertEqual(v4["epoch_cluster_tol_t0_d"], 0.125)
+        self.assertEqual(v4["epoch_cluster_min_size"], 21)
+        for key in v4:
+            self.assertNotIn("phase_depth", key)
+            self.assertNotIn("demote_sys", key)
+            self.assertNotIn("demote_all", key)
 
     def test_v4_gates_identical_to_v3(self):
         v3 = load_profile("bulk_v3")

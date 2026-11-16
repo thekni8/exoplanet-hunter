@@ -65,10 +65,21 @@ SINGLE_EVENT = "SINGLE_EVENT"
 BELOW_THRESHOLD = "BELOW_THRESHOLD"
 SINGLE_TRANSIT_POOL = "SINGLE_TRANSIT_POOL"
 GRID_EDGE_REJECT = "GRID_EDGE_REJECT"
+# Demoted by the SECTOR_EPOCH_CLUSTER veto (P3-15, bulk_v4):
+# the row is a member of a >20-star (P, T0) cluster — a shared
+# glitch epoch, not a planet. A demotion, never a deletion:
+# the row keeps this disposition and stays queryable in
+# screen_hits.jsonl; a member repeating in another sector can
+# be revived (P3-13 §7). The veto overwrites a P3-14
+# disposition on the same row (the veto is the later, stronger
+# verdict); the P3-14 finding survives in the row's grid_edge
+# hand-off record.
+DEMOTED_SECTOR_EPOCH_CLUSTER = "DEMOTED_SECTOR_EPOCH_CLUSTER"
 
 DISPOSITION_VALUES = frozenset({
     PERIODIC_CANDIDATE, SINGLE_EVENT, BELOW_THRESHOLD,
     SINGLE_TRANSIT_POOL, GRID_EDGE_REJECT,
+    DEMOTED_SECTOR_EPOCH_CLUSTER,
 })
 
 
