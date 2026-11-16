@@ -1947,3 +1947,29 @@ Gemini (Argon, web) + ChatGPT (Think, max reasoning) legs
 dispatched to a coordinator; Claude leg is Dev's paste. This is a
 scoping consultation, not the Phase 4 vote (that still happens
 after Phase 3 merges).
+
+## P3-20 — Decision record: proceed with the 3A experiment (parent, 2026-11-16 ~07:05 IST)
+
+**Decision: PROCEED with P3-16–P3-19 as scoped** (offline
+experiment, no production influence, rank-only enforcement per
+P3-19). Claude's checkpoint condition ("3A only if the post-3B
+queue still exceeds desk capacity") is MET:
+
+- **Post-3B queue:** 734 survivors/sector (393 tier A + 341
+  tier B) under bulk_v4 (P3-11 decision) — down 6.4x from
+  4,692, but still large.
+- **Desk capacity:** demonstrated gauntlet throughput is 256
+  tier-A leads in one day (2026-11-15). 734 is ~2.9x that —
+  roughly 3 days of vetting per sector, ~12 days across the
+  four cached sectors (S95–S98).
+- **The ranker orders, it does not reduce.** Its value is
+  prioritisation: the desk vets the most planet-like first,
+  so real planets surface on day 1 instead of day 3. That is
+  worth the bounded cost of an offline experiment (no
+  production influence, no veto power, permutation-tested).
+- The vote's tie-break (TB-1 + TB-13) already placed the
+  ranker as an offline experiment in Phase 3 after 3B; this
+  checkpoint confirms it. Production deployment stays a 3.1
+  decision gated on independent validation (P3-19's gate).
+
+P3-16–P3-19 dispatched next.
