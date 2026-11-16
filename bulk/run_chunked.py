@@ -231,7 +231,8 @@ def _measured_of(summary):
 
 
 def check_conservation(window_stars, slice_summaries,
-                       merged_survivors, toi_removed, vsx_removed):
+                       merged_survivors, toi_removed, vsx_removed,
+                       veto_removed=0):
     """The window must be conserved: every star in the window
     ends up in exactly one bucket, and every screened survivor
     ends up merged or removed with a named reason.
@@ -252,8 +253,11 @@ def check_conservation(window_stars, slice_summaries,
          searched stars; "searched" itself never leaks)
       5. sum(screen_counts["survivor"]) == merged_survivors
          + toi_removed + vsx_removed + sum(zooniverse_known)
+         + veto_removed
          (every screened survivor is merged or removed with a
-         reason)
+         reason; the veto bucket counts the SECTOR_EPOCH_CLUSTER
+         demotions at merge, P3-15 — 0 for pre-v4 profiles,
+         whose merge has no veto)
 
     A missing bucket is a problem, not a skip (fail-closed): a
     summary that cannot be audited is not a summary that
@@ -273,6 +277,7 @@ def check_conservation(window_stars, slice_summaries,
         "survivors_zooniverse": 0,
         "survivors_toi": toi_removed,
         "survivors_vsx": vsx_removed,
+        "survivors_veto": veto_removed,
         "survivors_merged": merged_survivors,
     }
 
@@ -352,6 +357,7 @@ def check_conservation(window_stars, slice_summaries,
     accounted = (buckets["survivors_merged"]
                  + buckets["survivors_toi"]
                  + buckets["survivors_vsx"]
+                 + buckets["survivors_veto"]
                  + buckets["survivors_zooniverse"])
     if buckets["survivors_screened"] != accounted:
         problems.append(
@@ -360,6 +366,7 @@ def check_conservation(window_stars, slice_summaries,
             f"{buckets['survivors_merged']} merged + "
             f"{buckets['survivors_toi']} TOI + "
             f"{buckets['survivors_vsx']} VSX + "
+            f"{buckets['survivors_veto']} veto + "
             f"{buckets['survivors_zooniverse']} Zooniverse")
     return (not problems, buckets, problems)
 
@@ -765,6 +772,26 @@ def main():
         hits += [json.loads(l) for l in open(out / "screen_hits.jsonl")]
     log(f"merged: {len(survivors)} slice survivors, "
         f"{agg['zooniverse_known']} zooniverse-known already removed")
+    # P3-15 (bulk_v4): SECTOR_EPOCH_CLUSTER veto — merge-only
+    # (clusters span slices, so a per-slice veto would
+    # under-demote), BEFORE the TOI/VSX joins (the P3-11
+    # replay clustered the full survivor set including TOIs).
+    # Gated on the run's calibration: the veto runs only when
+    # the profile enables it. set_calibration here is
+    # merge-local — the slice screens ran as separate processes
+    # with --calibration, and the merge only uses bs for the
+    # TOI join (calibration-independent) and the veto.
+    bs.set_calibration(args.calibration)
+    veto_summary = None
+    n_veto = 0
+    if bs.EPOCH_CLUSTER_VETO_ENABLED:
+        survivors, veto_summary = bs.apply_epoch_cluster_veto(
+            survivors, hits)
+        n_veto = veto_summary["demoted_tier_b"]
+        log(f"epoch-cluster veto: {n_veto} tier-B demoted, "
+            f"{veto_summary['flagged_tier_a']} tier-A flagged "
+            f"({veto_summary['n_clusters']} clusters, sizes "
+            f"{veto_summary['cluster_sizes']})")
     n_toi = n_vsx = 0
     if args.skip_known_filter:
         log("known-source checks skipped (--skip-known-filter)")
@@ -819,7 +846,8 @@ def main():
     # status is "failed" and no downstream step should consume
     # them as a completed run.
     cons_ok, cons_buckets, cons_problems = check_conservation(
-        N_STARS, slice_summaries, len(survivors), n_toi, n_vsx)
+        N_STARS, slice_summaries, len(survivors), n_toi, n_vsx,
+        veto_removed=n_veto)
     conservation = {"ok": cons_ok, "buckets": cons_buckets,
                     "problems": cons_problems}
     if not cons_ok:
@@ -857,6 +885,13 @@ def main():
         "known_filter": {"mode": "survivor-stage (chunked resilience)",
                          "toi_removed": n_toi, "vsx_removed": n_vsx,
                          "zooniverse_removed": agg["zooniverse_known"]},
+        # P3-15: the veto summary (None when the profile has no
+        # veto). The demoted rows are NOT deleted — they carry
+        # disposition DEMOTED_SECTOR_EPOCH_CLUSTER in the merged
+        # screen_hits.jsonl, and the TWO-COMBINED failures carry
+        # gate_reason FAILED_TWO_COMBINED there; together they
+        # are the manual-review ("unsure") queue.
+        "epoch_cluster_veto": veto_summary,
         "stars_searched": agg["stars_searched"],
         "stars_measured": agg["stars_measured"],
         "hits_recorded": agg["hits_recorded"],
