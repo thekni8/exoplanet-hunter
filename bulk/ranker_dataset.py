@@ -144,15 +144,23 @@ def _load_json(path):
         return json.load(fh)
 
 
-def _tic_split(rng, tic, host_split, test_fraction):
+def _tic_split(rng, tic, host_split, test_fraction, cache):
     """Train/test assignment for one TIC (TIC-grouped).
 
     Campaign-host TICs inherit their host assignment; every other
-    TIC gets a seeded random draw. Deterministic for a fixed seed.
+    TIC gets a seeded random draw, MEMOISED in `cache` — a TIC
+    appears in several populations (rescore + null overlap), and
+    each must draw once or the TIC straddles train/test.
+    Deterministic for a fixed seed.
     """
+    if tic in cache:
+        return cache[tic]
     if tic in host_split:
-        return host_split[tic]
-    return "test" if rng.random() < test_fraction else "train"
+        split = host_split[tic]
+    else:
+        split = "test" if rng.random() < test_fraction else "train"
+    cache[tic] = split
+    return split
 
 
 def build_dataset(paths, seed=20261116, n_null_sample=1000,
@@ -171,6 +179,7 @@ def build_dataset(paths, seed=20261116, n_null_sample=1000,
     (counts of what was kept out and why).
     """
     rng = random.Random(seed)
+    split_cache = {}
     labels = _load_json(paths["labels"])
     ledger = parse_ledger(paths["ledger"])
 
@@ -247,7 +256,7 @@ def build_dataset(paths, seed=20261116, n_null_sample=1000,
             "record": rec,
             "label": cls,
             "sublabel": sub,
-            "split": _tic_split(rng, tic, host_split, test_fraction),
+            "split": _tic_split(rng, tic, host_split, test_fraction, split_cache),
             "source": "gauntlet",
             "ledger_rank": entry["rank"],
             "phase05_sigma": entry["phase05_sigma"],
@@ -271,7 +280,7 @@ def build_dataset(paths, seed=20261116, n_null_sample=1000,
             "record": rec,
             "label": "instr_fp",
             "sublabel": "random_survivor",
-            "split": _tic_split(rng, tic, host_split, test_fraction),
+            "split": _tic_split(rng, tic, host_split, test_fraction, split_cache),
             "source": "random_survivor",
         })
     exclusions["random_pool"] = len(pool)
@@ -291,7 +300,7 @@ def build_dataset(paths, seed=20261116, n_null_sample=1000,
             "record": rec,
             "label": "instr_fp",
             "sublabel": "inverted_null",
-            "split": _tic_split(rng, tic, host_split, test_fraction),
+            "split": _tic_split(rng, tic, host_split, test_fraction, split_cache),
             "source": "inverted_null",
         })
     exclusions["null_pool"] = len(null_pool)
