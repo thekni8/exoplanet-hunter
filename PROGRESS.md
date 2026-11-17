@@ -2478,3 +2478,45 @@ is a gate, not build work.
   carries the adjustment (raw 7/10, APC-adjusted 6/9,
   confirmed 1/2); the determinism-reproduction line
   is marked raw (7/10 raw top decile).
+
+### PM-8 — reversible gate behavior confirmed (DONE 2026-11-17)
+
+- **Review query demonstrated on real data:** the
+  manual-review query (disposition ==
+  DEMOTED_SECTOR_EPOCH_CLUSTER OR gate_reason
+  present) run against the S97 v4 screen output
+  (`mac-run-data/rescore-v4-s97/screen_hits.jsonl`,
+  35,382 rows) returns **500 rows**, all
+  DEMOTED_SECTOR_EPOCH_CLUSTER. No S97 row carries a
+  gate_reason (no TWO-COMBINED failures recorded
+  there) — the gate_reason half is covered by the
+  synthetic test below. The brief's S96 check as
+  specified is IMPOSSIBLE: no S96 v4 merged file
+  exists (the P3-11 replay was counts-only —
+  `bulk/replay_matrix.py` writes only
+  `bulk/replay_matrix_summary.json`; verified by
+  search — the only rescore_v4 merged file is S97's).
+  The S97 real-data demonstration + the synthetic
+  test + the S96 summary counts are the available
+  evidence; no Mac check is owed for this item.
+- **No demotion deletes records:** the 500 demoted
+  S97 rows RETAIN their records in screen_hits.jsonl
+  (disposition-marked); the merged survivors file
+  (14,293 rows) excludes them by design and carries
+  0 demoted rows. Demotion is a disposition mark,
+  not a deletion.
+- **Row conservation (from the recorded summaries,
+  no screens re-run):** S96: 734 survivors + 3,958
+  demoted = 4,692 (n_in from the replay summary;
+  combined removed 3,958 from the adoption record —
+  EPOCH 3,934 + TWO 176 with overlap 152). S97:
+  14,800 screened − 500 veto − 7 zooniverse =
+  14,293 merged (summary.json conservation.ok true,
+  problems []); screen_counts sum 35,400
+  (18 + 10,552 + 10,029 + 1 + 14,800).
+- **Test coverage confirmed:** `tests/test_bulk_v4_gates.py`
+  **18/18 PASS**, incl. `test_review_queue_query`
+  (covers BOTH halves of the query — a disposition
+  row and a gate_reason row — and asserts an
+  EB-demoted row and a pool row are NOT in the
+  queue). No test added — coverage already exists.
