@@ -2038,6 +2038,25 @@ a Phase 4 input (`phase4-inputs/campaign-evidence.md`) with the
 full ranked lever list (stacking, multi-peak, single-transit, TLS,
 ranker). Do NOT loosen the DEPTH_EB gate.
 
+**CORRECTION 2026-11-17 (PB-5) — the "below the SDE 7.0 bar"
+label in the paragraph above is WITHDRAWN.** The `recorded` 313
+were NOT below the SDE 7.0 survivor bar: **307/313 cleared SDE
+≥ 7.0**. They failed the tier quality gates (depth 148,
+max_event_snr 81, MES_pink 78, n_strong_events 6 — table
+below), not the SDE bar. Only 6 recorded trials sat below SDE
+7.0 (SDE 6.07–6.88, above the 6.0 record floor); below_floor
+trials are all < 6.0 (range 3.80–5.90). **Correct
+characterisation: the 313 are tier-limited, not
+SDE-limited.** The old label also appears in the 2026-11-16
+vote records (`phase4-inputs/campaign-evidence.md:18`,
+`consultation-bundle.md:39`, `claude_brief.md:19`) and is
+withdrawn there too (Phase 4 vote comparison, Appendix B
+erratum B-1; verified against the frozen v2 campaign record,
+2026-11-17). The old accounting (313 + 154 + 26 = 493) left
+55 unclassified; the split below reconciles them as 53
+demoted-without-DEPTH_EB + 2 true gate losses
+(154 + 53 + 2 = 209 = 207 + 2).
+
 **Two flags for P3-11:** (1) the 1–2-event planet n is **113**,
 below the adoption rule's n ≥ 200 floor (mixed-kind bin is 260) —
 whether the rule's n counts planet-only or all trials needs
