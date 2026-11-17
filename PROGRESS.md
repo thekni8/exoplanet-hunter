@@ -1494,7 +1494,7 @@ stable). Note the planned DR4 shutdown window 2026-11-25
 12:00 CET → 2026-12-02, during which Gaia-dependent work
 is impossible. The revisit does not block Phase 3.
 
-## P3-7 — 3C: golden fixtures + offline assertions — PARTIAL 2026-11-15
+## P3-7 — 3C: golden fixtures + offline assertions — PARTIAL 2026-11-17 (EB + WASP-29b landed; 700c pending PM-3; 5-seed bands are 3.1)
 
 **Landed (offline, in CI):** fixtures
 `tests/fixtures/triceratops/308851365.json` (EB) +
@@ -1535,7 +1535,15 @@ NO fixture until a measured run exists (panel, P3-9).
 The fast Mac smoke test (N = 10,000 draws, P-16) lives in
 the nightly (P3-8), not in CI.
 
-## P3-8 — 3C: nightly readiness — PARTIAL 2026-11-15
+**Completion-vote update (PM-5, 2026-11-17):** the 700c
+fixture is PENDING — PM-3 is blocked on parent Mac data
+(`phase3-vote/pm3-data-request.md`); the fixture lands
+when the data lands, and P3-7 becomes DONE then (PM-9
+re-runs after PM-3). The >= 5-seed FPP / STP-split bands
+are explicitly 3.1 (BN-6). The EB + WASP-29b fixtures
+stand as landed, in CI.
+
+## P3-8 — 3C: nightly readiness — DONE 2026-11-17 (driver + green receipt; scheduling + TB-9 budget are 3.1)
 
 **Landed (offline, tested):** the nightly driver
 `scripts/triceratops_golden_nightly.py` — runs the golden
@@ -1645,6 +1653,18 @@ the CB-8 finding of the completion vote
 sector); the runner cap is the only real bound. The
 gate does NOT require timeout_s: the green receipt
 predates the field and must still pass.
+
+**Completion-vote update (PM-5, 2026-11-17):** the first
+real nightly run HAS happened — the green receipt above
+(2026-11-16T16:40:29Z, exit 0) is it; the "still owed"
+line in the Pending paragraph is stale. What remains is
+the scheduling itself (cron/launchd + caffeinate, LOUD
+on failure) + the TB-9 timeout budget — both explicitly
+3.1 (BN-1…BN-6). The nightly is NOT scheduled as if the
+600 s SIGALRM budget worked (the vote's NOT-to-do list):
+out-of-process timeout enforcement (CB-2) is the 3.1
+prerequisite. The green receipt is 1 day old as of
+2026-11-17 — inside the gate's 7-day staleness window.
 
 ## P3-2 — DF-19: historical RAW-REFUTED re-runs — DONE 2026-11-15
 
@@ -2243,7 +2263,7 @@ names its trigger. (Also recorded in GOAL.md.)
 | 13 | **Dedicated long-period campaign** (Amendment A, P3-11) | In 3.1: ~1,400 trials → ~200 recovered 1–2-event planets, to measure the 1–2-event loss at the n ≥ 200 the adoption rule originally required (Phase 3 judged it on n=412 + a hard 0/16 point check instead). |
 | 14 | **PHASE-DEPTH odd/even investigation** | In 3.1: all 13 PHASE-DEPTH losses are odd_even_ratio = 0.000 exactly (n_events_found=2 with 3–4 injected) — a degenerate computation (the screen lost events), not alternating depths. Diagnose before any odd/even gate is adopted. |
 | 15 | **Epoch-cluster chaining diameter cap** | In 3.1: clusters 8/11/10 show union-find chaining in the P3-11 replay — evaluate a diameter cap on the veto's clustering before the veto is re-tuned. |
-| 16 | **TRICERATOPS timeout question** (TB-9) | In 3.1 (or when the nightly is scheduled): 1800 s vs Gemini's 2,700 s candidate. Evidence: the first nightly's WASP-29b run timed out at 1800 s on a slow TRILEGAL server (2026-11-16); WASP-29b's C-10 run already used 1,553 s (86% of budget). Decide from the timeout percentiles, not from one slow night. |
+| 16 | **TRICERATOPS timeout question** (TB-9) | In 3.1 (or when the nightly is scheduled): 1800 s vs Gemini's 2,700 s candidate. CORRECTED 2026-11-17 (PM-5): the earlier "slow server" explanation is WRONG — the proven cause is a stalled SSL read on a MAST connection inside the per-sector TessCut fetch in `target.__init__` (live-sampled 2026-11-16 ~22:00; mechanism proven 2026-11-17, COMPARISON_COMPLETION.md Appendix A1). The item's new form is timeout ENFORCEMENT (BN-1/BN-2): the 600 s SIGALRM budget does not enforce (triceratops.py:242 swallows the alarm and drops the sector); out-of-process enforcement (CB-2) is the 3.1 prerequisite. WASP-29b's C-10 run already used 1,553 s (86% of budget). Decide from the timeout percentiles, not from one slow night. |
 | 17 | **Depth-coverage gap** (P3-18) | In 3.1, as promotion-gate condition 4: the campaign's planet depth grid caps at 1.0%, so the model learned "deep = FP" — the 3 deepest held-out planets missed the top decile (TOI-2384.01 rank 972 at 2.87%, TOI-2624.01 rank 1,081 at 1.79%, TOI-4655.01 rank 2,418 at 1.49%). Fix: planet injections across the full depth range, then re-check R3 to 10/10 (or diagnose + accept the misses). |
 | 18 | **Duration / fold-sigma features** (P3-16) | In 3.1, as promotion-gate condition 5: the implied-density ratio (duration / period^(1/3)) and the fold sigmas (odd_even_sigma, phase_05_secondary_sigma, v_shape_metric) are unavailable — the campaign persists a reduced screen dict (no duration_hours / secondary_depth_percent / v_ratio) and the VM has no light-curve cache. Fix: persist the full screen record in future campaigns, or explicitly waive them for the production feature set. |
 
@@ -2385,3 +2405,28 @@ is a gate, not build work.
   lives in the VM goal dir, not the Mac — the census
   ran VM-side): `md5sum -c` against
   df17_ledger_md5_20261117.txt, **37/37 OK**.
+
+### PM-5 — completion documentation corrected (DONE 2026-11-17)
+
+- **P3-7:** header set to PARTIAL 2026-11-17 (EB +
+  WASP-29b landed; 700c pending PM-3; 5-seed bands are
+  3.1). The 700c fixture is NOT recorded as landed —
+  PM-3 is blocked on parent Mac data, and P3-7 becomes
+  DONE only when the fixture lands (PM-9 re-runs after
+  PM-3). The >= 5-seed FPP / STP-split bands are
+  explicitly 3.1 (BN-6).
+- **P3-8:** header set to DONE 2026-11-17 (driver +
+  green receipt; scheduling + TB-9 budget are 3.1).
+  The "first real nightly run still owed" line is
+  corrected — the green receipt (2026-11-16T16:40:29Z,
+  exit 0) IS the first real nightly run, 1 day old as
+  of 2026-11-17. Scheduling + TB-9 are explicitly 3.1
+  (BN-1…BN-6); the nightly is NOT scheduled as if the
+  600 s budget worked.
+- **P3-22 item 16:** the "slow server" explanation is
+  replaced with the proven cause (stalled SSL read on
+  a MAST connection inside the per-sector TessCut fetch
+  in `target.__init__`); the item's new form is timeout
+  ENFORCEMENT (BN-1/BN-2, CB-2). Grep-verified: the
+  "slow server" explanation no longer appears in
+  P3-22 item 16.
