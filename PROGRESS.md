@@ -2429,6 +2429,22 @@ is a gate, not build work.
 - **P3-7 → DONE** (see the P3-7 section): EB + WASP-29b
   + 700c landed; the >= 5-seed bands stay 3.1 (BN-6).
   PM-9 RE-RUNS after this commit (the tip changes).
+- **PM-9 first re-run caught a harness gap (fixed, this
+  commit):** the full --fast re-run on the PM-3 tip ran
+  899 tests but FAILED 2 — both in
+  `tests/test_triceratops_nightly.py` (the green run and
+  the fast run). Cause: the driver discovers its targets
+  from ALL committed fixtures (`fixture_tics`), so the
+  new 700c fixture made it run 3 targets, but the test
+  harness's TICS tuple still listed only the 2 C-10
+  fixtures — 700c had no provisioned input and read
+  missing_input. Fix: TICS now lists all 3 fixtures
+  (with a comment tying the tuple to the fixtures dir).
+  This is a documented test-harness update, NOT a
+  loosening — the per-target assertions (pass status,
+  empty failures, RSS watchdog, peak RSS) now cover 3
+  targets instead of 2. Module re-run: 16/16 PASS.
+  PM-9 re-runs again on the fixed tip.
 
 ### PM-4 — DF-17 reconciliation (DONE 2026-11-17)
 

@@ -34,7 +34,12 @@ nightly = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(nightly)
 
 FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures" / "triceratops"
-TICS = ("183537452", "308851365")
+# Every committed golden fixture: the driver discovers its
+# targets from the fixtures dir (fixture_tics), so this
+# tuple must match it — a fixture without a provisioned
+# input + fake output fails the green/fast runs as
+# missing_input (PM-3: 700c added with the fixture).
+TICS = ("183537452", "308851365", "150428135")
 
 # The fake wrapper echoes a pre-written tool output per TIC
 # (from $NIGHTLY_TEST_OUTPUTS/<tic>.json) — the recorded
