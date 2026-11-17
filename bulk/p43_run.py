@@ -69,6 +69,7 @@ from bulk import k3_prototype as k3  # noqa: E402
 from bulk import k3_run  # noqa: E402
 from bulk import oracle_run as orc  # noqa: E402
 from bulk import p43_stitch as p43  # noqa: E402
+from bulk.inject_campaign import check_recovery  # noqa: E402
 from bulk.inject_real_s96 import load_real_fits  # noqa: E402
 from bulk.inject_real_s96 import write_injected_fits  # noqa: E402
 
@@ -187,6 +188,16 @@ def _mask_seed_diagnostic(t, f_inj, q, trial, fresh_rec, keep_fresh):
         return {"period_diff_pct": None, "duty_fresh": None,
                 "duty_recorded": None, "jaccard_dropped": None,
                 "note": "missing-period"}
+    if fresh_rec.get("k2_mask") is None:
+        # No fresh mask was built (peak not a confirmed
+        # contaminant) -- there is nothing to compare the
+        # recorded-period mask against; building one would
+        # manufacture a disagreement (jaccard 0.0) out of an
+        # eligibility difference, not a seed difference.
+        return {"period_diff_pct": float(
+            100.0 * abs(p_fresh - p_rec) / p_rec),
+            "duty_fresh": None, "duty_recorded": None,
+            "jaccard_dropped": None, "note": "fresh-not-masked"}
     t_p, f_p = orc.preprocess_arrays(t, f_inj, q)
     eph_rec = k2.estimate_ephemeris(t_p, f_p, p_rec)
     sec_rec = k2.scan_secondary(
@@ -303,7 +314,7 @@ def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
         return out, rec
     rec["pass3_match"] = orc.period_match_class(
         p3.get("period_days"), trial["period_d"])
-    m6_3 = bool(ih.check_recovery(p3, trial["period_d"]))
+    m6_3 = bool(check_recovery(p3, trial["period_d"]))
     rec["m6_pass3_before_veto"] = m6_3
     rec["p3_recovered"] = bool(m6_3 and not veto3["vetoed"])
     delta3 = k2.epoch_delta(p3.get("t0_btjd"), trial["epoch_btjd"],
@@ -343,7 +354,9 @@ def run_host_campaign_p43(job):
             prev = {}
         if (prev.get("complete") is True
                 and prev.get("manifest_sha") == manifest_sha
-                and prev.get("arm") == ARM):
+                and prev.get("arm") == ARM
+                and not any("error" in tr
+                            for tr in prev.get("trials", []))):
             return {"status": "skipped", "tic": tic}
     t_start = time.time()
     sector_data = {}
@@ -447,7 +460,7 @@ def run_host_campaign_p43(job):
             veto2 = k3.pass3_veto(p2.get("period_days"),
                                   p2.get("t0_btjd"), contaminants)
             r["alias_veto"] = veto2
-            m6 = bool(ih.check_recovery(p2, tr["period_d"]))
+            m6 = bool(check_recovery(p2, tr["period_d"]))
             r["m6_before_veto"] = m6
             r["p2_recovered"] = bool(m6 and not veto2["vetoed"])
             delta = k2.epoch_delta(p2.get("t0_btjd"),
@@ -564,7 +577,8 @@ def run_host_null_p43(job):
             prev = {}
         if (prev.get("complete") is True
                 and prev.get("manifest_sha") == manifest_sha
-                and prev.get("arm") == ARM):
+                and prev.get("arm") == ARM
+                and "error" not in prev):
             return {"status": "skipped", "tic": tic}
     t_start = time.time()
     r = {"tic": tic, "sectors": list(sectors), "arm": ARM}
