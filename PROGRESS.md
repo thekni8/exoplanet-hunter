@@ -1628,6 +1628,24 @@ extracted) is still owed, as is the scheduling itself
 (cron/launchd + caffeinate; the job must be LOUD on
 failure — non-zero exit + issue + FAILURE marker).
 
+**Completion-vote update (PM-2, 2026-11-17):** the green
+receipt is RECORDED here (it lives on the Mac; the VM
+copy in `hidden_files/mac-run-data/triceratops-golden/`
+is the stale FAIL receipt): timestamp
+2026-11-16T16:40:29Z, exit 0, sha 6dd1766,
+working_tree_dirty: true (TRICERATOPS writes
+`<TIC>_gaia_background.csv` into the Mac repo root), run
+with --timeout-s 3600 (an override; policy is 1,800 s —
+the override value was NOT in the receipt, which is what
+PM-2 fixes). WASP-29b FPP 0.168578, EB FPP 0.99999781.
+The 600 s SIGALRM init budget did NOT enforce on this
+run (WASP-29b init 697.8 s) — the non-enforcement is
+the CB-8 finding of the completion vote
+(triceratops.py:242 swallows the alarm and drops the
+sector); the runner cap is the only real bound. The
+gate does NOT require timeout_s: the green receipt
+predates the field and must still pass.
+
 ## P3-2 — DF-19: historical RAW-REFUTED re-runs — DONE 2026-11-15
 
 **DF-19 COMPLETE 2026-11-15 ~19:35 IST: 29/29 measured, 5
@@ -2253,3 +2271,23 @@ is a gate, not build work.
   + the two golden workdir CSVs, 12 checks total. Run:
   `cat phase3-vote/pm1-mac-check-v2.py | ~/workspace/mac/mac-ssh.sh 'python3 -'`.
   Result: PENDING at commit time.
+
+### PM-2 — receipt records timeout_s (DONE 2026-11-17)
+
+- **Code:** `scripts/triceratops_golden_nightly.py` —
+  the receipt body now records the effective per-target
+  timeout (`"timeout_s": config.timeout_s` — the policy
+  default unless --timeout-s overrode it). The gate
+  (`check_receipt`) does NOT require the field: the
+  green receipt predates it and must still pass.
+- **Test:** `tests/test_triceratops_nightly.py` —
+  `test_receipt_records_the_effective_timeout` asserts
+  the receipt carries the config value (60) with no
+  override and the override value (3600) with one.
+  Module 16/16 PASS; smoke 200/200 PASS.
+- **Record:** the green receipt's parameters are
+  recorded in the P3-8 section above (timestamp
+  2026-11-16T16:40:29Z, --timeout-s 3600 override,
+  policy 1,800 s, working_tree_dirty: true, sha
+  6dd1766, exit 0, WASP-29b FPP 0.168578, EB FPP
+  0.99999781).

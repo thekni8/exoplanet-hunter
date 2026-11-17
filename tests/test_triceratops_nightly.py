@@ -167,6 +167,17 @@ class TestNightlyRun(NightlyTestCase):
         self.assertFalse(green)
         self.assertIn("config override", reason)
 
+    def test_receipt_records_the_effective_timeout(self):
+        # PM-2: the receipt records the effective per-target
+        # timeout — the config value when no override is
+        # given, the override value when one is. (The gate
+        # does NOT require the field: the green receipt
+        # predates it and must still pass.)
+        _, receipt = self._run()
+        self.assertEqual(receipt["timeout_s"], 60)
+        _, receipt = self._run(timeout_s=3600)
+        self.assertEqual(receipt["timeout_s"], 3600)
+
     def test_red_run_records_failures(self):
         # Doctor the EB output: FPP 0.001 reads INCONCLUSIVE,
         # not the expected FAIL/refute.

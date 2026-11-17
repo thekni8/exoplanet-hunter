@@ -58,7 +58,9 @@ over the canonical receipt body) — tamper-evident, not a
 cryptographic signature: the project has no signing-key
 infrastructure, and the hash chain (fixture shas + code SHA
 + policy sha + results) is what makes the receipt
-verifiable from a copy.
+verifiable from a copy. The receipt records the effective
+per-target timeout (timeout_s, PM-2) — the policy default
+unless --timeout-s overrode it.
 """
 import argparse
 import hashlib
@@ -295,6 +297,7 @@ def run_nightly(inputs_dir, fixtures_dir, receipt_path, workdir,
         "policy": policy_name,
         "policy_sha256": profile_sha256(policy_name),
         "fast": fast,
+        "timeout_s": config.timeout_s,
         "ssl_cert_file": ssl_path,
         "config_override": config_override is not None,
         "overall": "pass" if overall_pass else "fail",
