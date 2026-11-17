@@ -2520,3 +2520,27 @@ is a gate, not build work.
   row and a gate_reason row — and asserts an
   EB-demoted row and a pool row are NOT in the
   queue). No test added — coverage already exists.
+
+### PM-9 — full --fast suite green on the merge tip (DONE 2026-11-17)
+
+- **Local full suite:** `python tests/run_golden.py
+  --fast` on tip 620bdf8 — **GOLDEN SUITE: PASS (898
+  test(s))**, Ran 898 tests in 1554.9 s, OK
+  (skipped=2, expected failures=1). Count matches the
+  expectation exactly: 895 at 6dd1766 + 2 PM-1 tests
+  + 1 PM-2 test. No test was weakened or loosened to
+  get green. (This PM-9 commit touches only
+  PROGRESS.md — the code under test is identical to
+  the code at 620bdf8.)
+- **PR CI is the parent's gate:** full PR CI on the
+  actual PR head (incl. full offline coverage +
+  lockfile install) runs after the parent opens the
+  PR — the coordinator does NOT open the PR. This
+  local --fast green is the pre-merge evidence, not
+  the CI gate.
+- **PM-10 outstanding:** Dev's review of the final
+  diff (the reviewed commit must be 6dd1766 or an
+  explicitly reviewed successor) — the parent handles
+  it; the coordinator does not merge.
+- **PM-3 caveat:** PM-9 must RE-RUN after PM-3 lands
+  (the 700c fixture + test change the tip).
