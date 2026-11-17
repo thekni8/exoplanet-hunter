@@ -2057,6 +2057,62 @@ erratum B-1; verified against the frozen v2 campaign record,
 demoted-without-DEPTH_EB + 2 true gate losses
 (154 + 53 + 2 = 209 = 207 + 2).
 
+**First-failing-gate table — the 548 unrecovered planet trials
+(PB-5, committed 2026-11-17; source:
+`phase3-vote/p3-10-results-v2/first-failing-gate.md`, derived
+from the frozen v2 campaign record
+`p3-10-results-v2/injections.jsonl`; the tier-aware derivation
+is reproduced in the Phase 4 oracle-manifest builder).
+Decomposition: recorded 313 + lock-on 207 + below_floor 26 +
+true gate losses 2 = 548. Lock-on 207 = 97 DEPTH_EB + 57
+wrong-period survivors + 53 demoted-without-DEPTH_EB. The 2
+true gate losses (period-matched, demoted, not DEPTH_EB):
+ODD_EVEN_EB (SDE 13.09, depth 0.35%, n_ev 3, MES 9.65) and
+DURATION_EB (SDE 90.95, depth 1.55%, n_ev 30, MES 24.96).
+First-failing gate for the 313 recorded trials (tier-aware,
+in code order):
+
+| First failing gate | n | % of 313 |
+|---|---|---|
+| tier B: depth > 1.0% | 148 | 47% |
+| tier B: max_event_snr < 8.0 | 81 | 26% |
+| tier A: MES_pink < 9.0 | 78 | 25% |
+| tier A: n_strong_events < 2 | 6 | 2% |
+
+148 + 81 + 78 + 6 = 313. All 148 depth failures are
+wrong-period at the ~1% match definition (at 2%: 143 wrong +
+4 harmonic + 1 exact — the exact/harmonic cases have found
+depths 1.26–2.55% vs 0.2–0.8% injected, i.e. different
+signals). The depth filter rejects the wrong signal, not
+planets. The tier-B path (n_events_found < 3) holds 229/313;
+tier A holds 84/313. Rescore failure is ruled out: 0/313
+lack rs fields — every recorded trial got a rescore; the tier
+gates are the binding constraint, not a machinery failure.
+
+**The 165-split (Phase 4 vote, Appendix A3):** of the 165
+non-depth recorded trials, **69 are right-period** (57 exact +
+12 harmonic; depth ratios median 0.90x — the injected planet,
+failing only tier gates) and 96 are wrong-period. Per-gate
+(right / wrong): max_event_snr 23 / 58; MES_pink 40 / 38;
+n_strong_events 6 / 0. The 69 belong to P4-3 (stacking) —
+P4-1 mask-and-re-search cannot rescue them (masking Pass 1
+masks the planet). True gate losses are 71 (69 + 2), not 2.
+The wrong-period population is 451 (207 + 148 + 96), not 355.
+
+**Alts test (PB-5, committed 2026-11-17):** is the injected
+period in the alternate BLS peaks? Lock-on family (154,
+survivor-or-DEPTH_EB definition): P_inj in alts **4/154
+(2.6%)**; 138/154 have ≥1 alt. Full lock-on family (207):
+P_inj in alts **7/207 (3.4%)**. Verdict: parallel evaluation
+of top-N peaks would recover almost nothing — the planet peak
+is not in the top-2 alternate peaks (SDE ≥ 3.0) for 97% of
+lock-on trials. Mask-and-re-search is the mechanism to build.
+Caveat: alts are capped at 2 peaks with SDE ≥ 3.0 and
+harmonic aliases (1/3, 1/2, 2/3, 3/2, 2, 3×) are deleted, so
+7/207 says nothing about rank ≥3, aliases, or
+mask-and-re-search itself — the P_found/P_inj tabulation
+(PB-1 oracle run) is the measurement that answers it.
+
 **Two flags for P3-11:** (1) the 1–2-event planet n is **113**,
 below the adoption rule's n ≥ 200 floor (mixed-kind bin is 260) —
 whether the rule's n counts planet-only or all trials needs
