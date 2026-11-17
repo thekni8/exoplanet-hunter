@@ -2122,8 +2122,13 @@ Gemini's requirement: 0 batch-01 EBs in the top 25% (proxy —
 no phase-0.5 sigma is recorded for the batch-01 EBs, so the
 requirement as literally stated is untestable; the 4 rows with
 a recorded |sigma| > 10 all rank outside the top 25%).
-**Held-out validation: 7/10 known planets in the top decile —
-R3 PARTIAL.** The 3 misses (TOI-2384.01 rank 972, TOI-2624.01
+**Held-out validation: 7/10 known planets in the top decile
+raw — R3 PARTIAL.** (Corrected 2026-11-17, PM-7:
+APC-adjusted 6/9 — TOI-319.01 (TIC 389753172, rank 74)
+is an APC, "already suspected false positive", and the
+panel's 1/1 expected refute; confirmed planets 1/2 —
+WASP-29b rank 7 in, TOI-2384.01 rank 972 out.) The 3
+misses (TOI-2384.01 rank 972, TOI-2624.01
 rank 1,081, TOI-4655.01 rank 2,418) are the 3 deepest held-out
 planets (2.87% / 1.79% / 1.49%); the campaign's planet depth
 grid caps at 1.0%, so the model learned "deep = FP". A
@@ -2210,7 +2215,7 @@ verification). Nothing has been run on the Mac.
   the script imports rank_experiment.py's paths/split, it does
   not re-implement them). Determinism PROVEN on the VM
   (2026-11-16): scoring the S96 v3 rescore (4,692 rows, 24 s)
-  reproduced all 10 P3-18 held-out ranks EXACTLY (7/10 top
+  reproduced all 10 P3-18 held-out ranks EXACTLY (7/10 raw top
   decile). The script refuses S98 by construction (filename +
   record guards, tested) and records the git SHA + bulk_v4
   registry sha256 in its report. 11 tests
@@ -2451,3 +2456,25 @@ is a gate, not build work.
   PROGRESS.md are unrelated claims and stay.
   `phase3-vote/p3-11-decision.md` is NOT rewritten
   (historical decision record).
+
+### PM-7 — R3 evaluation corrected (DONE 2026-11-17)
+
+- **Files (goal dir, not in git):**
+  `phase3-vote/p3-18-ranker-eval.md` +
+  `p3-18-ranker-eval.json` — R3 is now reported BOTH
+  ways: raw **7/10** (as measured, including APC
+  TOI-319.01 at rank 74) AND APC-adjusted **6/9**
+  (excluding TOI-319.01), plus **1/2 on confirmed
+  planets** (WASP-29b rank 7 in; TOI-2384.01 rank 972
+  out). TOI-319.01 is an APC ("already suspected false
+  positive") and the panel's 1/1 expected refute. The
+  JSON carries the same numbers
+  (`n_in_top_decile_apc_adjusted` 6,
+  `n_heldout_apc_adjusted` 9, `confirmed_planets`
+  1/2, `apc_excluded`); the raw keys are unchanged.
+  Grep-verified: no unqualified "7/10" remains in the
+  eval note.
+- **PROGRESS.md P3-18 section:** the R3 claim now
+  carries the adjustment (raw 7/10, APC-adjusted 6/9,
+  confirmed 1/2); the determinism-reproduction line
+  is marked raw (7/10 raw top decile).
