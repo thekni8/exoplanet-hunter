@@ -34,6 +34,19 @@ Legs (paired, same manifest, same trials):
   pre-mask if a confirmed contaminant (depth > 1% OR survivor)
   -> stitch -> pass 2 -> pass 3 if eligible.
 
+P4-3b frozen-seed fix (P43B_PREREG.md): P4-3 FAILED on
+short-period regression because the per-sector pre-mask seeded
+from each sector's FRESH pass-1 peak -- which, on an injected
+curve, is the planet itself in 68% of trials. The fix seeds the
+NON-ORIGINAL sectors' pre-masks from the FROZEN recorded period
+(the contaminant), estimating the ephemeris per sector from that
+seed, and masks only when the contaminant is confirmed present
+in that sector (fold depth > 1% OR fold SNR >= 7.0). The original
+sector keeps the fresh-peak seed (proven identical to the frozen
+seed there); the null leg is unchanged. The seed choice lives in
+_mask_seed_and_eligibility (pure, unit-tested); _process_sector
+takes seed_mode="fresh"/"frozen" per sector.
+
 Null accounting is per ROW (PB-6 section 4): a host with both a
 pass-2 and a pass-3 survivor contributes 2 rows. The stitched
 null's pass-1 baseline is the stitched UNMASKED screen (the
@@ -76,6 +89,16 @@ from bulk.inject_real_s96 import write_injected_fits  # noqa: E402
 SECTORS = (95, 96, 97)
 ARM = "no-depth-trigger"  # K=3 Arm A, depth trigger DROPPED (P4-1b)
 DUTY_CAP = 0.25  # settled -- do not re-raise
+# P4-3b frozen-seed fix (P43B_PREREG.md section 0.4): non-original
+# sectors seed the pre-mask from the FROZEN recorded period, and
+# the mask fires only when the contaminant is CONFIRMED present in
+# that sector -- the frozen-seed fold depth > 1% (the frozen
+# planet-like boundary, A23) OR the fold SNR >= 7.0 (adopting the
+# frozen bulk SDE bar as the detection bar for the fixed-period
+# fold; the fold tests ONE period, so its noise max over the
+# phase x duration scan is ~4 sigma and SNR >= 7 is confident).
+FROZEN_DEPTH_MIN_FRAC = 0.01
+FROZEN_SNR_MIN = 7.0
 BOOTSTRAP_SEED = 20261117
 BOOTSTRAP_REPS = 10000
 BULK_PER_STAR_S = 1.175  # bulk-screen per-star wall (P4-1b section 6.3)
@@ -117,14 +140,102 @@ def _inj_check(t, f, f_inj, period, epoch, duration, depth_frac):
     return float(depth), bool(abs(depth - expected) <= tol)
 
 
+def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
+    """Choose the pre-mask seed + eligibility for one sector.
+
+    Pure decision logic (no I/O), so it is unit-testable without a
+    BLS screen. t_p, f_p are the PREPROCESSED arrays; trial is the
+    manifest trial (carrying the frozen `recorded` period); p1 is
+    the fresh pass-1 subset (period_days / depth_percent / status);
+    seed_mode is "fresh" (original sector) or "frozen"
+    (non-original sector, P4-3b fix).
+
+    Returns a dict with seed_period, seed_source ("fresh" /
+    "frozen" / "fresh-fallback"), seed_fallback_reason (or None),
+    ephemeris (or None when no seed exists), secondary (or None),
+    eligible (bool), reason (stable string), and depth_for_mask
+    (the recorded_depth_pct for build_k2_mask).
+
+    Fresh path (unchanged from P4-3): seed = the fresh pass-1 peak;
+    eligible iff fresh depth > 1% OR fresh status == "survivor".
+
+    Frozen path (P43B_PREREG section 0.4): seed = the FROZEN
+    recorded period; the ephemeris is estimated per sector from
+    that seed; eligible iff the contaminant is confirmed present
+    in THIS sector -- fold depth > 1% OR fold SNR >= 7.0. The
+    depth passed to build_k2_mask is the frozen recorded depth
+    (mirroring k2_run). If no recorded period exists, fall back to
+    the fresh peak (P4-3 behavior) and record it.
+    """
+    p_rec = (trial.get("recorded") or {}).get("period_days")
+    p1_p = p1.get("period_days")
+    if seed_mode == "frozen" and p_rec is not None:
+        seed_period = float(p_rec)
+        seed_source = "frozen"
+        fallback_reason = None
+        depth_for_mask = (trial.get("recorded") or {}).get(
+            "depth_percent")
+    else:
+        seed_period = p1_p
+        if seed_mode == "frozen":
+            seed_source = "fresh-fallback"
+            fallback_reason = "no-recorded-period"
+        else:
+            seed_source = "fresh"
+            fallback_reason = None
+        depth_for_mask = p1.get("depth_percent")
+    out = {"seed_period": seed_period, "seed_source": seed_source,
+           "seed_fallback_reason": fallback_reason,
+           "ephemeris": None, "secondary": None,
+           "eligible": False,
+           "reason": ("no-pass1-period" if seed_source == "fresh"
+                      else "no-seed-period"),
+           "depth_for_mask": depth_for_mask}
+    if seed_period is None:
+        return out
+    ephemeris = k2.estimate_ephemeris(t_p, f_p, seed_period)
+    secondary = k2.scan_secondary(
+        t_p, f_p, ephemeris["period_ref_d"],
+        ephemeris["t0_est_btjd"], ephemeris["duration_est_d"])
+    out["ephemeris"] = ephemeris
+    out["secondary"] = secondary
+    if seed_source == "frozen":
+        depth_est = ephemeris.get("depth_est_frac")
+        snr_est = ephemeris.get("snr_est")
+        eligible = bool(
+            (depth_est is not None
+             and depth_est > FROZEN_DEPTH_MIN_FRAC)
+            or (snr_est is not None and snr_est >= FROZEN_SNR_MIN))
+        out["eligible"] = eligible
+        out["reason"] = ("frozen-contaminant" if eligible
+                         else "frozen-not-confirmed")
+    else:
+        depth_pct = p1.get("depth_percent")
+        eligible = bool(
+            (depth_pct is not None and depth_pct > 1.0)
+            or p1.get("status") == "survivor")
+        out["eligible"] = eligible
+        out["reason"] = ("confirmed-contaminant" if eligible
+                         else "not-confirmed")
+    return out
+
+
 def _process_sector(t, f, q, fcol, trial, base, tic, sector,
-                    keep_fits):
+                    keep_fits, seed_mode="fresh"):
     """One sector of one trial: inject, fresh pass 1, estimate,
     pre-mask if a confirmed contaminant.
 
     Returns a dict with the per-sector record + the arrays the
     stitch needs (t, f_inj, q, keep, sigma, ephemeris, mstats).
     The injection uses the ABSOLUTE epoch_btjd (pre-registered).
+
+    seed_mode (P43B_PREREG section 0.4): "fresh" (the original
+    sector -- the fresh pass-1 peak seeds the mask, unchanged from
+    P4-3) or "frozen" (a non-original sector -- the FROZEN
+    recorded period seeds the mask, so the mask targets the
+    contaminant instead of the planet). The fresh pass 1 still
+    runs in every sector (validation + diagnostics); it simply
+    no longer seeds the mask in non-original sectors.
     """
     period = trial["period_d"]
     epoch = trial["epoch_btjd"]
@@ -141,7 +252,6 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
     if not keep_fits:
         os.remove(inj_path)
     t_p, f_p, sigma = p43.preprocess_sector(t, f_inj, q)
-    p1_p = p1.get("period_days")
     rec = {"sector": sector, "fcol": fcol,
            # The epoch actually passed to inject_transit, minus the
            # manifest epoch -- a measurement, not a hardcoded 0.0.
@@ -149,35 +259,34 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
            "inj_check_depth": inj_depth, "inj_check_ok": inj_ok,
            "pass1": orc._subset(p1), "sigma": sigma,
            "seconds_pass1": sec_p1, "n_cadences": int(len(t))}
-    if p1_p is None:
+    t_e = time.time()
+    seed = _mask_seed_and_eligibility(t_p, f_p, trial, p1,
+                                      seed_mode)
+    sec_est = round(time.time() - t_e, 2)
+    rec["seed_source"] = seed["seed_source"]
+    rec["seed_period_d"] = seed["seed_period"]
+    if seed.get("seed_fallback_reason"):
+        rec["seed_fallback_reason"] = seed["seed_fallback_reason"]
+    if seed["ephemeris"] is None:
         rec.update({"ephemeris": None, "secondary_scan": None,
-                    "eligible": False, "reason": "no-pass1-period",
+                    "eligible": False, "reason": seed["reason"],
                     "k2_mask": None})
         return rec, (t, f_inj, q, np.ones(len(t), dtype=bool), sigma)
-    t_e = time.time()
-    ephemeris = k2.estimate_ephemeris(t_p, f_p, p1_p)
-    secondary = k2.scan_secondary(
-        t_p, f_p, ephemeris["period_ref_d"],
-        ephemeris["t0_est_btjd"], ephemeris["duration_est_d"])
-    sec_est = round(time.time() - t_e, 2)
+    ephemeris = seed["ephemeris"]
+    secondary = seed["secondary"]
     rec["ephemeris"] = ephemeris
     rec["secondary_scan"] = {"phase": secondary[0],
                              "depth_frac": secondary[1],
                              "snr": secondary[2]}
     rec["seconds_est"] = sec_est
-    depth_pct = p1.get("depth_percent")
-    eligible = bool(
-        (depth_pct is not None and depth_pct > 1.0)
-        or p1.get("status") == "survivor")
-    rec["eligible"] = eligible
-    rec["reason"] = ("confirmed-contaminant" if eligible
-                     else "not-confirmed")
-    if not eligible:
+    rec["eligible"] = seed["eligible"]
+    rec["reason"] = seed["reason"]
+    if not seed["eligible"]:
         rec["k2_mask"] = None
         return rec, (t, f_inj, q, np.ones(len(t), dtype=bool), sigma)
     keep, mstats = k2.build_k2_mask(
-        t, f_inj, q, ephemeris, depth_pct, secondary=secondary,
-        duty_cap=DUTY_CAP, depth_trigger=False)
+        t, f_inj, q, ephemeris, seed["depth_for_mask"],
+        secondary=secondary, duty_cap=DUTY_CAP, depth_trigger=False)
     rec["k2_mask"] = mstats
     return rec, (t, f_inj, q, keep, sigma)
 
@@ -404,9 +513,16 @@ def run_host_campaign_p43(job):
             sec_p1 = sec_est = 0.0
             for sec in sectors:
                 sd = sector_data[sec]
+                # P4-3b fix (P43B_PREREG section 0.4): the original
+                # sector keeps the fresh-peak seed (proven identical
+                # to the frozen seed there); non-original sectors
+                # seed from the FROZEN recorded period, so the
+                # pre-mask targets the contaminant, not the planet.
                 rec, (t_s_, f_i, q_s_, keep, sig) = _process_sector(
                     sd["t"], sd["f"], sd["q"], sd["fcol"], tr, base,
-                    tic, sec, keep_fits)
+                    tic, sec, keep_fits,
+                    seed_mode=("fresh" if sec == tr["sector"]
+                               else "frozen"))
                 rec["crowdsap"] = sd["crowdsap"]
                 per_sector[sec] = rec
                 sector_inj[sec] = (t_s_, f_i, q_s_, keep)
@@ -844,9 +960,12 @@ def _dropped_frac_stats(stitched):
             "max": float(np.max(vals))}
 
 
-def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
+def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
+                       prereg="P43_PREREG.md section 0.7"):
     """Aggregate the paired legs into p43_summary.json and apply
-    the PRE-REGISTERED verdict rule (P43_PREREG.md section 0.7).
+    the PRE-REGISTERED verdict rule (P43_PREREG.md section 0.7, or
+    the prereg named by `prereg` -- the P4-3b fix applies the
+    identical rule from P43B_PREREG.md section 0.7).
 
     Reads the single leg (k3_run host files, out_dir/hosts/) and
     the stitched leg (out_dir/hosts-p43/), joins per trial on
@@ -1125,8 +1244,8 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
         "checks": checks,
         "failing_checks": failing,
         "verdict": verdict,
-        "note": ("Verdict rule pre-registered in P43_PREREG.md "
-                 "section 0.7; A18 is reported, not part of the "
+        "note": ("Verdict rule pre-registered in " + prereg
+                 + "; A18 is reported, not part of the "
                  "verdict."),
     }
     (out_dir / "p43_summary.json").write_text(
@@ -1263,6 +1382,11 @@ def main(argv=None):
     ap.add_argument("--p41b-dir", default=None,
                     help="P4-1b Arm D host files (single-leg "
                          "reproduction check in the merge)")
+    ap.add_argument("--prereg-ref",
+                    default="P43_PREREG.md section 0.7",
+                    help="Pre-registration reference cited in the "
+                         "summary (P4-3b: 'P43B_PREREG.md section "
+                         "0.7')")
     args = ap.parse_args(argv)
     out_dir = Path(args.out_dir)
     cache = Path(args.cache)
@@ -1270,7 +1394,8 @@ def main(argv=None):
     if args.mode == "campaign":
         if args.merge_only:
             summary = merge_campaign_p43(out_dir, manifest,
-                                         args.p41b_dir)
+                                         args.p41b_dir,
+                                         args.prereg_ref)
             print(f"[p43] merged {summary['n_trials_paired']} "
                   f"paired trials; verdict "
                   f"{summary['verdict']} "
@@ -1323,7 +1448,8 @@ def main(argv=None):
             print(f"[p43] ERROR TIC {r['tic']}: "
                   f"{r.get('error')}", flush=True)
         summary = merge_campaign_p43(out_dir, manifest,
-                                     args.p41b_dir)
+                                     args.p41b_dir,
+                                     args.prereg_ref)
         if not summary["null"]["present"]:
             print("[p43] NOTE: null leg not run yet -- the verdict "
                   "above is PENDING the null element (section 0.7 "
