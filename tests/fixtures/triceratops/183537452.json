@@ -1,11 +1,17 @@
 {
   "expected": {
-    "fpp_band": null,
+    "fpp_band": [
+      0.001776,
+      0.379185
+    ],
     "fpp_max": 0.5,
     "nfpp_max": 0.01,
-    "note": "TB-4: disposition INCONCLUSIVE; FPP within a >=5-seed band (pending); FPP < 0.5 (not a FAIL); NFPP < 0.01; STP-dominated split within a band (pending — the dominance check, STP > 50% of FPP, runs now). NO hard-coded FPP > 0.015 assertion; NO FPP-STP <= 0.015 assertion (tied to the deferred disposition, TB-2).",
+    "note": "TB-4: disposition INCONCLUSIVE; FPP within a >=5-seed band (MEASURED 2026-11-17, P4-8); FPP < 0.5 (not a FAIL); NFPP < 0.01; STP-dominated split within a band (pending — the dominance check, STP > 50% of FPP, runs now). NO hard-coded FPP > 0.015 assertion; NO FPP-STP <= 0.015 assertion (tied to the deferred disposition, TB-2). P4-8 FINDING: the measured 5-seed band [0.001776, 0.379185] FAILS TB-4 seed stability — seed 20261116 reads PASS (FPP 0.001776 <= 0.015) while the other four read INCONCLUSIVE, and the band touches the 0.015 boundary. The INCONCLUSIVE disposition for WASP-29b is seed-dependent at N=1,000,000 (STP dominates the FPP in every seed and the STP estimate itself spans 0.0014-0.3791); no single seed is the measurement. The gate test (test_seed_band_pending) now asserts this and fails — that failure is the finding, not a code regression.",
     "status": "inconclusive",
-    "stp_band": null,
+    "stp_band": [
+      0.001388,
+      0.379111
+    ],
     "stp_share_min": 0.5
   },
   "fixture_version": 1,
@@ -29,7 +35,8 @@
     "sources": [
       "Phase 3 BUNDLE.md §1.6 (FPP 0.169, NFPP 0.0, planet probability 0.831 = TP 0.697 + PTP 0.134, STP 0.160, SEB 0.009, on-target EB ~0, wall 1,553 s)",
       "Merged PR #6 body / requirements-triceratops.lock header (FPP 0.169, C-10 bar 0.015 NOT met, STP-dominated)",
-      "Mac vetting_results/triceratops-verify/VERIFICATION_REPORT.md — NOT on the VM; full output pending extraction (P3-7)"
+      "Mac vetting_results/triceratops-verify/VERIFICATION_REPORT.md — NOT on the VM; full output pending extraction (P3-7)",
+      "P4-8 (2026-11-17): 4 further Gaia-path seeds on the Mac (20261115-20261118, N=1,000,000, no contrast curve) + Zorro 832 nm seed 20261114 (FPP 0.003446, STP 0.000129) — phase4-p48/wasp-seeds-summary.json on the Mac, P48_RECORD.md. The 5-seed Gaia band is [0.001776, 0.379185] and FAILS TB-4 stability (see the expected note)."
     ]
   },
   "reconstructed": true,
@@ -41,13 +48,37 @@
     "stp": 0.16,
     "tp": 0.697
   },
-  "seed_band_pending": ">=5-seed runs on the Mac (P3-7). TB-4: the FPP band width comes from the seed spread, never invented; the STP-split band likewise.",
+  "seed_band_pending": false,
   "seeds": [
     {
       "fpp": 0.169,
       "nfpp": 0.0,
       "seed": 20261114,
       "stp": 0.16
+    },
+    {
+      "fpp": 0.379185,
+      "nfpp": 0.0,
+      "seed": 20261115,
+      "stp": 0.379111
+    },
+    {
+      "fpp": 0.001776,
+      "nfpp": 0.0,
+      "seed": 20261116,
+      "stp": 0.001388
+    },
+    {
+      "fpp": 0.11723,
+      "nfpp": 0.0,
+      "seed": 20261117,
+      "stp": 0.105809
+    },
+    {
+      "fpp": 0.27266,
+      "nfpp": 0.0,
+      "seed": 20261118,
+      "stp": 0.27266
     }
   ],
   "tic": "183537452",
