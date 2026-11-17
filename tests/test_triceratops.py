@@ -817,6 +817,35 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
             self.assertTrue((work / csv_name).exists())
             self.assertFalse((Path(tmp) / csv_name).exists())
 
+    def test_relative_argv_paths_survive_workdir_chdir(self):
+        # P4-8 regression: the wrapper chdirs to the run
+        # workdir before target construction; a relative
+        # --output resolved against the workdir used to
+        # crash the write (FileNotFoundError) after a full
+        # run — the first Mac fast smoke failed all three
+        # targets this way. Both argv paths are absolutised
+        # before the run.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            work = Path(tmp) / "work"
+            work.mkdir()
+            (work / "input.json").write_text(
+                json.dumps(_input_dict(tmp, sectors=(2, 29))))
+            env = dict(os.environ)
+            env["PYTHONPATH"] = fakevenv + os.pathsep + env.get(
+                "PYTHONPATH", "")
+            env["FAKE_TRI_OBS"] = str(Path(tmp) / "obs.json")
+            env["FAKE_TRI_BEHAVIOUR"] = "planet"
+            proc = subprocess.run(
+                [sys.executable, WRAPPER, "--input",
+                 "work/input.json", "--output", "work/output.json"],
+                capture_output=True, text=True, env=env, timeout=120,
+                cwd=tmp)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            out = json.loads((work / "output.json").read_text())
+            self.assertEqual(out["status"], "completed")
+            self.assertEqual(out["metrics"]["sectors_built"], 2)
+
     def test_spawn_context_propagates_config(self):
         # P4-8 (PB-2 acceptance input): the out-of-process
         # runner must propagate the requested config to the

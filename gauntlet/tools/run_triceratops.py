@@ -739,6 +739,13 @@ def main(argv=None):
     ap.add_argument("--output", required=True,
                     help="C-10 output JSON to write")
     args = ap.parse_args(argv)
+    # P4-8: run() chdirs to the workdir, so relative argv
+    # paths must be resolved against the CALLER's cwd
+    # BEFORE the run — resolving them after run() would
+    # nest them under the workdir (the first Mac fast smoke
+    # failed all three targets this way).
+    args.input = os.path.abspath(args.input)
+    args.output = os.path.abspath(args.output)
     out = run(args.input, args.output)
     with open(args.output, "w") as fh:
         json.dump(out, fh, indent=2)
