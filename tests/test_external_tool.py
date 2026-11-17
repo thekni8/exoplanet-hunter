@@ -41,8 +41,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from gauntlet.external_tool import (  # noqa: E402
     DEFAULT_SEED, STATUS_COMPLETED, STATUS_FAILED,
-    STATUS_MISSING_VENV, STATUS_TIMEOUT, ToolConfig,
-    _memory_cap_preexec, build_tool_input,
+    STATUS_MEMORY, STATUS_MISSING_VENV, STATUS_TIMEOUT,
+    ToolConfig, _memory_cap_preexec, build_tool_input,
     default_wrapper_path, run_external_tool, tool_config_hash,
 )
 
@@ -79,6 +79,38 @@ FAKE_HOG = textwrap.dedent("""\
     buf = bytearray(2 * 1024 * 1024 * 1024)
     buf[-1] = 1
     print(len(buf))
+    """)
+
+# P3-8: touch 150 MB of REAL RSS, then sleep — the RSS
+# watchdog (cap 100 MB) must SIGKILL this before the sleep
+# ends. Unlike FAKE_HOG (which dies on RLIMIT_AS), this one
+# is far below the 2048 MB address-space cap, so only the
+# RSS watchdog can stop it.
+FAKE_RSS_HOG = textwrap.dedent("""\
+    import time
+    buf = bytearray(150 * 1024 * 1024)
+    for i in range(0, len(buf), 4096):
+        buf[i] = 1
+    time.sleep(30)
+    """)
+
+# P3-8: sleep ~1 s, then complete like FAKE_OK — long enough
+# for the watchdog to poll at least once, so the peak-RSS
+# recording is exercised on a clean completion.
+FAKE_SLOW_OK = textwrap.dedent("""\
+    import argparse, json, time
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input", required=True)
+    ap.add_argument("--output", required=True)
+    args = ap.parse_args()
+    time.sleep(1.0)
+    inp = json.load(open(args.input))
+    json.dump({"tool": inp["tool"], "status": "completed",
+               "seed": inp["seed"],
+               "marker": inp["signal"]["period_d"],
+               "value": None, "metrics": {},
+               "artifacts": [], "warnings": [],
+               "wall_time_s": 1.0}, open(args.output, "w"))
     """)
 
 FAKE_BADJSON = textwrap.dedent("""\
@@ -311,6 +343,50 @@ class TestRunExternalTool(unittest.TestCase):
             self.assertEqual(res.status, STATUS_FAILED)
             self.assertIsNone(res.output)
             self.assertIn("MemoryError", res.stderr_tail)
+
+    def test_rss_watchdog_kills_the_hog(self):
+        # P3-8: the RSS watchdog SIGKILLs a child whose
+        # resident set exceeds the cap — a "memory" status,
+        # not a generic failure, and fast (the 30 s sleep
+        # never runs out).
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_rss_hog.py",
+                                    FAKE_RSS_HOG)
+            res = run_external_tool(
+                self._config(fake), self._input(), tmp,
+                rss_watchdog_mb=100, rss_poll_s=0.2)
+            self.assertEqual(res.status, STATUS_MEMORY)
+            self.assertIsNone(res.output)
+            self.assertIn("RSS watchdog", res.stderr_tail)
+            self.assertLess(res.wall_time_s, 5.0)
+            self.assertTrue(res.rss_watchdog_applied)
+            self.assertGreaterEqual(res.peak_rss_mb, 100.0)
+
+    def test_rss_watchdog_records_peak_on_clean_run(self):
+        # P3-8: the watchdog records the peak RSS even when
+        # the cap never fires (the nightly's memory
+        # measurement rides on this).
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_slow_ok.py",
+                                    FAKE_SLOW_OK)
+            res = run_external_tool(
+                self._config(fake), self._input(), tmp,
+                rss_watchdog_mb=2048, rss_poll_s=0.2)
+            self.assertEqual(res.status, STATUS_COMPLETED)
+            self.assertTrue(res.rss_watchdog_applied)
+            self.assertIsNotNone(res.peak_rss_mb)
+            self.assertGreater(res.peak_rss_mb, 5.0)
+
+    def test_no_watchdog_means_no_peak(self):
+        # Default path unchanged: without the watchdog, no
+        # peak is recorded and nothing is applied.
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = self._write_fake(tmp, "fake_ok.py", FAKE_OK)
+            res = run_external_tool(self._config(fake),
+                                    self._input(), tmp)
+            self.assertEqual(res.status, STATUS_COMPLETED)
+            self.assertIsNone(res.peak_rss_mb)
+            self.assertFalse(res.rss_watchdog_applied)
 
     def test_missing_venv_is_a_status_not_a_crash(self):
         with tempfile.TemporaryDirectory() as tmp:

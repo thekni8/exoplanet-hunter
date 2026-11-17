@@ -79,6 +79,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,7 +90,7 @@ except ImportError:  # pragma: no cover - non-Unix hosts
     resource = None
 
 # The C-10 design doc's example seed. The policy file
-# (calibration/external_tools_v1.yaml) is the source of truth
+# (calibration/external_tools_v2.yaml) is the source of truth
 # at runtime; this constant is the fallback when no policy is
 # supplied. The seed is FIXED per tool config, not per target
 # and not random per run — a re-run reproduces the number.
@@ -101,6 +102,11 @@ STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
 STATUS_TIMEOUT = "timeout"
 STATUS_MISSING_VENV = "missing_venv"
+# P3-8 (P-3, scoped to the golden-test nightly): the RSS
+# watchdog killed the process group above its cap. Like every
+# other non-completed status, the desk driver maps it to
+# UNMEASURED + EXEC_ERROR — never a pass.
+STATUS_MEMORY = "memory"
 
 # Required keys of the C-10 input contract, per section.
 _TARGET_KEYS = ("tic", "ra_deg", "dec_deg", "tmag",
@@ -137,6 +143,16 @@ class ToolRunResult:
     # Linux-only), when no cap was requested (memory_mb=0),
     # and when no process was spawned at all.
     memory_cap_applied: bool = False
+    # P3-8: peak resident set size of the process group in MB,
+    # as measured by the RSS watchdog (None when the watchdog
+    # was off — rss_watchdog_mb not passed — or when no
+    # process was spawned). The nightly records it per run
+    # (P3-8 memory measurement), even on a clean completion.
+    peak_rss_mb: float | None = None
+    # P3-8: whether the RSS watchdog actually ran (its first
+    # poll succeeded). False when the watchdog was off, when
+    # `ps` was unavailable, or when no process was spawned.
+    rss_watchdog_applied: bool = False
 
 
 def default_wrapper_path(tool):
@@ -242,7 +258,73 @@ def _memory_cap_preexec(memory_mb, platform=None):
     return _cap
 
 
-def run_external_tool(config, input_data, work_dir):
+def _group_rss_mb(pgid):
+    """Total RSS of a process group in MB, via `ps` (macOS +
+    Linux). The child is both session and group leader
+    (start_new_session), so `-g <pid>` selects the group on
+    both; `-p <pid>` is the fallback for a `ps` that does
+    not accept `-g`. Returns None when `ps` fails; 0.0 when
+    the group is gone (a live group always has RSS > 0)."""
+    for args in (["ps", "-o", "rss=", "-g", str(pgid)],
+                 ["ps", "-o", "rss=", "-p", str(pgid)]):
+        try:
+            out = subprocess.run(args, capture_output=True,
+                                 text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if out.returncode != 0:
+            continue
+        try:
+            total_kb = sum(int(line) for line in
+                           out.stdout.split() if line.strip())
+        except ValueError:
+            return None
+        return total_kb / 1024.0
+    return None
+
+
+class _RSSWatchdog(threading.Thread):
+    """Poll a process group's RSS; SIGKILL the group above
+    the cap (P3-8, P-3 scoped to the golden-test nightly).
+    Daemon thread — never blocks the run. Tracks the peak
+    RSS even when the cap never fires (the nightly's memory
+    measurement)."""
+
+    def __init__(self, pgid, cap_mb, poll_s=5.0):
+        super().__init__(daemon=True)
+        self.pgid = pgid
+        self.cap_mb = cap_mb
+        self.poll_s = poll_s
+        self.peak_mb = 0.0
+        self.applied = False
+        self.killed = False
+        self.kill_rss_mb = None
+        # NOTE: never name this `_stop` — Thread has a
+        # _stop() method and shadowing it breaks join().
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        self._stop_event.set()
+
+    def run(self):
+        while not self._stop_event.wait(self.poll_s):
+            rss = _group_rss_mb(self.pgid)
+            if rss is None or rss <= 0:
+                return  # group gone (or ps broken) — stop
+            self.applied = True
+            self.peak_mb = max(self.peak_mb, rss)
+            if rss > self.cap_mb:
+                self.killed = True
+                self.kill_rss_mb = rss
+                try:
+                    os.killpg(self.pgid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                return
+
+
+def run_external_tool(config, input_data, work_dir,
+                      rss_watchdog_mb=None, rss_poll_s=5.0):
     """Run one external tool out of process. Never raises for a
     tool-side failure — every failure mode is a status.
 
@@ -250,6 +332,17 @@ def run_external_tool(config, input_data, work_dir):
     [python, wrapper, --input, --output] under the timeout and
     memory cap, and parses output.json. A missing venv python
     returns "missing_venv" without spawning anything.
+
+    rss_watchdog_mb: when set, a watchdog thread polls the
+    child process group's RSS every rss_poll_s seconds and
+    SIGKILLs the group above the cap, returning status
+    "memory" (P3-8, P-3 scoped to the golden-test nightly —
+    macOS applies no RLIMIT_AS cap, so the timeout was the
+    only guard there). The watchdog also records the peak RSS
+    (ToolRunResult.peak_rss_mb) even on a clean completion.
+    None (default) disables it — the general tool path is
+    unchanged; the general watchdog for all tool runs rides
+    with future tool infrastructure (3.1).
 
     Fault modes (P-13 — every one is a status, never a raise
     and never a silent PASS):
@@ -262,13 +355,15 @@ def run_external_tool(config, input_data, work_dir):
                                   -9 for SIGKILL / OOM-killer)
       timeout                  -> timeout (the whole process
                                   group is SIGKILLed, P-3)
+      RSS above the watchdog cap -> memory (the whole process
+                                  group is SIGKILLed, P3-8)
       exit 0, no output.json   -> failed
       output.json malformed    -> failed ("unreadable")
       output.json not an object-> failed
     Stdout is never parsed: garbage on stdout with a valid
     output.json still completes. The adapters map failed /
-    timeout / missing_venv to UNMEASURED + EXEC_ERROR (never
-    a pass — see the P-2 verdict-invariance test).
+    timeout / missing_venv / memory to UNMEASURED + EXEC_ERROR
+    (never a pass — see the P-2 verdict-invariance test).
     """
     work_dir = str(work_dir)
     os.makedirs(work_dir, exist_ok=True)
@@ -304,6 +399,25 @@ def run_external_tool(config, input_data, work_dir):
         return ToolRunResult(
             STATUS_FAILED, None, time.monotonic() - start, None,
             f"could not spawn the tool: {exc}")
+    # P3-8: the RSS watchdog (off unless requested). The child
+    # is its own process-group leader (start_new_session), so
+    # its pid IS the pgid the watchdog polls.
+    watchdog = None
+    if rss_watchdog_mb:
+        watchdog = _RSSWatchdog(proc.pid, rss_watchdog_mb,
+                                rss_poll_s)
+        watchdog.start()
+
+    def _watchdog_state():
+        """(peak_rss_mb, applied) from the watchdog, if any —
+        stopped + joined first so the peak is final."""
+        if watchdog is None:
+            return None, False
+        watchdog.stop()
+        watchdog.join(timeout=max(rss_poll_s + 2.0, 2.0))
+        return ((watchdog.peak_mb if watchdog.applied else None),
+                watchdog.applied)
+
     try:
         _out, err = proc.communicate(timeout=config.timeout_s)
     except subprocess.TimeoutExpired:
@@ -320,23 +434,56 @@ def run_external_tool(config, input_data, work_dir):
         except (ProcessLookupError, PermissionError):
             pass
         _out, err = proc.communicate()
+        peak_mb, wd_applied = _watchdog_state()
+        if watchdog is not None and watchdog.killed:
+            # The watchdog fired first (the timeout and the
+            # kill raced) — the memory reason is the more
+            # informative one.
+            return ToolRunResult(
+                STATUS_MEMORY, None, time.monotonic() - start,
+                None,
+                f"RSS watchdog: process group RSS "
+                f"{watchdog.kill_rss_mb:.0f} MB exceeded the "
+                f"{rss_watchdog_mb} MB cap (P-3)",
+                memory_cap_applied=cap_applied,
+                peak_rss_mb=peak_mb,
+                rss_watchdog_applied=wd_applied)
         return ToolRunResult(
             STATUS_TIMEOUT, None, time.monotonic() - start, None,
             ((err or "")
              or f"timed out after {config.timeout_s} s")[-2048:],
-            memory_cap_applied=cap_applied)
+            memory_cap_applied=cap_applied,
+            peak_rss_mb=peak_mb,
+            rss_watchdog_applied=wd_applied)
     wall = time.monotonic() - start
+    peak_mb, wd_applied = _watchdog_state()
+    if watchdog is not None and watchdog.killed:
+        # The watchdog SIGKILLed the group (communicate
+        # returned because the process died) — a memory kill,
+        # not a generic failure.
+        return ToolRunResult(
+            STATUS_MEMORY, None, wall, proc.returncode,
+            f"RSS watchdog: process group RSS "
+            f"{watchdog.kill_rss_mb:.0f} MB exceeded the "
+            f"{rss_watchdog_mb} MB cap (P-3)",
+            memory_cap_applied=cap_applied,
+            peak_rss_mb=peak_mb,
+            rss_watchdog_applied=wd_applied)
     stderr_tail = (err or "")[-2048:]
     if proc.returncode != 0:
         return ToolRunResult(
             STATUS_FAILED, None, wall, proc.returncode,
             stderr_tail or f"wrapper exited {proc.returncode}",
-            memory_cap_applied=cap_applied)
+            memory_cap_applied=cap_applied,
+            peak_rss_mb=peak_mb,
+            rss_watchdog_applied=wd_applied)
     if not os.path.exists(output_path):
         return ToolRunResult(
             STATUS_FAILED, None, wall, proc.returncode,
             "wrapper exited 0 but wrote no output JSON",
-            memory_cap_applied=cap_applied)
+            memory_cap_applied=cap_applied,
+            peak_rss_mb=peak_mb,
+            rss_watchdog_applied=wd_applied)
     try:
         with open(output_path) as fh:
             output = json.load(fh)
@@ -344,15 +491,21 @@ def run_external_tool(config, input_data, work_dir):
         return ToolRunResult(
             STATUS_FAILED, None, wall, proc.returncode,
             f"output JSON unreadable: {exc}",
-            memory_cap_applied=cap_applied)
+            memory_cap_applied=cap_applied,
+            peak_rss_mb=peak_mb,
+            rss_watchdog_applied=wd_applied)
     if not isinstance(output, dict):
         return ToolRunResult(
             STATUS_FAILED, None, wall, proc.returncode,
             "output JSON is not an object",
-            memory_cap_applied=cap_applied)
+            memory_cap_applied=cap_applied,
+            peak_rss_mb=peak_mb,
+            rss_watchdog_applied=wd_applied)
     return ToolRunResult(STATUS_COMPLETED, output, wall,
                          proc.returncode, stderr_tail,
-                         memory_cap_applied=cap_applied)
+                         memory_cap_applied=cap_applied,
+                         peak_rss_mb=peak_mb,
+                         rss_watchdog_applied=wd_applied)
 
 
 def python_executable():
@@ -366,10 +519,10 @@ def python_executable():
 KNOWN_TOOLS = ("latte", "triceratops")
 
 
-def load_external_tool_configs(policy_name="external_tools_v1",
+def load_external_tool_configs(policy_name="external_tools_v2",
                                repo_root=None):
     """ToolConfigs from a versioned policy file (default
-    calibration/external_tools_v1.yaml, registry-verified by
+    calibration/external_tools_v2.yaml, registry-verified by
     the calibration loader). Returns {tool: ToolConfig} for
     every tool the policy configures. The config_hash is the
     policy file's own sha256 — the policy IS the tool config.

@@ -960,7 +960,7 @@ def run_desk_gauntlet(survivor, workdir, source=None, policy=None,
     external_tools: None (default — no external tools) or a
     dict {tool: ToolConfig} (gauntlet/external_tool.py;
     load_external_tool_configs builds it from the
-    external_tools_v1 policy). The tools run as post-runner
+    external_tools_v2 policy). The tools run as post-runner
     EVIDENCE stages after pass 2, only on a survivor no stage
     failed; their StageResults land in
     extra_evidence["external_tools"] (+ raw outputs in

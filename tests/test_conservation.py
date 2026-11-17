@@ -44,6 +44,29 @@ def _slice(stars_in=4, toi=0, vsx=0, no_product=0, errors=0,
 
 
 class TestCheckConservation(unittest.TestCase):
+    def test_veto_bucket_balances(self):
+        # P3-15: a merge-stage veto demotion is a named removal
+        # reason in equation 5 — the run conserves only when
+        # the veto count is passed in.
+        slices = [_slice(), _slice(counts={"survivor": 2,
+                                           "recorded": 1,
+                                           "below_floor": 1})]
+        # 8 window stars, 3 screened survivors, 1 merged + 1
+        # TOI + 1 veto-demoted.
+        ok, buckets, problems = check_conservation(
+            8, slices, merged_survivors=1, toi_removed=1,
+            vsx_removed=0, veto_removed=1)
+        self.assertTrue(ok, msg=problems)
+        self.assertEqual(buckets["survivors_veto"], 1)
+        # Without the veto count the same run fails: the
+        # demoted survivor is unaccounted for.
+        ok, _b, problems = check_conservation(
+            8, slices, merged_survivors=1, toi_removed=1,
+            vsx_removed=0)
+        self.assertFalse(ok)
+        self.assertTrue(any("do not conserve" in p
+                            for p in problems))
+
     def test_balanced_run_passes(self):
         slices = [_slice(), _slice(counts={"survivor": 2,
                                            "recorded": 1,

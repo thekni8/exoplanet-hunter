@@ -112,10 +112,12 @@ EXEC_STATUSES = (EXEC_COMPLETED, EXEC_NOT_STARTED, EXEC_SKIPPED,
 DEFAULT_POLICY_VERSION = "gauntlet_v2"
 RECORD_TYPE = "stage_result"
 
-# External-tools policy (Phase 2, 2B-3): the TRICERATOPS FPP
-# bars live in calibration/external_tools_v1.yaml, NOT in
-# code — a threshold change is a calibration change.
-EXTERNAL_TOOLS_POLICY_VERSION = "external_tools_v1"
+# External-tools policy (Phase 2, 2B-3; v2 in Phase 3, P3-9): the
+# TRICERATOPS FPP bars live in
+# calibration/external_tools_v2.yaml, NOT in code — a threshold
+# change is a calibration change. v2 records disposition (A)
+# (Phase 3 vote, TB-2); bars unchanged from v1.
+EXTERNAL_TOOLS_POLICY_VERSION = "external_tools_v2"
 
 
 @lru_cache(maxsize=4)
@@ -132,7 +134,7 @@ def load_decision_policy(version=DEFAULT_POLICY_VERSION):
 def load_external_tools_policy(
         version=EXTERNAL_TOOLS_POLICY_VERSION):
     """The external-tools policy dict (default
-    external_tools_v1). Cached; call
+    external_tools_v2). Cached; call
     load_external_tools_policy.cache_clear() after changing
     the calibration dir in tests."""
     from calibration import load_profile
@@ -1042,15 +1044,17 @@ def triceratops_result(native, prov=None, policy=None):
     EXEC_ERROR, not a crash (C-10 constraint 4).
 
     The status comes from the POLICY thresholds (the
-    external_tools_v1 profile; PROVISIONAL until the Phase 2
-    vote ratifies them), never from the tool — via the pure
+    external_tools_v2 profile; disposition (A) ratified by
+    the unanimous Phase 3 vote, TB-2 — FPP <= 0.015 and NFPP
+    <= 0.001 validate, FPP >= 0.5 refutes, the grey zone
+    reads INCONCLUSIVE), never from the tool — via the pure
     triceratops_disposition() mapping, so a policy-only edit
     re-derives the status from the stored raw numbers without
     re-running the tool (P-4). PASS when FPP and NFPP both
     clear the validation bars, FAIL when FPP clears the
     refute bar, INCONCLUSIVE in the grey zone (including a
     low FPP blocked by a high NFPP — NFPP alone never
-    refutes in v1, since without a contrast curve it is an
+    refutes in v2, since without a contrast curve it is an
     upper bound). A DEGENERATE computation (every MC draw
     geometrically invalid, FPP=1.0) reads UNMEASURED +
     EXEC_ERROR: FPP=1.0 there reflects a failed computation,

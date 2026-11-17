@@ -78,6 +78,7 @@ for _d in (DATA_DIR, RESULTS_DIR, PLATES_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 import hunter  # noqa: E402  (after chdir: hunter creates reports/ at import)
+import search_health as _search_health  # noqa: E402
 
 from fastapi import FastAPI, HTTPException  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
@@ -236,7 +237,12 @@ def _run_analyze(job_id, p):
         shutil.copyfile(src_png, dst_png)
         plate_path = str(dst_png)
 
-    if metrics["sde"] >= HIT_SDE:
+    # P3-1: a degenerate search is never a hit, however large its
+    # nominal SDE reads (the _robust_sde 1e-12 fallback can make a
+    # degenerate search read as a huge finite SDE).
+    if (metrics["sde"] >= HIT_SDE
+            and metrics.get("search_health")
+            != _search_health.SEARCH_INVALID):
         record_discovery(job_id, "analyze", metrics)
 
     update_job(job_id, status="done", finished_at=_now(),
@@ -476,7 +482,11 @@ def _run_sweep(job_id, p):
                 gate_counts["gate_vetoes"] += 1
             if entry["sde_jump_flag"]:
                 gate_counts["sde_jumps"] += 1
-            if m["sde"] >= HIT_SDE:
+            # P3-1: a degenerate search is never a hit (see the
+            # analyze gate above).
+            if (m["sde"] >= HIT_SDE
+                    and m.get("search_health")
+                    != _search_health.SEARCH_INVALID):
                 hits.append(entry)
                 record_discovery(job_id, "sweep", m)
                 hit_line = (f"HIT: TIC {tic_id} — "

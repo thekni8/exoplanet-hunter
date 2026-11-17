@@ -59,7 +59,7 @@ def main(argv=None):
     ap.add_argument("--external-tools", action="store_true",
                     help="run the configured external tools "
                          "(LATTE/TRICERATOPS, from the "
-                         "external_tools_v1 policy) as "
+                         "external_tools_v2 policy) as "
                          "post-runner evidence stages "
                          "(Mac-only by configuration: on a "
                          "host without the venvs they read "

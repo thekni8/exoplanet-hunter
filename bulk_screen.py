@@ -162,6 +162,17 @@ from mad_clip import PROFILE_OPTIONS as _CLIP_PROFILE_OPTIONS
 from mad_clip import ALL_OPTIONS as _CLIP_ALL_OPTIONS
 from mad_clip import mad_clip_mask as _mad_clip_mask
 import ingest as _ingest
+import search_health as _search_health
+from bulk.grid_edge import build_handoff_record as _build_handoff_record
+from bulk.grid_edge import disposition_grid_edge as _disposition_grid_edge
+# P3-15: the adopted tier-B gates live in bulk/replay_matrix.py —
+# the screen calls them, it does not re-implement them.
+from bulk.replay_matrix import CLUSTER_MIN_SIZE as _RM_CLUSTER_MIN_SIZE
+from bulk.replay_matrix import CLUSTER_TOL_P as _RM_CLUSTER_TOL_P
+from bulk.replay_matrix import CLUSTER_TOL_T0_D as _RM_CLUSTER_TOL_T0_D
+from bulk.replay_matrix import (sector_epoch_cluster_tics as
+                                _sector_epoch_cluster_tics)
+from bulk.replay_matrix import two_event_combined as _two_event_combined
 from validation import validate_survivor as _validate_survivor
 
 # Thresholds — loaded from the versioned calibration profile
@@ -188,6 +199,10 @@ def _apply_profile(prof):
     global MIN_PERIOD_D, MAX_PERIOD_D, BLS_GRID_POINTS, BLS_DURATIONS_D
     global SYSTEMATIC_PERIODS, CLIP_OPTION, SYSTEMATIC_WINDOWS
     global QUALITY_MASK
+    global GRID_EDGE_MIN_IN_TRANSIT, GRID_EDGE_MAX_UNMASKED_FRACTION
+    global TWO_COMBINED_ENABLED, EPOCH_CLUSTER_VETO_ENABLED
+    global EPOCH_CLUSTER_TOL_P, EPOCH_CLUSTER_TOL_T0_D
+    global EPOCH_CLUSTER_MIN_SIZE
     _BULK_CAL = prof
     CALIBRATION_VERSION = prof["version"]
     # Provenance map (A-2): per-subsystem bare versions, {"bulk": "v1"}.
@@ -242,6 +257,45 @@ def _apply_profile(prof):
             f"calibration profile {prof['version']!r} declares "
             f"quality_mask {QUALITY_MASK!r} — expected a "
             f"non-negative integer bitmask")
+    # Grid-edge floor (P3-14): the quality floor for
+    # SINGLE_TRANSIT_POOL — no unmasked in-transit flags and >= 4
+    # in-transit cadences. Profiles that predate the fields mean
+    # the vote's values (the quality_mask/clip_option pattern):
+    # the floor is a disposition rule, not a threshold change, so
+    # it applies under every profile.
+    GRID_EDGE_MIN_IN_TRANSIT = int(prof.get(
+        "grid_edge_min_in_transit_cadences", 4))
+    GRID_EDGE_MAX_UNMASKED_FRACTION = float(prof.get(
+        "grid_edge_max_unmasked_flag_fraction", 0.0))
+    # Tier-B tightening gates (P3-15, bulk_v4): profiles that
+    # predate the keys mean the gates OFF — a frozen profile's
+    # behaviour must not change. The epoch-cluster criterion
+    # defaults to the P3-13 values (inert while the veto is
+    # off). A profile that declares criterion values MUST match
+    # replay_matrix's P3-13 constants: the criterion is
+    # vote-frozen, and a profile declaring different values is
+    # a bug, not a feature — fail loud here, never silently at
+    # screen time.
+    TWO_COMBINED_ENABLED = bool(prof.get("two_combined_enabled",
+                                         False))
+    EPOCH_CLUSTER_VETO_ENABLED = bool(prof.get(
+        "epoch_cluster_veto_enabled", False))
+    EPOCH_CLUSTER_TOL_P = float(prof.get(
+        "epoch_cluster_tol_p", _RM_CLUSTER_TOL_P))
+    EPOCH_CLUSTER_TOL_T0_D = float(prof.get(
+        "epoch_cluster_tol_t0_d", _RM_CLUSTER_TOL_T0_D))
+    EPOCH_CLUSTER_MIN_SIZE = int(prof.get(
+        "epoch_cluster_min_size", _RM_CLUSTER_MIN_SIZE))
+    if (EPOCH_CLUSTER_TOL_P != _RM_CLUSTER_TOL_P
+            or EPOCH_CLUSTER_TOL_T0_D != _RM_CLUSTER_TOL_T0_D
+            or EPOCH_CLUSTER_MIN_SIZE != _RM_CLUSTER_MIN_SIZE):
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"epoch-cluster criterion ({EPOCH_CLUSTER_TOL_P}, "
+            f"{EPOCH_CLUSTER_TOL_T0_D}, {EPOCH_CLUSTER_MIN_SIZE}) "
+            f"— expected the P3-13 criterion "
+            f"({_RM_CLUSTER_TOL_P}, {_RM_CLUSTER_TOL_T0_D}, "
+            f"{_RM_CLUSTER_MIN_SIZE}) from bulk/replay_matrix.py")
 
 
 def set_calibration(name):
@@ -906,9 +960,10 @@ def _rescore(t, f, period, t0, duration):
 
 
 def _raw_in_transit_flags(t_raw, q_raw, period, t0, duration):
-    """(flagged fraction, unmasked-bit tally) of the in-transit
-    cadences on the RAW (pre-mask) arrays at an ephemeris
-    (M-4, 2026-11-15 vote).
+    """(flagged fraction, unmasked-bit tally, n_in_transit) of
+    the in-transit cadences on the RAW (pre-mask) arrays at an
+    ephemeris (M-4, 2026-11-15 vote; n_in_transit added P3-14
+    as the grid-edge floor's cadence-count input).
 
     The fraction is the share of in-transit cadences carrying ANY
     quality flag, measured BEFORE masking -- so a survivor whose
@@ -918,17 +973,50 @@ def _raw_in_transit_flags(t_raw, q_raw, period, t0, duration):
     exclude). The tally counts, per bit, the in-transit cadences
     carrying a bit the screen mask does NOT exclude -- it answers
     sector-wide whether bit 11 ever appears without bits 29/30.
-    Returns (None, {}) when no raw cadence falls in transit.
+    n_in_transit is the raw in-transit cadence count (0 when no
+    raw cadence falls in transit). Returns (None, {}, 0) when no
+    raw cadence falls in transit.
     `duration` is in days.
     """
     phase = ((t_raw - t0) / period + 0.5) % 1.0 - 0.5
     in_tr = np.abs(phase) < (duration / period) / 2
     n_in = int(in_tr.sum())
     if n_in == 0:
-        return None, {}
+        return None, {}, 0
     q_in = np.asarray(q_raw, dtype=np.int64)[in_tr]
     frac = float((q_in != 0).sum()) / n_in
-    return frac, _tally_unmasked_bits(q_in, QUALITY_MASK)
+    return frac, _tally_unmasked_bits(q_in, QUALITY_MASK), n_in
+
+
+def _header_int(value):
+    """FITS header value as an int, or None (P3-14 camera/CCD —
+    the hand-off record wants them when the header carries them)."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _attach_grid_edge_disposition(rec, camera=None, ccd=None):
+    """P3-14: attach the grid-edge disposition + hand-off record
+    to an above-floor screen record, when it is a grid-edge
+    record and the floor is evaluable on the available evidence.
+    No-op otherwise — the record keeps no disposition field.
+    The floor constants come from the profile (via the module
+    globals _apply_profile derives)."""
+    disposition, _reason = _disposition_grid_edge(
+        rec, max_period_d=MAX_PERIOD_D,
+        min_in_transit=GRID_EDGE_MIN_IN_TRANSIT,
+        max_unmasked_fraction=GRID_EDGE_MAX_UNMASKED_FRACTION)
+    if disposition is None:
+        return
+    rec["disposition"] = disposition
+    rec["grid_edge"] = _build_handoff_record(
+        rec, camera=camera, ccd=ccd, max_period_d=MAX_PERIOD_D,
+        min_in_transit=GRID_EDGE_MIN_IN_TRANSIT,
+        max_unmasked_fraction=GRID_EDGE_MAX_UNMASKED_FRACTION)
 
 
 def _screen_one(args):
@@ -963,6 +1051,11 @@ def _screen_one(args):
             t, flux, _ = _ingest.as_float64(data["TIME"],
                                             data[fcol])
             qual = np.asarray(data["QUALITY"], dtype=int)
+            # P3-14: camera/CCD for the grid-edge hand-off
+            # record (None when the header lacks them).
+            _hdr = hdul[0].header
+            camera = _header_int(_hdr.get("CAMERA"))
+            ccd = _header_int(_hdr.get("CCD"))
         # Quality mask — profile-driven (QUALITY_MASK, derived in
         # _apply_profile), NOT quality==0. v1/v2 mean lightkurve's
         # TESS DEFAULT bitmask (17087). Lesson (proof-run smoke
@@ -1038,6 +1131,20 @@ def _screen_one(args):
                         product_ids=[Path(path).name],
                         sectors=[int(sector)], author=PRODUCT,
                         bls_input_hash=bls_hash)})
+        # P3-1 (DF-20): periodogram health check. A degenerate
+        # search records SEARCH_INVALID and returns here — it is
+        # never a survivor, never a "below_floor" valid search,
+        # and never enters a training or calibration dataset.
+        # BOUNDARY_LIMITED searches continue normally (P3-14
+        # dispositions them); the 20 d edge holds legitimate
+        # single dips.
+        _health, _health_reason = _search_health.assess_periodogram(
+            pw, pv, i, sde, SYSTEMATIC_PERIODS, RECORD_FLOOR_SDE)
+        rec["search_health"] = _health
+        rec["search_health_reason"] = _health_reason
+        if _health == _search_health.SEARCH_INVALID:
+            rec["status"] = "search_invalid"
+            return rec
         # (M-4 fields are attached below, after the record floor:
         # a below-floor record has no detection, so its BLS argmax
         # is a noise peak and an "in-transit flagged fraction" at
@@ -1068,10 +1175,13 @@ def _screen_one(args):
         # tally, on the pre-mask arrays at the found ephemeris.
         # Only for records that clear the record floor -- below
         # it there is no detection to diagnose.
-        frac, tally = _raw_in_transit_flags(t_raw, q_raw, period,
-                                            t0, duration)
+        frac, tally, n_in_transit = _raw_in_transit_flags(
+            t_raw, q_raw, period, t0, duration)
         rec["flagged_in_transit_frac"] = frac
         rec["unmasked_bits_in_transit"] = tally
+        # P3-14: the raw in-transit cadence count — the
+        # grid-edge floor's cadence-count input.
+        rec["n_in_transit"] = n_in_transit
 
         # --- free vetoes -------------------------------------------------
         flags = []
@@ -1125,12 +1235,38 @@ def _screen_one(args):
                     depth * 100.0 <= TIER_B_MAX_DEPTH_PCT:
                 tier = "B"
         rec["tier"] = tier
+        # P3-15 (bulk_v4): TWO-COMBINED — a 2-event tier-B row
+        # needs both events strong AND mes_pink >= 9.0 (the
+        # tier_a_mes bar, reused). Rows with n_events != 2 are
+        # unaffected (1-event rows are P3-14's singles; >=3
+        # -event rows already meet tier A's >=2-strong
+        # requirement). A failure demotes with flag
+        # TWO_EVENT_WEAK + gate_reason FAILED_TWO_COMBINED —
+        # the row is marked "unsure" for manual review, never
+        # deleted: it stays in screen_hits.jsonl, queryable
+        # (disposition == DEMOTED_SECTOR_EPOCH_CLUSTER OR
+        # gate_reason present). The tier field is kept (the row
+        # DID meet tier B) — the gate is the verdict, as with
+        # the EB vetoes. The implementation is replay_matrix's
+        # two_event_combined, called with the profile's
+        # tier_a_mes; bulk_v1/v2/v3 never reach this branch
+        # (TWO_COMBINED_ENABLED is False there).
+        if tier == "B" and TWO_COMBINED_ENABLED and \
+                not _two_event_combined(rec, mes_bar=TIER_A_MES):
+            flags.append("TWO_EVENT_WEAK")
+            demote.append("TWO_EVENT_WEAK")
+            rec["gate_reason"] = "FAILED_TWO_COMBINED"
         if demote:
             rec["status"] = "demoted"
         elif tier is not None:
             rec["status"] = "survivor"
         else:
             rec["status"] = "recorded"
+        # P3-14: grid-edge disposition for non-demoted
+        # above-floor records. Demoted records keep their
+        # demotion — the EB veto is the verdict there.
+        if rec["status"] in ("survivor", "recorded"):
+            _attach_grid_edge_disposition(rec, camera, ccd)
         if rec["status"] == "survivor":
             # Input file hash, survivors only (bounded cost): the
             # file was just read, so it is warm in the page cache.
@@ -1153,10 +1289,13 @@ _EMIT_KEYS = ("tic", "period_days", "t0_btjd", "duration_hours",
               "depth_percent", "sde", "sector", "product", "ra", "dec",
               "tmag", "radius_rsun", "flags", "odd_even_ratio",
               "secondary_depth_percent", "near_systematic", "control",
-              "status", "known_source", "alt_peaks", "mes_pink",
+              "status", "search_health", "search_health_reason",
+              "known_source", "alt_peaks", "mes_pink",
               "cdpp_pct", "n_events", "n_strong_events",
               "max_event_snr", "v_ratio", "tier", "input_identity",
-              "flagged_in_transit_frac", "unmasked_bits_in_transit")
+              "flagged_in_transit_frac", "unmasked_bits_in_transit",
+              "n_in_transit", "disposition", "grid_edge",
+              "gate_reason")
 
 
 def emit_survivor_record(rec, prov):
@@ -1193,15 +1332,26 @@ MAX_CONSECUTIVE_TIMEOUTS = 25
 
 
 def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
-                            max_consecutive_timeouts=None):
-    """Submit every screen job and collect the records, with a
-    per-star watchdog (C-1) and a consecutive-timeout circuit
-    breaker (F-13).
+                            max_consecutive_timeouts=None,
+                            max_in_flight=None):
+    """Submit screen jobs in a bounded in-flight window and
+    collect the records, with a per-star watchdog (C-1) and a
+    consecutive-timeout circuit breaker (F-13).
 
-    Each future gets ``timeout_s`` from submission; a star that
-    has not returned by then is recorded as ``status="unmeasured"``
-    with a ``watchdog_timeout`` reason and the run moves on to
-    the next star — a pathological star must never hang a whole
+    At most ``max_in_flight`` jobs (default 16) are submitted
+    at any time; a new job is submitted only when a slot frees.
+    Each future gets ``timeout_s`` from submission, so
+    submitting every job up front would make each queued job
+    "time out" once the run's wall time passed ``timeout_s`` --
+    the 2026-11-16 inverted-null run (36,075 jobs, one pool
+    call) tripped its breaker exactly 600 s after launch on
+    stars that screen in ~0.7 s. The bounded window keeps a
+    submitted job within ~one star's runtime of its actual
+    start, so a timeout means the star's own screen hung, not
+    that it waited in the queue. A star that has not returned
+    by then is recorded as ``status="unmeasured"`` with a
+    ``watchdog_timeout`` reason and the run moves on to the
+    next star — a pathological star must never hang a whole
     slice. The late result, if it ever arrives, is ignored (the
     star is already accounted for). ``worker`` is _screen_one in
     production; tests pass a fake.
@@ -1224,11 +1374,27 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
     """
     if max_consecutive_timeouts is None:
         max_consecutive_timeouts = MAX_CONSECUTIVE_TIMEOUTS
+    if max_in_flight is None:
+        max_in_flight = 16
+    max_in_flight = max(1, max_in_flight)
+    job_iter = iter(jobs)
     futures = {}
-    for job in jobs:
-        futures[ex.submit(worker, job)] = (job, time.monotonic())
     records, counts = [], {}
     consecutive_timeouts = 0
+
+    def _top_up():
+        # Submit until the in-flight window is full or the
+        # jobs run out (see the docstring: the watchdog's
+        # submission-time clock is only honest if a submitted
+        # job starts promptly).
+        while len(futures) < max_in_flight:
+            try:
+                job = next(job_iter)
+            except StopIteration:
+                return
+            futures[ex.submit(worker, job)] = (job, time.monotonic())
+
+    _top_up()
     pending = set(futures)
     while pending:
         done, pending = _futures_wait(
@@ -1236,6 +1402,7 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
             return_when=FIRST_COMPLETED)
         for fut in done:
             rec = fut.result()
+            del futures[fut]
             records.append(rec)
             counts[rec["status"]] = counts.get(rec["status"], 0) + 1
             # A success breaks the consecutive-timeout run.
@@ -1245,6 +1412,7 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
             job, t0 = futures[fut]
             if now - t0 > timeout_s:
                 pending.discard(fut)
+                del futures[fut]
                 tic, _path, sector, star = job
                 rec = {"tic": tic, "sector": int(sector),
                        "product": PRODUCT,
@@ -1267,11 +1435,170 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
                         f"stopping the slice")
                 log(f"star {tic}: WATCHDOG — screen exceeded "
                     f"{timeout_s:g}s, recorded unmeasured", logf)
+        # Refill the in-flight window; `futures` now holds
+        # exactly the live futures (done and timed-out ones
+        # were removed above), so it is the next round's
+        # pending set.
+        _top_up()
+        pending = set(futures)
     # Completion order is nondeterministic; sort by TIC so the
     # slice's output files are identical run to run (the old
     # ex.map loop preserved submission order).
     records.sort(key=lambda r: r["tic"])
     return records, counts
+
+
+# --- SECTOR_EPOCH_CLUSTER veto (P3-15, bulk_v4) --------------------------
+
+# Flag appended to every veto-cluster member (tier-B demoted,
+# tier-A flagged). The flag names the veto; the disposition
+# (tier-B only) names the verdict.
+SECTOR_EPOCH_CLUSTER_FLAG = "SECTOR_EPOCH_CLUSTER"
+
+# gate_reason value for TWO-COMBINED failures (set in
+# _screen_one). Rows carrying it are v3-tier survivors the v4
+# gate demoted — they join the veto's clustering input (see
+# apply_epoch_cluster_veto).
+GATE_REASON_TWO_COMBINED = "FAILED_TWO_COMBINED"
+
+
+def _append_flag(rec, flag):
+    """Append `flag` to rec["flags"] once (idempotent) —
+    the veto is safe to re-apply to an already-flagged set."""
+    flags = rec.get("flags")
+    if flags is None:
+        rec["flags"] = [flag]
+    elif flag not in flags:
+        flags.append(flag)
+
+
+def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
+                             tol_t0_d=None, min_size=None):
+    """Apply the SECTOR_EPOCH_CLUSTER veto (P3-15, bulk_v4) to
+    a sector's survivor set. Returns (kept_survivors, summary).
+
+    `survivors`: the sector's survivor records (v3 tiers —
+    the set the veto clusters). `hits`: the sector's full
+    screen-hits records, or None; when given, the veto updates
+    the hit copies in place (demoted rows carry the demotion
+    there; flagged tier-A rows carry the flag there), so the
+    merged screen_hits.jsonl stays consistent with the merged
+    survivors.jsonl. Tolerances default to the profile-derived
+    module globals (the P3-13 criterion).
+
+    Criterion (P3-13, implemented by replay_matrix's
+    sector_epoch_cluster_tics — called here, not
+    re-implemented): per sector, cluster (P, T0) within 1% /
+    3 h (union-find); clusters of >20 stars are
+    SECTOR_EPOCH_CLUSTER. Tier-B members are DEMOTED (status
+    "demoted", disposition DEMOTED_SECTOR_EPOCH_CLUSTER, flag
+    SECTOR_EPOCH_CLUSTER) and removed from the kept survivors;
+    tier-A members are FLAGGED (flag only) and stay survivors.
+    Rows with no tier are neither (matches the replay).
+
+    Clustering input: the v3-tier survivor set — the current
+    survivors PLUS the TWO-COMBINED-demoted rows (still in
+    hits with gate_reason FAILED_TWO_COMBINED).
+    TWO-COMBINED runs at screen time, before the veto; without
+    the demoted rows in the input, borderline clusters would
+    shrink below the >20 bar and escape the veto — the P3-11
+    replay clustered the full 4,692 v3 survivors, and the veto
+    must see the same population. The demoted rows are
+    clustering input only, never demotion targets (they are
+    already demoted).
+
+    P3-14 interaction (decision doc §6.1): P3-14 dispositions
+    at screen time, per record; the veto dispositions at merge
+    time, whole-set. The veto OVERWRITES a P3-14 disposition
+    on a demoted row — the veto is the later, stronger verdict
+    (the row is a cluster artifact, not a genuine single
+    transit) — and the P3-14 finding survives in the row's
+    grid_edge hand-off record. The reduction is counted once:
+    the veto's demotion count includes the grid-edge singles
+    it removes; the SINGLE_TRANSIT_POOL is defined over the
+    surviving rows after the veto, so a veto-demoted single is
+    not pool material.
+
+    Chaining (decision doc §6.2): union-find chaining can link
+    sparse rows into one wide cluster (clusters 8/11/10 in the
+    replay). A cluster-diameter cap was CONSIDERED and NOT
+    adopted here — the P3-13 criterion is measured as
+    specified, not re-tuned in this step; the cap is recorded
+    for 3.1.
+
+    Merge-only, never per-slice: clusters span slices, so a
+    per-slice veto would under-demote (a 25-star sector
+    cluster split 21/4 across slices would keep the 4). The
+    caller is run_chunked's merge (and only the merge — a
+    direct bulk_screen.py run does not apply the veto; see the
+    bulk_v4 profile header). Demotion is reversible: demoted
+    rows keep their disposition and stay queryable in
+    screen_hits.jsonl; the manual-review ("unsure") queue is
+    disposition == DEMOTED_SECTOR_EPOCH_CLUSTER OR gate_reason
+    present. Nothing is deleted anywhere.
+    """
+    if tol_p is None:
+        tol_p = EPOCH_CLUSTER_TOL_P
+    if tol_t0_d is None:
+        tol_t0_d = EPOCH_CLUSTER_TOL_T0_D
+    if min_size is None:
+        min_size = EPOCH_CLUSTER_MIN_SIZE
+    cluster_rows = list(survivors)
+    if hits is not None:
+        survivor_tics = {r["tic"] for r in survivors}
+        cluster_rows += [r for r in hits
+                         if r.get("gate_reason")
+                         == GATE_REASON_TWO_COMBINED
+                         and r["tic"] not in survivor_tics]
+    # Rows without (P, T0) cannot be shown to share an epoch —
+    # they stay unclustered (kept). Survivors always carry
+    # both; this is defence against malformed input, not a code
+    # path production reaches.
+    clusterable = [r for r in cluster_rows
+                   if r.get("period_days") is not None
+                   and r.get("t0_btjd") is not None]
+    clustered, clusters = _sector_epoch_cluster_tics(
+        clusterable, tol_p=tol_p, tol_t0_d=tol_t0_d, min_size=min_size)
+    hits_by_tic = {}
+    if hits is not None:
+        for r in hits:
+            hits_by_tic.setdefault(r["tic"], r)
+    kept = []
+    demoted_tics = []
+    flagged_tics = []
+    for r in survivors:
+        if r["tic"] not in clustered:
+            kept.append(r)
+            continue
+        if r.get("tier") == "A":
+            _append_flag(r, SECTOR_EPOCH_CLUSTER_FLAG)
+            hit = hits_by_tic.get(r["tic"])
+            if hit is not None and hit is not r:
+                _append_flag(hit, SECTOR_EPOCH_CLUSTER_FLAG)
+            flagged_tics.append(r["tic"])
+            kept.append(r)
+        elif r.get("tier") == "B":
+            hit = hits_by_tic.get(r["tic"])
+            target = hit if hit is not None else r
+            target["status"] = "demoted"
+            target["disposition"] = (
+                _search_health.DEMOTED_SECTOR_EPOCH_CLUSTER)
+            _append_flag(target, SECTOR_EPOCH_CLUSTER_FLAG)
+            demoted_tics.append(r["tic"])
+        else:
+            # No tier: not a veto target (matches the replay).
+            kept.append(r)
+    summary = {
+        "n_clusters": len(clusters),
+        "cluster_sizes": sorted((len(c) for c in clusters),
+                                reverse=True),
+        "n_clustered": len(clustered),
+        "demoted_tier_b": len(demoted_tics),
+        "flagged_tier_a": len(flagged_tics),
+        "demoted_tics": sorted(demoted_tics),
+        "flagged_tics": sorted(flagged_tics),
+    }
+    return kept, summary
 
 
 # ---------------------------------------------------------------------------
@@ -1452,7 +1779,8 @@ def main(argv=None):
         # checkpointed and the driver stops the run.
         try:
             records, counts = _collect_screen_results(
-                ex, jobs, _screen_one, _net.STAR_TIMEOUT_S, logf)
+                ex, jobs, _screen_one, _net.STAR_TIMEOUT_S, logf,
+                max_in_flight=2 * args.workers)
         except CircuitBreakerError as exc:
             log(f"CIRCUIT BREAKER: {exc}", logf)
             log("slice NOT checkpointed (no summary written) — "

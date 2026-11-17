@@ -192,6 +192,14 @@ def _fake_worker(job):
     return {"tic": tic, "status": "recorded"}
 
 
+def _fast_worker(job):
+    tic, _path, _sector, _star = job
+    # ~one fast star: the run as a whole still lasts many
+    # watchdog timeouts in aggregate.
+    time.sleep(0.005)
+    return {"tic": tic, "status": "recorded"}
+
+
 class TestCollectScreenResults(unittest.TestCase):
     def test_watchdog_records_unmeasured_and_continues(self):
         jobs = [("fast", "/dev/null", 1, {}),
@@ -218,6 +226,29 @@ class TestCollectScreenResults(unittest.TestCase):
         # slow star's 5 s (plus executor shutdown joining the
         # daemon-less pool thread — bounded by the sleep).
         self.assertLess(time.monotonic() - t0, 8.0)
+
+    def test_many_fast_jobs_no_false_timeouts(self):
+        # REGRESSION (2026-11-16 null run): the watchdog
+        # measured each job's age from SUBMISSION, but every
+        # job was submitted up front — so after `timeout_s`
+        # of wall time every pending job was a "timeout" by
+        # construction. The bulk screen never hit it (slices
+        # finish within 600 s), but the null submitted 36,075
+        # jobs to one pool call and tripped its breaker exactly
+        # 600 s after launch on stars that screen in ~0.7 s.
+        # With the bounded in-flight window, fast jobs never
+        # false-timeout even when the whole run lasts many
+        # timeouts: 200 jobs x 0.005 s on 2 workers is ~0.5 s
+        # of wall time against a 0.15 s timeout.
+        jobs = [(f"fast{i}", "/dev/null", 1, {})
+                for i in range(200)]
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            records, counts = bs._collect_screen_results(
+                ex, jobs, _fast_worker, timeout_s=0.15)
+        self.assertEqual(counts, {"recorded": 200})
+        self.assertEqual(len(records), 200)
+        self.assertEqual({r["status"] for r in records},
+                         {"recorded"})
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@
       "calibration_id": "bulk_v1",
       "sha256": "54e9c35c1df5bd8de9684af23f6e99d2e6f4d99066222eedee9adf20ef3c7856",
       "status": "active",
-      "rationale": "v1.1 survivor calibration (2026-11-11): the flat SDE>=7 bar passed 31.6% of the proof run, so survivorship also requires a pink-noise MES rescore in tier A or B. The 5-sigma MAD clip has NO depth floor in this version \u2014 a known sensitivity defect (a 1.5% transit on a 0.3%-noise star scores lower than a 1.0% one); bulk_v2 fixes it. See bulk/CALIBRATION_V1_1.md.",
+      "rationale": "v1.1 survivor calibration (2026-11-11): the flat SDE>=7 bar passed 31.6% of the proof run, so survivorship also requires a pink-noise MES rescore in tier A or B. The 5-sigma MAD clip has NO depth floor in this version — a known sensitivity defect (a 1.5% transit on a 0.3%-noise star scores lower than a 1.0% one); bulk_v2 fixes it. See bulk/CALIBRATION_V1_1.md.",
       "supersedes": null
     },
     {
@@ -56,6 +56,20 @@
       "status": "active",
       "rationale": "Deep calibration v2 (2026-11-15, quality-mask fix): extends the deep pipeline quality mask to exclude TESS scattered-light flags bits 29/30 (quality_mask 1610629823 = lightkurve default 17087 + bits 29/30). M-11 verified hunter.py was exposed the same way as the bulk screen (lightkurve default read keeps bits 29/30 on QLP targets). All v1 thresholds carried over unchanged.",
       "supersedes": "deep_v1"
+    },
+    {
+      "calibration_id": "external_tools_v2",
+      "sha256": "7fb57db2e4f16017e7c0f79b24b7e4fafea80492f4b240418e33466d8192caa6",
+      "status": "active",
+      "rationale": "External-tool configuration v2 (2026-11-15, Phase 3 P3-9): v1's run settings, venv paths, tool versions and TRICERATOPS bars carried over UNCHANGED, + the disposition policy (A) ratified by the unanimous Phase 3 vote (2026-11-15, TB-2) recorded explicitly: FPP <= 0.015 and NFPP <= 0.001 validate; FPP >= 0.5 refutes; without a contrast curve, intermediate results read INCONCLUSIVE, never 'validated'. The policy already behaved as (A) under v1 — v2 is a recording act, not a behaviour change. Evidence: C-10 runs on the Mac — EB TIC 308851365 FPP 0.999998 (refute, decisive) and WASP-29b TIC 183537452 FPP 0.169, NFPP 0.0, STP-dominated (0.160), no contrast curve (INCONCLUSIVE, not validated). The STP-excluded disposition (Gemini's LIKELY_PLANET_UNCONSTRAINED_STP) is NOT adopted in Phase 3 (TB-2); the known-planet panel (P3-9) is the evidence that could justify it in 3.1. Supersedes external_tools_v1 for all new tool runs.",
+      "supersedes": "external_tools_v1"
+    },
+    {
+      "calibration_id": "bulk_v4",
+      "sha256": "ded60bd74dbb399c0a9a42d4f0e7aad43894b51db43d03d57d04e9ab0f2b206b",
+      "status": "active",
+      "rationale": "Bulk calibration v4 (2026-11-16, Phase 3 P3-15 gate landing — ACTIVE; pre-merge update of the 2026-11-15 provisional scaffold under the F-1 exception: the profile never stamped a run and never reached main): all bulk_v3 gates carried over verbatim + the P3-14 grid-edge floor constants + the two tier-B gates adopted by the P3-11 decision (parent 2026-11-16, Amendment A approved): EPOCH-CLUSTER veto (P3-13 criterion: (P, T0) within 1% / 3 h, clusters >20 stars; tier-B members demoted, tier-A flagged) and TWO-COMBINED (2-event rows need both events strong AND mes_pink >= 9.0). Combined measured loss 0/16 in-regime, 1/412 overall; real survivors 4,692 -> 734, null floor 0.1085 -> 0.0196. PHASE-DEPTH held (degenerate oe=0.000); DEMOTE-SYS/DEMOTE-ALL rejected (6/7 pricing). SDE bars unchanged (bulk 7.0). Supersedes bulk_v3 for new screens.",
+      "supersedes": "bulk_v3"
     }
   ]
 }
