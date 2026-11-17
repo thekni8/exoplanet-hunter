@@ -592,12 +592,15 @@ def merge_campaign_k3(out_dir, manifest, arm):
     repro = [tr for tr in trials if tr.get("pass1_repro")]
     n_repro_ok = sum(1 for tr in repro
                      if tr["pass1_repro"].get("ok"))
-    # Pass-2 validation: must reproduce P4-1a exactly.
+    # Pass-2 validation: must reproduce P4-1a exactly — but ONLY on
+    # the full 451-trial run; a smoke subset cannot match 52.
+    full_run = len(k3_trials) == 451
     p2_rec = sum(1 for tr in k3_trials
                  if tr.get("k2_recovered") is True)
     p2_gen = sum(1 for tr in k3_trials
                  if tr.get("k2_genuine") is True)
-    p2_match = bool(p2_rec == K2_RECOVERED and p2_gen == K2_GENUINE)
+    p2_match = (bool(p2_rec == K2_RECOVERED and p2_gen == K2_GENUINE)
+                if full_run else None)
     # Pass-3 gains: rescued at pass 3 having not been rescued at pass 2.
     p3_rec = sum(1 for tr in k3_trials
                  if tr.get("k3_recovered") is True)
@@ -727,7 +730,8 @@ def merge_campaign_k3(out_dir, manifest, arm):
         "gate": {
             "bar_rescues": K2_BAR,
             "recovered": fin_rec,
-            "verdict": "PASS" if fin_rec >= K2_BAR else "FAIL",
+            "verdict": (("PASS" if fin_rec >= K2_BAR else "FAIL")
+                        if full_run else "N/A (subset)"),
             "rule": ("P4-1b passes iff the PRIMARY arm rescues >= 23 "
                      "(oracle-derived bar, PB-6 A1/A4), with zero "
                      "regressions (A3) and null <= +25% rows (A2). "
