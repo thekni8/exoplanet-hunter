@@ -194,7 +194,7 @@ def _open_failure_issue(summary, receipt_path, sha):
 
 
 def run_nightly(inputs_dir, fixtures_dir, receipt_path, workdir,
-                policy_name="external_tools_v2", fast=False,
+                policy_name="external_tools_v3", fast=False,
                 no_issue=False, timeout_s=None, memory_mb=None,
                 config_override=None, rss_poll_s=5.0):
     """Run the golden targets; write the receipt; open an
@@ -381,7 +381,7 @@ def main(argv=None):
                     help="golden fixture dir")
     ap.add_argument("--receipt", default=str(DEFAULT_RECEIPT))
     ap.add_argument("--workdir", default=str(DEFAULT_WORKDIR))
-    ap.add_argument("--policy", default="external_tools_v2")
+    ap.add_argument("--policy", default="external_tools_v3")
     ap.add_argument("--fast", action="store_true",
                     help="N=10,000 smoke run (plumbing only; "
                     "never gate-eligible)")

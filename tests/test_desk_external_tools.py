@@ -23,7 +23,7 @@ the tool ran) on synthetic light curves:
 
 Plus unit tests for external_tool_sections and for the
 policy loader (load_external_tool_configs on the real
-external_tools_v2 policy).
+external_tools_v3 policy).
 
 The synthetic data + fake source are a slim copy of
 tests/test_desk.py's fake (same seeds, same clean-planet
@@ -439,7 +439,7 @@ class TestDeskExternalTools(unittest.TestCase):
             self.assertEqual(set(tools),
                              {"latte", "triceratops"})
             # The TRICERATOPS result is policy-mapped under
-            # the REAL default policy (external_tools_v2):
+            # the REAL default policy (external_tools_v3):
             # FPP 0.0032 / NFPP 0.0008 clear the ratified
             # validation bars -> pass. It is still evidence
             # only (not in the verdict's stages).
@@ -644,11 +644,11 @@ class TestPolicyLoader(unittest.TestCase):
         latte = configs["latte"]
         self.assertEqual(latte.tool_version, "1.0.21")
         self.assertEqual(latte.seed, 20261114)
-        self.assertEqual(latte.timeout_s, 1800)
+        self.assertEqual(latte.timeout_s, 3600)
         self.assertEqual(latte.memory_mb, 2048)
         self.assertIn("/Volumes/NVME/", latte.python)
         self.assertEqual(latte.config_hash,
-                         profile_sha256("external_tools_v2"))
+                         profile_sha256("external_tools_v3"))
         # The LATTE wrapper exists in-repo (the TRICERATOPS
         # wrapper lands in 2C).
         self.assertTrue(os.path.exists(latte.wrapper))

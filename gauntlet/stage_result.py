@@ -112,12 +112,13 @@ EXEC_STATUSES = (EXEC_COMPLETED, EXEC_NOT_STARTED, EXEC_SKIPPED,
 DEFAULT_POLICY_VERSION = "gauntlet_v2"
 RECORD_TYPE = "stage_result"
 
-# External-tools policy (Phase 2, 2B-3; v2 in Phase 3, P3-9): the
+# External-tools policy (Phase 2, 2B-3; v2 in Phase 3, P3-9;
+# v3 in Phase 4, P4-8 — timeout 1800 -> 3600 only): the
 # TRICERATOPS FPP bars live in
-# calibration/external_tools_v2.yaml, NOT in code — a threshold
+# calibration/external_tools_v3.yaml, NOT in code — a threshold
 # change is a calibration change. v2 records disposition (A)
 # (Phase 3 vote, TB-2); bars unchanged from v1.
-EXTERNAL_TOOLS_POLICY_VERSION = "external_tools_v2"
+EXTERNAL_TOOLS_POLICY_VERSION = "external_tools_v3"
 
 
 @lru_cache(maxsize=4)
@@ -134,7 +135,7 @@ def load_decision_policy(version=DEFAULT_POLICY_VERSION):
 def load_external_tools_policy(
         version=EXTERNAL_TOOLS_POLICY_VERSION):
     """The external-tools policy dict (default
-    external_tools_v2). Cached; call
+    external_tools_v3). Cached; call
     load_external_tools_policy.cache_clear() after changing
     the calibration dir in tests."""
     from calibration import load_profile
@@ -1044,7 +1045,7 @@ def triceratops_result(native, prov=None, policy=None):
     EXEC_ERROR, not a crash (C-10 constraint 4).
 
     The status comes from the POLICY thresholds (the
-    external_tools_v2 profile; disposition (A) ratified by
+    external_tools_v3 profile; disposition (A) ratified by
     the unanimous Phase 3 vote, TB-2 — FPP <= 0.015 and NFPP
     <= 0.001 validate, FPP >= 0.5 refutes, the grey zone
     reads INCONCLUSIVE), never from the tool — via the pure

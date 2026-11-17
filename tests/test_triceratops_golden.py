@@ -57,7 +57,7 @@ class TestGoldenFixtures(unittest.TestCase):
         validate_triceratops_output(fx["tool_output"])
         # The shared check (gauntlet/triceratops_golden.py) —
         # the same definition of "passes" the nightly uses.
-        policy = load_profile("external_tools_v2")
+        policy = load_profile("external_tools_v3")
         failures = check_fixture_output(
             fx, fx["tool_output"], policy)
         self.assertEqual(failures, [], f"TIC {tic}")
@@ -67,7 +67,7 @@ class TestGoldenFixtures(unittest.TestCase):
     def test_eb_refutes(self):
         # TB-4: the EB must read FAIL/refute (FPP >= 0.5).
         fx, res = self._assert_fixture("308851365")
-        self.assertEqual(res.policy_version, "external_tools_v2")
+        self.assertEqual(res.policy_version, "external_tools_v3")
         self.assertGreaterEqual(
             fx["tool_output"]["metrics"]["fpp"], 0.5)
 
@@ -85,7 +85,7 @@ class TestGoldenFixtures(unittest.TestCase):
         out["metrics"]["prob_planet"] = 0.0
         out["metrics"]["fpp_degenerate"] = False
         out["value"] = 1.0
-        policy = load_profile("external_tools_v2")
+        policy = load_profile("external_tools_v3")
         failures = check_fixture_output(fx, out, policy)
         self.assertEqual(failures, [])
 
@@ -98,7 +98,7 @@ class TestGoldenFixtures(unittest.TestCase):
         out = copy.deepcopy(fx["tool_output"])
         out["metrics"]["fpp"] = 1.0
         out["metrics"]["fpp_degenerate"] = True
-        policy = load_profile("external_tools_v2")
+        policy = load_profile("external_tools_v3")
         failures = check_fixture_output(fx, out, policy)
         self.assertNotEqual(failures, [])
         res = triceratops_result(out, policy=policy)
@@ -109,7 +109,7 @@ class TestGoldenFixtures(unittest.TestCase):
         # NFPP < 0.01. No FPP > 0.015 assertion, no
         # FPP-STP assertion.
         fx, res = self._assert_fixture("183537452")
-        self.assertEqual(res.policy_version, "external_tools_v2")
+        self.assertEqual(res.policy_version, "external_tools_v3")
         metrics = fx["tool_output"]["metrics"]
         self.assertLess(metrics["fpp"], 0.5)
         self.assertLess(metrics["nfpp"], 0.01)
@@ -152,7 +152,7 @@ class TestGoldenFixtures(unittest.TestCase):
         # runs them. This test skips visibly (not silently)
         # while any fixture has < 5 seeds, and asserts the
         # stability check once the seeds land.
-        policy = load_profile("external_tools_v2")
+        policy = load_profile("external_tools_v3")
         pending = []
         for tic in ("308851365", "183537452", "150428135"):
             fx = load_fixture(tic)
@@ -173,7 +173,7 @@ class TestGoldenFixtures(unittest.TestCase):
         # converted into a real assertion test on the
         # measured panel run, row 27 retry5.)
         fx, res = self._assert_fixture("150428135")
-        self.assertEqual(res.policy_version, "external_tools_v2")
+        self.assertEqual(res.policy_version, "external_tools_v3")
         metrics = fx["tool_output"]["metrics"]
         self.assertLess(metrics["fpp"], 0.5)
         self.assertLess(metrics["nfpp"], 0.01)

@@ -5,7 +5,7 @@ Two layers, both driven without the real tool:
 * The ADAPTER (gauntlet/stage_result.py:triceratops_result)
   maps canned TRICERATOPS output JSONs onto StageResults
   using the POLICY bars (a small test policy here; one test
-  proves the default policy loads from external_tools_v2).
+  proves the default policy loads from external_tools_v3).
   PASS needs FPP and NFPP both under the validation bars;
   FAIL needs FPP over the refute bar; the grey zone (and a
   low FPP blocked by a high NFPP) is INCONCLUSIVE. A
@@ -200,10 +200,11 @@ class TestTriceratopsResult(unittest.TestCase):
             validate_triceratops_output(bad)
 
     def test_default_policy_loads(self):
-        # policy=None loads the real external_tools_v2
+        # policy=None loads the real external_tools_v3
         # profile (registry-verified): the planet output
         # passes under the ratified bars (P3-9: the default
-        # policy moved v1 -> v2; the bars are unchanged).
+        # policy moved v1 -> v2; P4-8: v2 -> v3, timeout only;
+        # the bars are unchanged).
         res = triceratops_result(_output())
         self.assertEqual(res.status, "pass")
         self.assertEqual(res.threshold, 0.015)
@@ -214,9 +215,9 @@ class TestTriceratopsResult(unittest.TestCase):
         # policy-only edit re-derives the disposition without
         # re-running the tool.
         res = triceratops_result(_output())
-        self.assertEqual(res.policy_version, "external_tools_v2")
+        self.assertEqual(res.policy_version, "external_tools_v3")
         self.assertEqual(res.to_dict()["policy_version"],
-                         "external_tools_v2")
+                         "external_tools_v3")
         # The new field passes the stage-result schema
         # (additionalProperties: false would reject an
         # undeclared field).
@@ -994,11 +995,41 @@ class TestExternalToolsV2Policy(unittest.TestCase):
         self.assertIn("not adopted",
                       disp["stp_excluded_disposition"])
 
-    def test_v2_is_the_default_policy(self):
+    def test_v3_is_the_default_policy(self):
         from gauntlet.stage_result import (
             EXTERNAL_TOOLS_POLICY_VERSION)
         self.assertEqual(EXTERNAL_TOOLS_POLICY_VERSION,
-                         "external_tools_v2")
+                         "external_tools_v3")
+
+    def test_v3_bars_unchanged_from_v2(self):
+        # P4-8: v3 changes ONLY the runner timeout
+        # (1800 -> 3600 s); the bars, tool versions,
+        # venvs, seed, memory cap and disposition (A)
+        # carry over unchanged from v2.
+        from calibration import load_profile
+        v2 = load_profile("external_tools_v2")
+        v3 = load_profile("external_tools_v3")
+        for key in ("fpp_validate_max", "nfpp_validate_max",
+                    "fpp_refute_min"):
+            self.assertEqual(v3["triceratops"][key],
+                             v2["triceratops"][key], key)
+        for key in ("tool_version", "venv_python", "wrapper"):
+            self.assertEqual(v3["triceratops"][key],
+                             v2["triceratops"][key], key)
+        for key in ("seed", "memory_mb"):
+            self.assertEqual(v3[key], v2[key], key)
+        self.assertEqual(v3["triceratops"]["disposition"],
+                         v2["triceratops"]["disposition"])
+
+    def test_v3_timeout_is_3600(self):
+        # P4-8: the one functional v3 change — the
+        # runner cap re-derived from the healthy-run
+        # tail (a healthy run can exceed 1800 s).
+        from calibration import load_profile
+        v3 = load_profile("external_tools_v3")
+        self.assertEqual(v3["timeout_s"], 3600)
+        self.assertEqual(
+            load_profile("external_tools_v2")["timeout_s"], 1800)
 
 
 if __name__ == "__main__":
