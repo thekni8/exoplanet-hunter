@@ -2291,3 +2291,30 @@ is a gate, not build work.
   policy 1,800 s, working_tree_dirty: true, sha
   6dd1766, exit 0, WASP-29b FPP 0.168578, EB FPP
   0.99999781).
+
+### PM-3 — TOI-700c fixture (BLOCKED on parent Mac data, 2026-11-17)
+
+- **Blocked on:** the parent copying three files from the
+  Mac panel workdir for TIC 150428135 (row 27, retry5,
+  completed 2026-11-17 06:57 IST): output.json,
+  input.json, triceratops_probs.csv — exact paths in
+  `phase3-vote/pm3-data-request.md` (goal dir). The
+  fixture follows the WASP-29b/EB pattern (recorded tool
+  output + provenance, no embedded light curve); the npz
+  is NOT needed.
+- **Known values (panel row 27):** FPP
+  0.19095022377513715, NFPP 0.005622597135672249,
+  INCONCLUSIVE, prob_planet 0.8090497762248628, STP
+  0.1826, most-likely FP "STP on TIC 150428135", 20
+  sectors, 45,400 pts, seed 20261114, QLP, wall 1704.5 s
+  runner / 1703.2 s tool, refine did not converge, no
+  contrast curve. Still needed: the exact TP/PTP/SEB/EB
+  split (FPP−STP = 0.0083 is the only known remainder)
+  + provenance (sectors, cadence, input hash).
+- **When the data lands:** write
+  `tests/fixtures/triceratops/150428135.json`, convert
+  `test_toi700c_fixture_pending` into a real assertion
+  test (INCONCLUSIVE, FPP < 0.5, NFPP < 0.01, STP-share
+  band), add 700c to the v1/v2 re-derivation loop and
+  the seed-band pending loop. PM-9 must RE-RUN after
+  PM-3 lands (the tip changes).
