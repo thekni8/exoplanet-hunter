@@ -276,11 +276,16 @@ class TestTwoCombinedScreen(unittest.TestCase):
         # TWO-COMBINED marker appears. (The row reads
         # "recorded" because the same values fail tier A —
         # the tier gates, not TWO-COMBINED, decide it.)
+        # P4-2: the fixture's 11th event is edge-truncated
+        # (its window extends past the last cadence), so the
+        # event-count rule drops it — n_events is 10, not the
+        # pre-P4-2 11. The test's point (n_events != 2) is
+        # unchanged.
         raw = _screen_fixture(period_d=2.5, depth_frac=0.01,
                               duration_d=0.1,
                               rescore_override={"mes_pink": 8.5,
                                                 "n_strong_events": 1})
-        self.assertEqual(raw["n_events"], 11)
+        self.assertEqual(raw["n_events"], 10)
         self.assertEqual(raw["status"], "recorded")
         self.assertNotIn("gate_reason", raw)
         self.assertNotIn("TWO_EVENT_WEAK", raw["flags"])
