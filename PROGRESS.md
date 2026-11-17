@@ -1772,7 +1772,7 @@ whose un-injected baseline SDE exceeds the injected signal's
 expected SDE. What the 5.50 d host signal IS (spotted rotator?
 blended EB?) is vetting work, out of scope here.
 
-## P3-4 — DF-17: Tier-2 ledger replay — PRIORITY-4 DONE 2026-11-15, full replay NOT run
+## P3-4 — DF-17: Tier-2 ledger replay — DONE 2026-11-17 (full replay complete)
 
 **Priority-4 DONE 2026-11-15 ~19:55 IST: 4/4 ok, gate PASSED
 (4/4 `mask_ok=true`, calibration deep_v2, mask 1610629823),
@@ -1814,6 +1814,49 @@ byte-identical verification of the originals before AND
 after annotation. §4 annotation for the priority-4 is still
 owed (the doc's §4 is written for the full replay; the
 parent decides whether to annotate 4 now or 760 later).
+
+**Full replay COMPLETE 2026-11-17 07:57:51 IST: 760 rows;
+ok 727, timeout 33, error 0; stable_hit 614, null_to_hit
+102, hit_to_null 5, stable_null 6; mask_ok 727/727
+measured, 0 failures; wall 27,266.8 s (8 workers); repo
+head 6dd1766; hunter md5 ef14fd7e… (the only deviation
+from 004f0c7 is c62dc9a, the P3-1 health check — all
+three completion voters endorsed running on the current
+tree).** §4 annotation DONE:
+`deepfix-vote/df17_annotations.json` (760 entries); the
+ledger was verified byte-identical before AND after
+annotation (37 files; re-verified 2026-11-17, 37/37 md5
+OK against df17_ledger_md5_20261117.txt). TIC 423498314
+is NOT in the replay at all; ZERO SEARCH_INVALID among
+the 727 measured rows.
+
+**5 hit→null audit (PM-4, 2026-11-17):** all 5 flipped
+from weak v1 hits to v2 nulls just below the bar (v2 SDE
+8.13–8.49), each at a DIFFERENT period than v1 — the v1
+hit dissolved under the deep_v2 mask, and no v2 signal
+clears 8.5: 38681598 (14.71→8.13), 41169525
+(18.27→8.23), 364326953 (12.65→8.29), 370105191
+(9.0→8.49), 453082696 (8.94→8.29). None of the 5 appears
+in any candidate record, lead list, PHT post, or VSX
+filing (verified by grep across the goal dir and the
+repo worktree — the only hits are their original
+trial/batch run records + the DF-17 summary). No action:
+their v1 hit records are superseded by the v2 nulls,
+and nothing filed or claimed anywhere needs correcting.
+
+**Routing (PM-4, CB-6):** `deepfix-vote/df17_routing.md`
+— the 102 null→hit rows enter the vetting queue as new
+deep_v2 hits (v2-SDE order; vetting is post-merge work,
+NOT a merge blocker); the S97 SINGLE_TRANSIT_POOL rows
+stay deferred to Phase 4's single-transit input (P3-14);
+the 33 timeouts are unmeasured (v1 records stand; retry
+is BP-2, before Phase 4). Count flag: the vote record
+says 2 S97 SINGLE_TRANSIT_POOL rows, but the local S97
+v4 copy holds exactly 1 (TIC 142869941) — the second row
+is unlocated locally; the parent should confirm from the
+Mac whether it exists or the recorded counts
+double-counted. The routing decision covers any second
+row identically.
 
 ## P3-5 — Close the 3 INCONCLUSIVE gauntlet leads — DONE 2026-11-15
 
@@ -2318,3 +2361,27 @@ is a gate, not build work.
   band), add 700c to the v1/v2 re-derivation loop and
   the seed-band pending loop. PM-9 must RE-RUN after
   PM-3 lands (the tip changes).
+
+### PM-4 — DF-17 reconciliation (DONE 2026-11-17)
+
+- **P3-4 section:** header set to DONE 2026-11-17 with
+  the final tally (760 rows; 727 ok, 33 timeout, 0
+  error; 614 stable_hit / 102 null_to_hit / 5 hit_to_null
+  / 6 stable_null; mask_ok 727/727; wall 27,266.8 s;
+  repo head 6dd1766) + the 5 hit→null audit paragraph
+  (all v2 SDE 8.13–8.49, each at a different period than
+  v1; none in any candidate record or PHT/VSX filing —
+  verified by grep; no action).
+- **Routing record:** `deepfix-vote/df17_routing.md`
+  (goal dir) — the 102 null→hit rows route to the
+  vetting queue (v2-SDE order; vetting is post-merge
+  work, CB-6); the S97 SINGLE_TRANSIT_POOL rows stay
+  deferred to Phase 4 (P3-14); the 33 timeouts are
+  unmeasured (retry is BP-2). Count flag recorded
+  there: the vote record says 2 S97 STP rows, the local
+  copy holds 1 (TIC 142869941) — the second is
+  unlocated locally, parent to confirm from the Mac.
+- **Ledger re-verification:** run directly (the ledger
+  lives in the VM goal dir, not the Mac — the census
+  ran VM-side): `md5sum -c` against
+  df17_ledger_md5_20261117.txt, **37/37 OK**.
