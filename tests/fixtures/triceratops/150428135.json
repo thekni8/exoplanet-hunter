@@ -1,0 +1,114 @@
+{
+  "expected": {
+    "fpp_band": null,
+    "fpp_max": 0.5,
+    "nfpp_max": 0.01,
+    "note": "TB-4: disposition INCONCLUSIVE; FPP within a >=5-seed band (pending); FPP < 0.5 (not a FAIL); NFPP < 0.01; STP-dominated split within a band (pending — the dominance check, STP > 50% of FPP, runs now). NO hard-coded FPP > 0.015 assertion; NO FPP-STP <= 0.015 assertion (tied to the deferred disposition, TB-2).",
+    "status": "inconclusive",
+    "stp_band": null,
+    "stp_share_min": 0.5
+  },
+  "fixture_version": 1,
+  "label": "TOI-700c (known planet, panel row 27) — the STP-dominated panel case",
+  "provenance": {
+    "measured_fields": [
+      "metrics.fpp",
+      "metrics.nfpp",
+      "metrics.prob_planet",
+      "metrics.prob_eb_target",
+      "metrics.prob_eb_neighbour",
+      "metrics.prob_hierarchical_eb",
+      "metrics.most_likely_false_positive",
+      "metrics.n_fold_points",
+      "metrics.n_samples",
+      "metrics.phase_seconds",
+      "scenario.tp/ptp/stp/seb/dtp + full split (triceratops_probs.csv)",
+      "wall_time_s",
+      "seed",
+      "tool_version",
+      "n_transits",
+      "config_hash",
+      "input_hashes",
+      "artifacts"
+    ],
+    "placeholders": "None. The tool output, input hashes, scenario split, and artifact paths are all measured from the panel run's workdir (output.json, input.json, triceratops_probs.csv) — no field is reconstructed or placeholder. This is the first non-reconstructed golden fixture.",
+    "run": "Panel run on the Mac, retry5, completed 2026-11-17T01:27:11Z (TRICERATOPS 1.1.0, seed 20261114, N=1,000,000 draws, no contrast curve, Gaia DR3 background path — the tool default; C-10 used TRILEGAL explicitly). 20 sectors, 45,400 points, phase-binned to 718 fold points. Policy at run time: external_tools_v2. Refine did not converge (refined ephemeris == filed ephemeris); QLP product via S3.",
+    "sources": [
+      "Mac vetting_results/triceratops-panel/150428135/tool-triceratops-seed-20261114/output.json (FPP 0.19095022377513715, NFPP 0.005622597135672249, prob_planet 0.8090497762248628, STP 0.18263237173456942, wall 1703.2 s tool / 1704.5 s runner)",
+      "Same workdir: input.json (20 sectors, cadence 600.001 s, input hashes) + triceratops_probs.csv (full scenario table; all 6 background scenarios present)",
+      "Panel row 27, vetting_results/triceratops-panel/panel_results.jsonl (INCONCLUSIVE, most-likely FP 'STP on TIC 150428135', refine did not converge)"
+    ]
+  },
+  "reconstructed": false,
+  "scenario": {
+    "beb": 0.00010314230609515387,
+    "bebx2p": 9.45257155423128e-05,
+    "btp": 1.614173460748861e-08,
+    "deb": 4.289455736296742e-20,
+    "debx2p": 4.343711264563678e-05,
+    "dtp": 0.006619751661103851,
+    "eb": 3.4115035080763296e-18,
+    "ebx2p": 0.0005607657471308141,
+    "neb": 0.005245692347060284,
+    "nebx2p": 0.0003769047886119652,
+    "note": "Full per-scenario split from triceratops_probs.csv (NEB/NEBx2P/NTP summed across the three neighbours — the same name-based sum as gauntlet.triceratops_golden.scenario_from_probs_csv). Probabilities sum to 1.000. STP is 0.1826/0.1910 = 96% of the FPP — the STP-dominated panel case. prob_planet = TP + PTP + DTP = 0.8090; NFPP = NEB + NEBx2P + NTP = 0.00562.",
+    "ntp": 1.195952834724522e-23,
+    "peb": 4.220909393671138e-18,
+    "pebx2p": 0.0016233301110322922,
+    "ptp": 0.10211510642148983,
+    "seb": 6.14186666722261e-10,
+    "sebx2p": 0.00027003715652745445,
+    "stp": 0.18263237173456942,
+    "tp": 0.7003149181422692
+  },
+  "seed_band_pending": ">=5-seed runs on the Mac (P3-7 / 3.1 BN-6). TB-4: the FPP band width comes from the seed spread, never invented; the STP-split band likewise.",
+  "seeds": [
+    {
+      "fpp": 0.19095022377513715,
+      "nfpp": 0.005622597135672249,
+      "seed": 20261114,
+      "stp": 0.18263237173456942
+    }
+  ],
+  "tic": "150428135",
+  "tool_output": {
+    "artifacts": [
+      "/Volumes/NVME/pingu-jobs/exoplanet-hunter/vetting_results/triceratops-panel/150428135/tool-triceratops-seed-20261114/triceratops_probs.csv",
+      "/Volumes/NVME/pingu-jobs/exoplanet-hunter/vetting_results/triceratops-panel/150428135/tool-triceratops-seed-20261114/phase_log.txt"
+    ],
+    "config_hash": "7fb57db2e4f16017e7c0f79b24b7e4fafea80492f4b240418e33466d8192caa6",
+    "input_hashes": {
+      "lightcurve": "f537d905973a7d021f29daca73634ce560b39ea87d2c9cd6649a088549b853df",
+      "neighbours": "c74d736fd9db399fbab97bb3b3f09f6dc1bc7a0bf517e681f26f47eb784948be"
+    },
+    "metrics": {
+      "contrast_curve_used": false,
+      "dilution_corrected": false,
+      "fpp": 0.19095022377513715,
+      "fpp_degenerate": false,
+      "most_likely_false_positive": "STP on TIC 150428135",
+      "n_fold_points": 718,
+      "n_samples": 1000000,
+      "nfpp": 0.005622597135672249,
+      "phase_seconds": {
+        "calc_depths": 0.07491016597487032,
+        "calc_probs": 83.98381958296522,
+        "target_init": 1611.399342958117
+      },
+      "prob_eb_neighbour": 0.00019766802163746669,
+      "prob_eb_target": 0.0005607657471308175,
+      "prob_hierarchical_eb": 0.0018933678817464176,
+      "prob_planet": 0.8090497762248628
+    },
+    "n_transits": 27,
+    "seed": 20261114,
+    "status": "completed",
+    "tool": "triceratops",
+    "tool_version": "1.1.0",
+    "value": 0.19095022377513715,
+    "wall_time_s": 1703.2402099578176,
+    "warnings": [
+      "no contrast curve: NFPP is an upper bound"
+    ]
+  }
+}

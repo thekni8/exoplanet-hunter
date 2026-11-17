@@ -1494,44 +1494,50 @@ stable). Note the planned DR4 shutdown window 2026-11-25
 12:00 CET → 2026-12-02, during which Gaia-dependent work
 is impossible. The revisit does not block Phase 3.
 
-## P3-7 — 3C: golden fixtures + offline assertions — PARTIAL 2026-11-17 (EB + WASP-29b landed; 700c pending PM-3; 5-seed bands are 3.1)
+## P3-7 — 3C: golden fixtures + offline assertions — DONE 2026-11-17 (EB + WASP-29b + 700c landed; 5-seed bands are 3.1)
 
 **Landed (offline, in CI):** fixtures
 `tests/fixtures/triceratops/308851365.json` (EB) +
-`183537452.json` (WASP-29b) + the generic runner
-`tests/test_triceratops_golden.py` (10 tests, 8 pass + 2
-visible skips). Fixture format: the TRICERATOPS output JSON
+`183537452.json` (WASP-29b) +
+`150428135.json` (TOI-700c, PM-3) + the generic runner
+`tests/test_triceratops_golden.py` (11 tests, 10 pass + 1
+visible skip). Fixture format: the TRICERATOPS output JSON
 (schema shape) + a `scenario` split block + `seeds` +
 `expected` TB-4 bands (tolerance bands, never exact
 floats). Assertions: EB FAIL/refute (FPP >= 0.5); WASP-29b
 INCONCLUSIVE + FPP < 0.5 + NFPP < 0.01 + STP dominance
-(STP 0.160 = 95% of FPP 0.169); disposition re-derives
-identically under v1 and v2 (P-4 — v2 is a recording act);
-seed-stability check (`check_seed_stability`: same
+(STP 0.160 = 95% of FPP 0.169); TOI-700c INCONCLUSIVE +
+FPP < 0.5 + NFPP < 0.01 + STP dominance (STP 0.1826 = 96%
+of FPP 0.1910); disposition re-derives identically under
+v1 and v2 for all three fixtures (P-4 — v2 is a recording
+act); seed-stability check (`check_seed_stability`: same
 disposition across seeds AND the FPP band clear of the
 0.015/0.5 boundaries) unit-tested on synthetic seed sets.
 The module is in SHARD_GOLDEN (the required check) by
 TB-12 — the assertions are the merge gate, the nightly is
 monitoring. Evidence: `python -m unittest
-tests.test_triceratops_golden` -> 10 tests, OK
-(skipped=2). Smoke after the item: 199 tests, OK.
+tests.test_triceratops_golden` -> 11 tests, OK
+(skipped=1). Smoke at first landing: 199 tests, OK.
 
-**Reconstruction status (honest):** the fixtures are
-RECONSTRUCTED from the recorded C-10 numbers (BUNDLE.md
-§1.6 + merged PR #6 body / lockfile header) — the full Mac
-outputs are not on the VM. Each fixture's `provenance`
-block states exactly which fields are measured and which
-are placeholders (input hashes, full per-scenario split,
-artifact paths). The assertions depend only on measured
-fields. The Mac extraction (prepared in
+**Reconstruction status (honest):** the EB + WASP-29b
+fixtures are RECONSTRUCTED from the recorded C-10 numbers
+(BUNDLE.md §1.6 + merged PR #6 body / lockfile header) —
+the full Mac outputs are not on the VM. Each fixture's
+`provenance` block states exactly which fields are
+measured and which are placeholders (input hashes, full
+per-scenario split, artifact paths). The assertions depend
+only on measured fields. The Mac extraction (prepared in
 `phase3-vote/p3-9-panel-mac-commands.md`) verifies and
 completes them; the fixtures gain their true hashes +
-splits then, in a follow-up commit.
+splits then, in a follow-up commit. The TOI-700c fixture
+(PM-3) is MEASURED, not reconstructed — its tool output,
+input hashes, scenario split, and artifact paths come
+straight from the panel run's workdir (row 27, retry5);
+it carries zero placeholders.
 
 **Pending (Mac work, visible skips):** the >= 5-seed FPP /
 STP-split bands (fixtures carry one seed each; band width
-comes from the seed spread, never invented); TOI-700 c —
-NO fixture until a measured run exists (panel, P3-9).
+comes from the seed spread, never invented).
 The fast Mac smoke test (N = 10,000 draws, P-16) lives in
 the nightly (P3-8), not in CI.
 
@@ -1542,6 +1548,15 @@ when the data lands, and P3-7 becomes DONE then (PM-9
 re-runs after PM-3). The >= 5-seed FPP / STP-split bands
 are explicitly 3.1 (BN-6). The EB + WASP-29b fixtures
 stand as landed, in CI.
+
+**Completion-vote update (PM-3, 2026-11-17):** the 700c
+fixture LANDED — `tests/fixtures/triceratops/150428135.json`
+from the panel run's workdir (row 27, retry5; the first
+non-reconstructed fixture), with
+`test_toi700c_inconclusive` + `test_toi700c_stp_dominates`
+in CI and 700c in the v1/v2 re-derivation loop and the
+seed-band pending loop. P3-7 is DONE. The >= 5-seed
+bands stay 3.1 (BN-6).
 
 ## P3-8 — 3C: nightly readiness — DONE 2026-11-17 (driver + green receipt; scheduling + TB-9 budget are 3.1)
 
@@ -2374,32 +2389,46 @@ is a gate, not build work.
   6dd1766, exit 0, WASP-29b FPP 0.168578, EB FPP
   0.99999781).
 
-### PM-3 — TOI-700c fixture (BLOCKED on parent Mac data, 2026-11-17)
+### PM-3 — TOI-700c fixture (DONE 2026-11-17)
 
-- **Blocked on:** the parent copying three files from the
-  Mac panel workdir for TIC 150428135 (row 27, retry5,
-  completed 2026-11-17 06:57 IST): output.json,
-  input.json, triceratops_probs.csv — exact paths in
-  `phase3-vote/pm3-data-request.md` (goal dir). The
-  fixture follows the WASP-29b/EB pattern (recorded tool
-  output + provenance, no embedded light curve); the npz
-  is NOT needed.
-- **Known values (panel row 27):** FPP
-  0.19095022377513715, NFPP 0.005622597135672249,
-  INCONCLUSIVE, prob_planet 0.8090497762248628, STP
-  0.1826, most-likely FP "STP on TIC 150428135", 20
-  sectors, 45,400 pts, seed 20261114, QLP, wall 1704.5 s
-  runner / 1703.2 s tool, refine did not converge, no
-  contrast curve. Still needed: the exact TP/PTP/SEB/EB
-  split (FPP−STP = 0.0083 is the only known remainder)
-  + provenance (sectors, cadence, input hash).
-- **When the data lands:** write
-  `tests/fixtures/triceratops/150428135.json`, convert
-  `test_toi700c_fixture_pending` into a real assertion
-  test (INCONCLUSIVE, FPP < 0.5, NFPP < 0.01, STP-share
-  band), add 700c to the v1/v2 re-derivation loop and
-  the seed-band pending loop. PM-9 must RE-RUN after
-  PM-3 lands (the tip changes).
+- **Data landed (parent copied from the Mac, 2026-11-17
+  ~11:57 IST):** output.json, input.json,
+  triceratops_probs.csv from the panel workdir for TIC
+  150428135 (row 27, retry5, completed
+  2026-11-17T01:27:11Z) + panel row 27, into
+  `phase3-vote/pm3-700c-data/` (goal dir). The npz was
+  NOT needed (fixture embeds no light curve, per the
+  WASP-29b/EB pattern).
+- **Fixture:** `tests/fixtures/triceratops/150428135.json`
+  (5,420 bytes) — the tool output copied verbatim from
+  output.json + the full 18-scenario split aggregated
+  from triceratops_probs.csv (the same name-based sum as
+  `scenario_from_probs_csv`) + seeds [20261114] +
+  expected TB-4 bands (INCONCLUSIVE, FPP < 0.5, NFPP <
+  0.01, STP share > 0.5; fpp_band/stp_band null pending
+  >= 5 seeds) + provenance. The FIRST non-reconstructed
+  golden fixture (`reconstructed: false`, zero
+  placeholders). Cross-checks passed before writing:
+  FPP == panel row 27 (0.19095022377513715); scenario
+  probabilities sum to 1.000; TP+PTP+DTP == prob_planet
+  (0.8090); NEB+NEBx2P+NTP == NFPP (0.00562); input
+  hashes match input.json; 20 sectors match the panel
+  row. STP is 96% of the FPP (0.1826/0.1910).
+- **Tests:** `test_toi700c_fixture_pending` converted
+  into `test_toi700c_inconclusive` (INCONCLUSIVE via the
+  shared check, FPP < 0.5, NFPP < 0.01) + a separate
+  `test_toi700c_stp_dominates` (STP share > 0.5, full
+  18-scenario sum == 1.0) — the split follows the
+  WASP-29b pattern in the same file (inconclusive +
+  stp_dominates as two tests), for +1 test net. 700c
+  added to the v1/v2 re-derivation loop and the
+  seed-band pending loop (which now names all three
+  TICs). Module: 11 tests, OK (skipped=1 — the
+  seed-band test only). The unused FIXTURE_DIR
+  constant was removed with the pending test.
+- **P3-7 → DONE** (see the P3-7 section): EB + WASP-29b
+  + 700c landed; the >= 5-seed bands stay 3.1 (BN-6).
+  PM-9 RE-RUNS after this commit (the tip changes).
 
 ### PM-4 — DF-17 reconciliation (DONE 2026-11-17)
 

@@ -20,29 +20,30 @@ bitwise-identical output.
 
 ## Reconstruction status
 
-The fixtures are RECONSTRUCTED from the recorded C-10 numbers
-(Phase 3 BUNDLE.md §1.6 + the merged PR #6 body / lockfile
-header) — the full Mac outputs (`vetting_results/
-triceratops-verify/VERIFICATION_REPORT.md` + probabilities
-CSVs) are not on the VM. Every fixture carries a `provenance`
-block stating exactly which fields are measured and which are
-placeholders (input hashes, the full per-scenario split, the
-artifact paths). The Mac extraction (P3-7, prepared in
-`phase3-vote/p3-9-panel-mac-commands.md`) verifies and completes
-them; until then the fixtures assert only what the records
-measure (dispositions + hard bounds), and the seed-band checks
-skip visibly.
+The EB + WASP-29b fixtures are RECONSTRUCTED from the
+recorded C-10 numbers (Phase 3 BUNDLE.md §1.6 + the merged
+PR #6 body / lockfile header) — the full Mac outputs
+(`vetting_results/triceratops-verify/VERIFICATION_REPORT.md`
++ probabilities CSVs) are not on the VM. The TOI-700c
+fixture is MEASURED, not reconstructed: its tool output,
+input hashes, scenario split, and artifact paths come
+straight from the panel run's workdir (panel row 27,
+retry5). Every fixture carries a `provenance` block
+stating exactly which fields are measured and which are
+placeholders (input hashes, the full per-scenario split,
+the artifact paths — none for TOI-700c). The Mac
+extraction (P3-7, prepared in
+`phase3-vote/p3-9-panel-mac-commands.md`) verifies and
+completes the reconstructed fixtures; until then they
+assert only what the records measure (dispositions +
+hard bounds), and the seed-band checks skip visibly.
 
 ## Pending (Mac work)
 
-- **≥5-seed bands** (WASP-29b FPP band, STP-split band): the
+- **≥5-seed bands** (FPP bands, STP-split bands): the
   fixtures carry one seed each (20261114). The band checks skip
   until ≥5 seeds are committed. Band width comes from the seed
   spread, never invented.
-- **TOI-700 c (TIC 150428135):** NO fixture until a measured run
-  exists — measure before asserting (P3-7). The panel (P3-9)
-  runs it; the fixture + assertion land from the measured
-  result.
 - **Fast Mac smoke test (N = 10,000 draws, P-16):** for
   iteration alongside the full N = 1,000,000 run. It lives in
   the nightly (P3-8), not in CI.
@@ -51,3 +52,4 @@ skip visibly.
 |---|---|---|
 | `308851365.json` | Known EB | FAIL / refute (FPP ≥ 0.5) |
 | `183537452.json` | WASP-29b (known planet) | INCONCLUSIVE (FPP 0.169, STP-dominated, no contrast curve) |
+| `150428135.json` | TOI-700c (known planet, panel row 27) | INCONCLUSIVE (FPP 0.191, STP-dominated, no contrast curve) |

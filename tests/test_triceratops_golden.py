@@ -12,6 +12,10 @@ What is asserted (TB-4):
     (STP > 50% of FPP). NO hard-coded FPP > 0.015 assertion,
     NO FPP-STP <= 0.015 assertion (tied to the deferred
     disposition, TB-2).
+  * TOI-700 c TIC 150428135 reads INCONCLUSIVE on the same
+    terms (panel row 27, retry5 — the first
+    non-reconstructed fixture, measured from the panel
+    workdir).
   * The disposition re-derives identically under v1 and v2
     (P-4) — v2 is a recording act, not a behaviour change.
   * Seed stability (when >= 5 seeds are committed): same
@@ -23,8 +27,6 @@ What is NOT asserted yet (visible skips, Mac work pending):
   * The >= 5-seed FPP / STP-split bands (fixtures carry one
     seed each; band width comes from the seed spread, never
     invented).
-  * TOI-700 c: no fixture until a measured run exists —
-    measure before asserting. The panel (P3-9) runs it.
 
 All bands are TOLERANCE BANDS, never exact floats:
 TRICERATOPS fetches neighbours and TRILEGAL remotely, so
@@ -43,8 +45,6 @@ from gauntlet.triceratops_golden import (  # noqa: E402
     MIN_SEEDS_FOR_BAND, check_fixture_output,
     check_seed_stability, load_fixture)
 from validation import validate_triceratops_output  # noqa: E402
-
-FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "triceratops"
 
 
 class TestGoldenFixtures(unittest.TestCase):
@@ -104,7 +104,7 @@ class TestGoldenFixtures(unittest.TestCase):
         # change (the bars are identical).
         v1 = load_profile("external_tools_v1")
         v2 = load_profile("external_tools_v2")
-        for tic in ("308851365", "183537452"):
+        for tic in ("308851365", "183537452", "150428135"):
             fx = load_fixture(tic)
             s1 = triceratops_result(
                 fx["tool_output"], policy=v1).status
@@ -120,7 +120,7 @@ class TestGoldenFixtures(unittest.TestCase):
         # stability check once the seeds land.
         policy = load_profile("external_tools_v2")
         pending = []
-        for tic in ("308851365", "183537452"):
+        for tic in ("308851365", "183537452", "150428135"):
             fx = load_fixture(tic)
             if len(fx["seeds"]) < MIN_SEEDS_FOR_BAND:
                 pending.append(tic)
@@ -132,23 +132,37 @@ class TestGoldenFixtures(unittest.TestCase):
                 "seed band pending >= 5-seed Mac runs (P3-7) "
                 f"for TIC {', '.join(pending)}")
 
-    def test_toi700c_fixture_pending(self):
-        # TOI-700 c: measure before asserting. No fixture
-        # exists until the panel (P3-9) runs it; this test
-        # skips visibly until then, and fails loudly if a
-        # fixture appears without a measured FPP.
-        path = FIXTURE_DIR / "150428135.json"
-        if not path.exists():
-            self.skipTest(
-                "TOI-700 c fixture pending a measured run "
-                "(panel, P3-9) — measure before asserting")
+    def test_toi700c_inconclusive(self):
+        # TB-4: INCONCLUSIVE; FPP < 0.5 (not a FAIL);
+        # NFPP < 0.01. No FPP > 0.015 assertion, no
+        # FPP-STP assertion. (PM-3: the pending test
+        # converted into a real assertion test on the
+        # measured panel run, row 27 retry5.)
+        fx, res = self._assert_fixture("150428135")
+        self.assertEqual(res.policy_version, "external_tools_v2")
+        metrics = fx["tool_output"]["metrics"]
+        self.assertLess(metrics["fpp"], 0.5)
+        self.assertLess(metrics["nfpp"], 0.01)
+
+    def test_toi700c_stp_dominates(self):
+        # The STP split dominates the FPP (0.1826 of
+        # 0.1910 = 96%) — the structural check that runs
+        # now; the STP-split BAND waits for >= 5 seeds.
         fx = load_fixture("150428135")
-        self.assertIsNotNone(
-            fx["tool_output"]["metrics"]["fpp"],
-            "TOI-700 c fixture must carry a measured FPP")
-        self.assertEqual(fx["expected"]["status"],
-                         triceratops_result(
-                             fx["tool_output"]).status)
+        scenario = fx["scenario"]
+        fpp = fx["tool_output"]["metrics"]["fpp"]
+        share = scenario["stp"] / fpp
+        self.assertGreater(
+            share, fx["expected"]["stp_share_min"],
+            f"STP share of FPP {share:.2f} below the "
+            f"dominance bar")
+        # The scenario probabilities sum to 1 (a fixture
+        # integrity check, not a science assertion) — the
+        # full split, all 18 scenarios (unlike WASP-29b,
+        # whose four named scenarios already sum to 1).
+        total = sum(v for v in scenario.values()
+                    if isinstance(v, (int, float)))
+        self.assertAlmostEqual(total, 1.0, places=3)
 
 
 class TestSeedStabilityCheck(unittest.TestCase):
