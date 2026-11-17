@@ -78,7 +78,8 @@ from pathlib import Path
 # workers, which re-import this module with the parent's argv) ------
 _ap = argparse.ArgumentParser(add_help=False)
 _ap.add_argument("--repo", default=None)
-_repo_arg, _ = _ap.parse_known_args()
+_ns, _ = _ap.parse_known_args()
+_repo_arg = _ns.repo
 _here = Path(__file__).resolve()
 if _repo_arg:
     REPO = Path(_repo_arg).resolve()
