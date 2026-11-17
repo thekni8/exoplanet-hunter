@@ -1870,13 +1870,21 @@ deep_v2 hits (v2-SDE order; vetting is post-merge work,
 NOT a merge blocker); the S97 SINGLE_TRANSIT_POOL rows
 stay deferred to Phase 4's single-transit input (P3-14);
 the 33 timeouts are unmeasured (v1 records stand; retry
-is BP-2, before Phase 4). Count flag: the vote record
-says 2 S97 SINGLE_TRANSIT_POOL rows, but the local S97
-v4 copy holds exactly 1 (TIC 142869941) — the second row
-is unlocated locally; the parent should confirm from the
-Mac whether it exists or the recorded counts
-double-counted. The routing decision covers any second
-row identically.
+is BP-2, before Phase 4). Count correction (2026-11-17,
+parent-verified): the vote bundle (COMPLETION_BUNDLE.md
+P3-14) DOUBLE-COUNTED — it says SINGLE_TRANSIT_POOL 2,
+GRID_EDGE_REJECT 6. The true row counts in
+`mac-run-data/rescore-v4-s97/screen_hits.jsonl` (35,382
+rows, manifest-confirmed complete) are
+SINGLE_TRANSIT_POOL **1** (TIC 142869941) and
+GRID_EDGE_REJECT **3** (TICs 31705109, 38572754,
+250395064); the occurrence counts (grep -o) are exactly 2
+and 6 — each row carries its disposition string twice in
+its raw line, so the bundle builder counted occurrences,
+not rows. No second SINGLE_TRANSIT_POOL row exists. The
+bundle is frozen (CB-1) and stays as-is; the corrected
+counts live here. The routing decision is unchanged (the
+one row stays deferred to Phase 4).
 
 ## P3-5 — Close the 3 INCONCLUSIVE gauntlet leads — DONE 2026-11-15
 
@@ -2406,12 +2414,13 @@ is a gate, not build work.
 - **Routing record:** `deepfix-vote/df17_routing.md`
   (goal dir) — the 102 null→hit rows route to the
   vetting queue (v2-SDE order; vetting is post-merge
-  work, CB-6); the S97 SINGLE_TRANSIT_POOL rows stay
+  work, CB-6); the S97 SINGLE_TRANSIT_POOL row stays
   deferred to Phase 4 (P3-14); the 33 timeouts are
-  unmeasured (retry is BP-2). Count flag recorded
-  there: the vote record says 2 S97 STP rows, the local
-  copy holds 1 (TIC 142869941) — the second is
-  unlocated locally, parent to confirm from the Mac.
+  unmeasured (retry is BP-2). Count flag RESOLVED
+  2026-11-17 (see the P3-4 section): the bundle
+  double-counted occurrences as rows — corrected
+  SINGLE_TRANSIT_POOL 1, GRID_EDGE_REJECT 3; no second
+  row exists; routing unchanged.
 - **Ledger re-verification:** run directly (the ledger
   lives in the VM goal dir, not the Mac — the census
   ran VM-side): `md5sum -c` against
