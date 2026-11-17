@@ -99,12 +99,21 @@ def _inj_check(t, f, f_inj, period, epoch, duration, depth_frac):
     with np.errstate(divide="ignore", invalid="ignore"):
         mult = np.where(f != 0, f_inj / np.where(f != 0, f, 1.0),
                         1.0)
-    depth, _n_in, _noise = bs._fold_depth(t, mult, period, epoch,
-                                          duration)
+    # Fold only finite cadences: a NaN flux cadence (QLP can carry
+    # them) must not fail the check via _fold_depth's mean.
+    finite = np.isfinite(mult)
+    if finite.sum() < 20:
+        return None, False
+    depth, _n_in, _noise = bs._fold_depth(
+        t[finite], mult[finite], period, epoch, duration)
     if depth is None or not np.isfinite(depth):
         return None, False
     expected = TRAPEZOID_MEAN * depth_frac
-    tol = max(0.3 * depth_frac, 0.002)
+    # No absolute floor: the fold is the deterministic multiplier,
+    # so a purely relative tolerance is justified -- and the old
+    # 0.002 floor made the check vacuous for the 0.2% trials
+    # (expected 0.0017 < floor), the exact error it exists to catch.
+    tol = 0.3 * depth_frac
     return float(depth), bool(abs(depth - expected) <= tol)
 
 
@@ -131,11 +140,12 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
     sec_p1 = round(time.time() - t_p1, 2)
     if not keep_fits:
         os.remove(inj_path)
-    t_p, f_p = orc.preprocess_arrays(t, f_inj, q)
-    sigma = p43.sector_sigma(t_p, f_p)
+    t_p, f_p, sigma = p43.preprocess_sector(t, f_inj, q)
     p1_p = p1.get("period_days")
     rec = {"sector": sector, "fcol": fcol,
-           "inject_epoch_delta_d": 0.0,
+           # The epoch actually passed to inject_transit, minus the
+           # manifest epoch -- a measurement, not a hardcoded 0.0.
+           "inject_epoch_delta_d": float(epoch - trial["epoch_btjd"]),
            "inj_check_depth": inj_depth, "inj_check_ok": inj_ok,
            "pass1": orc._subset(p1), "sigma": sigma,
            "seconds_pass1": sec_p1, "n_cadences": int(len(t))}
@@ -268,7 +278,11 @@ def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
     sec2 = k2.scan_secondary(t_p2, f_p2, eph2["period_ref_d"],
                              eph2["t0_est_btjd"],
                              eph2["duration_est_d"])
-    cap = k3.trial_cap(ARM, eph2["period_ref_d"])
+    # k3_run seeds the cap from the mask-seed period (ephemeris1,
+    # the pass-1 contaminant); the stitched analog is the pass-2
+    # peak, which seeds the pass-3 mask. Numerically 0.25 for this
+    # arm either way.
+    cap = k3.trial_cap(ARM, p2.get("period_days"))
     keep3_raw, mstats3 = k2.build_k2_mask(
         t_s, f_s, q_s, eph2, p2.get("depth_percent"), secondary=sec2,
         duty_cap=1.0, depth_trigger=False)
@@ -355,6 +369,7 @@ def run_host_campaign_p43(job):
         if (prev.get("complete") is True
                 and prev.get("manifest_sha") == manifest_sha
                 and prev.get("arm") == ARM
+                and prev.get("calibration") == calibration
                 and not any("error" in tr
                             for tr in prev.get("trials", []))):
             return {"status": "skipped", "tic": tic}
@@ -438,6 +453,7 @@ def run_host_campaign_p43(job):
                           "p3_genuine": False,
                           "final_recovered": False,
                           "final_genuine": False,
+                          "total_dropped_frac": None,
                           "sector_consistency": None})
                 r["seconds"] = round(time.time() - t_tr, 2)
                 results.append(r)
@@ -505,6 +521,26 @@ def run_host_campaign_p43(job):
                 r["p2_recovered"] or r["p3_recovered"])
             r["final_genuine"] = bool(
                 r["p2_genuine"] or r["p3_genuine"])
+            # Total dropped fraction (review 2026-11-18): the
+            # pass-3 union cap binds 25% of the STITCHED curve's
+            # valid cadences (pre-registration section 0.4 as
+            # written); the per-sector pre-mask drops are already
+            # deleted before stitching, so the total dropped
+            # fraction of the original 3-sector data can exceed
+            # 25%. Recorded per trial (relative to raw cadences);
+            # the ruling and the distribution go in the record.
+            n_orig = sum(v.get("n_cadences", 0)
+                         for v in per_sector.values())
+            n_stitched = (r.get("stitch") or {}).get(
+                "n_cadences_total")
+            union_duty = 0.0
+            if r.get("pass3") is not None:
+                union_duty = ((r.get("k3_mask") or {}).get(
+                    "union_duty_cycle") or 0.0)
+            r["total_dropped_frac"] = (
+                float(1.0 - (n_stitched * (1.0 - union_duty))
+                      / n_orig)
+                if n_orig and n_stitched else None)
             r["seconds_pass1"] = round(sec_p1, 2)
             r["seconds_est"] = round(sec_est, 2)
             r["seconds_pass2"] = sec_p2
@@ -518,7 +554,7 @@ def run_host_campaign_p43(job):
            "seconds": round(time.time() - t_start, 1),
            "trials": results}
     tmp = out_path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(rec))
+    tmp.write_text(json.dumps(_json_safe(rec)))
     tmp.replace(out_path)
     n_fin = sum(1 for r in results
                 if r.get("final_recovered") is True)
@@ -526,18 +562,25 @@ def run_host_campaign_p43(job):
             "n_final_recovered": n_fin}
 
 
+def _json_safe(obj):
+    """Recursively replace non-finite floats (inf/nan) with None so
+    host files are strict JSON. k2.estimate_ephemeris can return
+    float("inf") for refine_snr_gain; the ephemeris dict is stored
+    verbatim in host records, so without this json.dumps emits
+    non-strict Infinity (pre-existing in k2/k3_run; none seen in
+    the smoke files, but fail closed)."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
 def _sector_record(rec):
     """Per-sector record without the arrays (JSON-safe)."""
     return {k: v for k, v in rec.items()}
-
-
-def _secondary_tuple(scan):
-    """Rebuild the (phase, depth_frac, snr) tuple a scan dict came
-    from (or None)."""
-    if not scan:
-        return None
-    return (scan.get("phase"), scan.get("depth_frac"),
-            scan.get("snr"))
 
 
 def _consistency_at(t_s, f_s, q_s, bounds, found):
@@ -546,9 +589,10 @@ def _consistency_at(t_s, f_s, q_s, bounds, found):
     curve."""
     period = found.get("period_days")
     t0 = found.get("t0_btjd")
-    duration = found.get("duration_days")
-    if period is None or t0 is None or duration is None:
+    duration_h = found.get("duration_hours")
+    if period is None or t0 is None or duration_h is None:
         return None
+    duration = duration_h / 24.0
     t_p, f_p = orc.preprocess_arrays(t_s, f_s, q_s)
     return p43.sector_consistency(t_p, f_p, q_s, bounds, period,
                                   t0, duration)
@@ -578,6 +622,7 @@ def run_host_null_p43(job):
         if (prev.get("complete") is True
                 and prev.get("manifest_sha") == manifest_sha
                 and prev.get("arm") == ARM
+                and prev.get("calibration") == calibration
                 and "error" not in prev):
             return {"status": "skipped", "tic": tic}
     t_start = time.time()
@@ -688,22 +733,22 @@ def run_host_null_p43(job):
                                   p2.get("t0_btjd"), contaminants)
             trial_none = {"period_d": None, "epoch_btjd": None,
                           "duration_d": None}
-            if r["pass2_survivor"]:
-                r["pass3_eligibility"] = {
-                    "eligible": False, "reason": "pass2-survivor"}
-                r["pass3"] = None
-            else:
-                elig, rec3 = _stitched_pass3(
-                    t_s, f_s, q_s, masked[0]["fcol"], base, tic,
-                    sectors[0], np.ones(len(t_s), dtype=bool), p2,
-                    contaminants, trial_none, keep_fits)
-                r["pass3_eligibility"] = elig
-                r["k3_mask"] = rec3.get("k3_mask")
-                r["k3_ephemeris"] = rec3.get("k3_ephemeris")
-                r["pass3"] = rec3.get("pass3")
-                r["pass3_survivor"] = bool(
-                    (rec3.get("pass3") or {}).get("status")
-                    == "survivor")
+            # No survivor short-circuit here (unlike the campaign
+            # leg): k3_run's null leg runs pass 3 whenever eligible,
+            # because a pass-2 survivor is a candidate the K=3
+            # search looks behind. Skipping it would undercount
+            # null rows and bias the A2 bound toward PASS.
+            elig, rec3 = _stitched_pass3(
+                t_s, f_s, q_s, masked[0]["fcol"], base, tic,
+                sectors[0], np.ones(len(t_s), dtype=bool), p2,
+                contaminants, trial_none, keep_fits)
+            r["pass3_eligibility"] = elig
+            r["k3_mask"] = rec3.get("k3_mask")
+            r["k3_ephemeris"] = rec3.get("k3_ephemeris")
+            r["pass3"] = rec3.get("pass3")
+            r["pass3_survivor"] = bool(
+                (rec3.get("pass3") or {}).get("status")
+                == "survivor")
             r["final_rows"] = (int(r["pass2_survivor"])
                                + int(r["pass3_survivor"]))
     except Exception as exc:  # noqa: BLE001
@@ -713,7 +758,7 @@ def run_host_null_p43(job):
     r["calibration"] = calibration
     r["seconds"] = round(time.time() - t_start, 1)
     tmp = out_path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(r))
+    tmp.write_text(json.dumps(_json_safe(r)))
     tmp.replace(out_path)
     return {"status": "done", "tic": tic,
             "pass1_survivor": r.get("pass1_survivor"),
@@ -741,14 +786,20 @@ def _bootstrap_paired_gain(host_gains, n_rep=BOOTSTRAP_REPS,
             "n_rep": n_rep, "seed": seed, "n_hosts": n_hosts}
 
 
-def _cell_stats(paired, cell_fn):
+def _cell_stats(paired, cell_fn, all_hosts):
     """Per-cell paired gain stats. paired is a list of per-trial
     dicts with keys tic, single (bool), stitched (bool).
-    Returns {n_trials, single, stitched, gain, hosts, ci, loho,
-    top_host_share, per_host}. cell_fn(trial) -> bool.
+    all_hosts is the FULL host list (the 34 TICs): the bootstrap
+    resamples all of them (pre-registration section 0.7), and a
+    host with no trials in the cell contributes gain 0. Resampling
+    only the cell's hosts would overstate the uncertainty.
+    Returns {n_trials, single, stitched, gain, ci, loho_min,
+    loho_all_positive, top_host_gain, top_host_share, n_hosts}.
+    cell_fn(trial) -> bool.
     """
     cell = [t for t in paired if cell_fn(t)]
-    hosts = {}
+    hosts = {h: {"n": 0, "single": 0, "stitched": 0}
+             for h in all_hosts}
     for t in cell:
         h = hosts.setdefault(t["tic"], {"n": 0, "single": 0,
                                         "stitched": 0})
@@ -774,6 +825,23 @@ def _cell_stats(paired, cell_fn):
             "top_host_share": (float(top) / total
                                if total > 0 else None),
             "n_hosts": len(hosts)}
+
+
+def _dropped_frac_stats(stitched):
+    """Distribution of total_dropped_frac over stitched trials
+    (finding 6 diagnostic): the fraction of the original 3-sector
+    data dropped by the pre-mask + pass-3 mask combined. The cap
+    binds 25% of the STITCHED curve (pre-registration section 0.4
+    as written), so the total can exceed 25% -- reported here."""
+    vals = sorted(tr["total_dropped_frac"]
+                  for tr in stitched.values()
+                  if tr.get("total_dropped_frac") is not None)
+    if not vals:
+        return {"n": 0, "median": None, "p90": None, "max": None}
+    return {"n": len(vals),
+            "median": float(np.median(vals)),
+            "p90": float(np.percentile(vals, 90)),
+            "max": float(np.max(vals))}
 
 
 def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
@@ -818,6 +886,10 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
                           tr["trial_id"])] = tr
     keys = sorted(set(single) & set(stitched))
     not_in_manifest = [k for k in keys if k not in man_trials]
+    all_hosts = sorted({tr["tic"] for tr in manifest["trials"]})
+    n_error_trials = (
+        sum(1 for tr in single.values() if "error" in tr)
+        + sum(1 for tr in stitched.values() if "error" in tr))
     paired = []
     for k in keys:
         s_tr = single[k]
@@ -865,10 +937,17 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
                 continue
             repro["n_compared"] += 1
             s_tr = single[k]
+            p1_s = (s_tr.get("pass1") or {}).get("period_days")
+            p1_r = (ref.get("pass1") or {}).get("period_days")
+            p1_ok = (p1_s is not None and p1_r is not None
+                     and abs(p1_s - p1_r) <= 0.01 * p1_r)
             ok = (bool(s_tr.get("final_recovered") is True)
                   == bool(ref.get("final_recovered") is True)
                   and bool(s_tr.get("final_genuine") is True)
-                  == bool(ref.get("final_genuine") is True))
+                  == bool(ref.get("final_genuine") is True)
+                  and bool(s_tr.get("k2_recovered") is True)
+                  == bool(ref.get("k2_recovered") is True)
+                  and p1_ok)
             if ok:
                 repro["n_match"] += 1
             else:
@@ -876,32 +955,54 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
                     {"tic": k[0], "sector": k[1],
                      "trial_id": k[2],
                      "single_final": s_tr.get("final_recovered"),
-                     "p41b_final": ref.get("final_recovered")})
+                     "p41b_final": ref.get("final_recovered"),
+                     "single_genuine": s_tr.get("final_genuine"),
+                     "p41b_genuine": ref.get("final_genuine"),
+                     "single_k2": s_tr.get("k2_recovered"),
+                     "p41b_k2": ref.get("k2_recovered"),
+                     "single_pass1_period": p1_s,
+                     "p41b_pass1_period": p1_r})
         repro["all_match"] = (repro["n_compared"] > 0
                               and repro["n_match"]
                               == repro["n_compared"])
-    # --- validation: stitched leg's original-sector pass 1 vs single ---
-    p1_matches = 0
-    p1_compared = 0
+    # --- validation: fresh pass 1 vs the FROZEN P3-10 record
+    # (section 0.8: 1% period / 2% SDE). k3_run records it per
+    # trial as pass1_repro.ok on the single leg; aggregate it.
+    p1_frozen_ok = sum(
+        1 for tr in single.values()
+        if (tr.get("pass1_repro") or {}).get("ok") is True)
+    p1_frozen_compared = sum(
+        1 for tr in single.values() if tr.get("pass1_repro"))
+    # --- diagnostic: fresh-vs-fresh seed agreement (section 0.6 --
+    # the stitched leg seeds each sector from its fresh pass-1 peak,
+    # the single leg from the frozen record). NOT the section 0.8
+    # validation; named as such.
+    seed_matches = 0
+    seed_compared = 0
     for t in paired:
         a = t["single_pass1_period"]
         b = t["stitched_orig_pass1_period"]
         if a is not None and b is not None:
-            p1_compared += 1
+            seed_compared += 1
             if abs(a - b) <= 0.01 * a:
-                p1_matches += 1
+                seed_matches += 1
     # --- cells (pre-registered definitions) ---
     cells = {
         "long_period": _cell_stats(
-            paired, lambda t: 10.0 <= (t["period_d"] or 0) <= 15.0),
+            paired, lambda t: 10.0 <= (t["period_d"] or 0) <= 15.0,
+            all_hosts),
         "low_event": _cell_stats(
-            paired, lambda t: t["n_events_expected"] in (2, 3)),
+            paired, lambda t: t["n_events_expected"] in (2, 3),
+            all_hosts),
         "short_period": _cell_stats(
-            paired, lambda t: (t["period_d"] or 99) < 5.0),
+            paired, lambda t: (t["period_d"] or 99) < 5.0,
+            all_hosts),
         "recovered_412": _cell_stats(
-            paired, lambda t: t["group"] == "recovered_412"),
+            paired, lambda t: t["group"] == "recovered_412",
+            all_hosts),
         "right165_69": _cell_stats(
-            paired, lambda t: t["group"] == "right165_69"),
+            paired, lambda t: t["group"] == "right165_69",
+            all_hosts),
     }
     # --- A18 compute (both readings) ---
     ratios = [t["stitched_seconds"] / t["single_seconds"]
@@ -935,6 +1036,20 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
     le = cells["low_event"]
     sp = cells["short_period"]
     r412 = cells["recovered_412"]
+    # --- null element (section 0.7 #5): the stitched null bound
+    # lives in p43_null_summary.json (same out_dir). The verdict is
+    # PASS iff ALL hold, so a missing null summary blocks it.
+    null_summary = None
+    null_path = out_dir / "p43_null_summary.json"
+    if null_path.exists():
+        try:
+            null_summary = json.loads(null_path.read_text())
+        except ValueError:
+            null_summary = None
+    null_bound_ok = bool(
+        null_summary is not None
+        and (null_summary.get("stitched") or {}).get(
+            "bound_verdict") == "PASS")
     checks = {}
     checks["long_period_gain_positive"] = lp["gain"] > 0
     checks["long_period_ci_excludes_zero"] = bool(
@@ -952,10 +1067,19 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
         (lp["top_host_share"] is None or lp["top_host_share"] < 0.5)
         and (le["top_host_share"] is None
              or le["top_host_share"] < 0.5))
+    # Fail-closed: an unchecked reproduction is not a passed one.
     checks["single_leg_repro"] = bool(
-        not repro["checked"] or repro.get("all_match") is True)
+        repro["checked"] and repro.get("all_match") is True)
     checks["inj_checks_ok"] = all(
         t["inj_check_ok"] is True for t in paired)
+    # Section 0.8: all 272 trials run, 0 errors, nothing missing.
+    checks["completeness"] = bool(
+        len(paired) == len(manifest.get("trials", []))
+        and len(set(single) - set(stitched)) == 0
+        and len(set(stitched) - set(single)) == 0
+        and len(not_in_manifest) == 0)
+    checks["no_errors"] = (n_error_trials == 0)
+    checks["null_bound"] = null_bound_ok
     verdict = "PASS" if all(checks.values()) else "FAIL"
     failing = [k for k, v in checks.items() if not v]
     summary = {
@@ -970,19 +1094,43 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
         "right165_stitched_rescued": cells["right165_69"]["stitched"],
         "right165_single_rescued": cells["right165_69"]["single"],
         "single_leg_repro_vs_p41b": repro,
-        "pass1_repro": {"n_compared": p1_compared,
-                        "n_match": p1_matches},
+        "pass1_repro_vs_frozen": {
+            "n_compared": p1_frozen_compared,
+            "n_ok": p1_frozen_ok,
+            "note": ("Single leg's pass1_repro.ok vs the frozen "
+                     "P3-10 record (1% period / 2% SDE, section "
+                     "0.8).")},
+        "seed_agreement": {"n_compared": seed_compared,
+                           "n_match": seed_matches,
+                           "note": ("Fresh-vs-fresh pass-1 period "
+                                    "agreement (section 0.6 "
+                                    "diagnostic, not the section "
+                                    "0.8 validation).")},
+        "total_dropped_frac": _dropped_frac_stats(stitched),
+        "null": ({"present": True,
+                  "stitched_bound_verdict":
+                      (null_summary.get("stitched") or {}).get(
+                          "bound_verdict"),
+                  "stitched_final_rows":
+                      (null_summary.get("stitched") or {}).get(
+                          "final_rows"),
+                  "stitched_bound_rows":
+                      (null_summary.get("stitched") or {}).get(
+                          "bound_rows")}
+                 if null_summary is not None
+                 else {"present": False,
+                       "note": ("Null leg not run yet -- the "
+                                "verdict cannot PASS until it is.")}),
         "a18": a18,
         "checks": checks,
         "failing_checks": failing,
         "verdict": verdict,
         "note": ("Verdict rule pre-registered in P43_PREREG.md "
                  "section 0.7; A18 is reported, not part of the "
-                 "verdict. Null accounting is in "
-                 "p43_null_summary.json."),
+                 "verdict."),
     }
     (out_dir / "p43_summary.json").write_text(
-        json.dumps(summary, indent=2))
+        json.dumps(_json_safe(summary), indent=2))
     return summary
 
 
@@ -1035,15 +1183,20 @@ def merge_null_p43(out_dir):
                         "caveat: 34 hosts. Bound = ceil(1.25 x "
                         "pass-1 rows), per ROW (PB-6 section 4).")}
     (out_dir / "p43_null_summary.json").write_text(
-        json.dumps(summary, indent=2))
+        json.dumps(_json_safe(summary), indent=2))
     return summary
 
 
 def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
-                workdir_single, keep_fits, tics=None,
+                workdir_single, keep_fits, calibration, tics=None,
                 limit_hosts=None):
     """Build the paired job lists (single + stitched) for the 34
-    TICs. Returns (single_jobs, stitched_jobs, missing)."""
+    TICs. Returns (single_jobs, stitched_jobs, missing). A missing
+    sector FITS skips the TIC ENTIRELY (no single job either): a
+    single-only host would silently shrink the paired set, and the
+    completeness check would then block the verdict. calibration is
+    the CLI value (args.calibration), not the manifest's -- the
+    workers are initialized with it, so the records must agree."""
     hosts = {}
     for tr in manifest["trials"]:
         hosts.setdefault(tr["tic"], {"sector": tr["sector"],
@@ -1054,18 +1207,6 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
         if tics and tic not in tics:
             continue
         sector = hosts[tic]["sector"]
-        path = _sector_fits_path(cache_dir, tic, sector)
-        if not path.exists():
-            missing.append((tic, sector))
-            continue
-        single_jobs.append(
-            {"tic": tic, "sector": sector, "path": str(path),
-             "trials": hosts[tic]["trials"],
-             "out_dir": str(out_dir),
-             "workdir": str(workdir_single),
-             "calibration": manifest["calibration"],
-             "keep_fits": keep_fits, "arm": ARM, "spans": None,
-             "manifest_sha": manifest["_sha256"]})
         paths = {}
         ok = True
         for sec in SECTORS:
@@ -1076,12 +1217,21 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
             paths[str(sec)] = str(p)
         if not ok:
             continue
+        path = _sector_fits_path(cache_dir, tic, sector)
+        single_jobs.append(
+            {"tic": tic, "sector": sector, "path": str(path),
+             "trials": hosts[tic]["trials"],
+             "out_dir": str(out_dir),
+             "workdir": str(workdir_single),
+             "calibration": calibration,
+             "keep_fits": keep_fits, "arm": ARM, "spans": None,
+             "manifest_sha": manifest["_sha256"]})
         stitched_jobs.append(
             {"tic": tic, "sectors": list(SECTORS), "paths": paths,
              "trials": hosts[tic]["trials"],
              "out_dir": str(out_dir),
              "workdir": str(workdir_p43),
-             "calibration": manifest["calibration"],
+             "calibration": calibration,
              "keep_fits": keep_fits,
              "manifest_sha": manifest["_sha256"]})
     if limit_hosts is not None:
@@ -1128,8 +1278,8 @@ def main(argv=None):
             return 0
         single_jobs, stitched_jobs, missing = _build_jobs(
             manifest, cache, out_dir, out_dir / "injected-p43",
-            out_dir / "injected", args.keep_fits, args.tics,
-            args.limit_hosts)
+            out_dir / "injected", args.keep_fits,
+            args.calibration, args.tics, args.limit_hosts)
         print(f"[p43] campaign: {len(single_jobs)} single jobs, "
               f"{len(stitched_jobs)} stitched jobs, "
               f"{len(missing)} missing FITS", flush=True)
@@ -1174,6 +1324,10 @@ def main(argv=None):
                   f"{r.get('error')}", flush=True)
         summary = merge_campaign_p43(out_dir, manifest,
                                      args.p41b_dir)
+        if not summary["null"]["present"]:
+            print("[p43] NOTE: null leg not run yet -- the verdict "
+                  "above is PENDING the null element (section 0.7 "
+                  "#5); re-merge after the null run.", flush=True)
         print(f"[p43] done: {done} run, {skipped} skipped, "
               f"{len(failures)} failed; "
               f"{summary['n_trials_paired']} paired trials; "
@@ -1205,8 +1359,8 @@ def main(argv=None):
         return 0
     single_jobs, stitched_jobs, missing = _build_jobs(
         manifest, cache, out_dir, out_dir / "null_injected-p43",
-        out_dir / "null_injected", args.keep_fits, args.tics,
-        args.limit_hosts)
+        out_dir / "null_injected", args.keep_fits,
+        args.calibration, args.tics, args.limit_hosts)
     # Null jobs carry no trials -- strip them (same job shape minus
     # the trial list).
     for j in single_jobs:

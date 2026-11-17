@@ -135,12 +135,16 @@ class TestMergeCellsUseManifest(unittest.TestCase):
                            "trial_id": "planet01", "group": "x",
                            "period_d": 12.0, "final_recovered": True,
                            "final_genuine": True, "seconds": 1.0,
-                           "pass1": {"period_days": 12.0}},
+                           "k2_recovered": True,
+                           "pass1": {"period_days": 12.0},
+                           "pass1_repro": {"ok": True}},
                           {"tic": "1", "sector": 95,
                            "trial_id": "planet02", "group": "x",
                            "period_d": 3.0, "final_recovered": False,
                            "final_genuine": False, "seconds": 1.0,
-                           "pass1": {"period_days": 3.0}}]}
+                           "k2_recovered": False,
+                           "pass1": {"period_days": 3.0},
+                           "pass1_repro": {"ok": False}}]}
             stitched = {"tic": "1", "sectors": [95, 96, 97],
                         "complete": True, "arm": "no-depth-trigger",
                         "trials": [
@@ -175,6 +179,106 @@ class TestMergeCellsUseManifest(unittest.TestCase):
             self.assertEqual(summary["n_not_in_manifest"], 0)
             # The summary file is written.
             self.assertTrue((out_dir / "p43_summary.json").exists())
+            # Bootstrap resamples ALL hosts (here just "1").
+            self.assertEqual(
+                summary["cells"]["long_period"]["ci"]["n_hosts"], 1)
+            # pass1_repro aggregates the single leg's frozen-record
+            # check (finding 9): 1 ok of 2 compared.
+            self.assertEqual(
+                summary["pass1_repro_vs_frozen"]["n_compared"], 2)
+            self.assertEqual(
+                summary["pass1_repro_vs_frozen"]["n_ok"], 1)
+            # Fresh-vs-fresh agreement is the seed diagnostic now.
+            self.assertEqual(
+                summary["seed_agreement"]["n_compared"], 2)
+            self.assertEqual(
+                summary["seed_agreement"]["n_match"], 2)
+            # Completeness: 2 paired == 2 manifest, no errors.
+            self.assertTrue(summary["checks"]["completeness"])
+            self.assertTrue(summary["checks"]["no_errors"])
+            # Fail-closed repro (finding 7): no --p41b-dir given.
+            self.assertFalse(summary["checks"]["single_leg_repro"])
+            # Null element (finding 4): no null summary yet.
+            self.assertFalse(summary["null"]["present"])
+            self.assertFalse(summary["checks"]["null_bound"])
+            self.assertEqual(summary["verdict"], "FAIL")
+            # With a null summary present (stitched PASS), the null
+            # check passes -- but the verdict still fails on the
+            # unchecked repro (fail-closed).
+            (out_dir / "p43_null_summary.json").write_text(
+                json.dumps({"stitched": {"bound_verdict": "PASS",
+                                         "final_rows": 0,
+                                         "bound_rows": 0}}))
+            summary2 = p43_run.merge_campaign_p43(out_dir, manifest)
+            self.assertTrue(summary2["null"]["present"])
+            self.assertTrue(summary2["checks"]["null_bound"])
+            self.assertFalse(summary2["checks"]["single_leg_repro"])
+            # With a matching P4-1b dir, the repro check passes.
+            p41b = Path(d) / "p41b"
+            (p41b / "hosts").mkdir(parents=True)
+            (p41b / "hosts" / "1_s0095.json").write_text(
+                json.dumps(single))
+            summary3 = p43_run.merge_campaign_p43(
+                out_dir, manifest, str(p41b / "hosts"))
+            self.assertTrue(
+                summary3["single_leg_repro_vs_p41b"]["all_match"])
+            self.assertEqual(
+                summary3["single_leg_repro_vs_p41b"]["n_compared"],
+                2)
+            self.assertTrue(summary3["checks"]["single_leg_repro"])
+
+
+class TestConsistencyDuration(unittest.TestCase):
+    def test_uses_duration_hours(self):
+        # Regression: _consistency_at read duration_days, but
+        # orc._subset() carries duration_hours -- the diagnostic
+        # was always None. A _subset-shaped record must work.
+        rng = np.random.default_rng(9)
+        t1, f1, q1 = _synth_sector(3800.0, 1300, 5.0, 3801.0, 0.01,
+                                   0.15, 0.005, rng)
+        t2, f2, q2 = _synth_sector(3828.0, 1300, 5.0, 3801.0, 0.01,
+                                   0.15, 0.005, rng)
+        from bulk import p43_stitch as p43
+        t_s, f_s, q_s, _tr = p43.stitch_weighted(
+            [{"sector": 95, "t": t1, "f": f1, "q": q1,
+              "fcol": "SYS_RM_FLUX", "crowdsap": None},
+             {"sector": 96, "t": t2, "f": f2, "q": q2,
+              "fcol": "SYS_RM_FLUX", "crowdsap": None}],
+            {95: 0.005, 96: 0.005})
+        found = {"period_days": 5.0, "t0_btjd": 3801.0,
+                 "duration_hours": 0.15 * 24.0}
+        out = p43_run._consistency_at(
+            t_s, f_s, q_s,
+            [(95, float(t1[0]), float(t1[-1])),
+             (96, float(t2[0]), float(t2[-1]))], found)
+        self.assertIsNotNone(out)
+        self.assertAlmostEqual(out[95]["depth_frac"], 0.01,
+                               delta=0.003)
+        self.assertAlmostEqual(out[96]["depth_frac"], 0.01,
+                               delta=0.003)
+
+
+class TestInjCheckShallow(unittest.TestCase):
+    def test_wrong_epoch_fails_at_depth_0002(self):
+        # Regression: the old 0.002 absolute tolerance floor made
+        # the inj_check vacuous for the 0.2% trials (expected
+        # 0.0017 < floor). A wrong epoch must fail at depth 0.002.
+        from bulk import inject_campaign as _ic  # noqa: F401
+        import injection_harness as ih
+        rng = np.random.default_rng(10)
+        t, f, q = _synth_sector(3800.0, 1300, 5.0, 3801.0, 0.0,
+                                0.15, 0.005, rng)
+        # Correct epoch: passes.
+        f_ok, _ = ih.inject_transit(t, f, 0.002, 5.0, 3801.0)
+        d_ok, ok = p43_run._inj_check(t, f, f_ok, 5.0, 3801.0,
+                                      0.15, 0.002)
+        self.assertTrue(ok)
+        self.assertAlmostEqual(d_ok, 0.85 * 0.002, delta=0.0006)
+        # Wrong epoch (shifted by half a period): must fail.
+        f_bad, _ = ih.inject_transit(t, f, 0.002, 5.0, 3801.0 + 2.5)
+        _d_bad, ok_bad = p43_run._inj_check(t, f, f_bad, 5.0,
+                                            3801.0, 0.15, 0.002)
+        self.assertFalse(ok_bad)
 
 
 if __name__ == "__main__":
