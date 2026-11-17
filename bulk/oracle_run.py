@@ -549,7 +549,8 @@ def run_host_campaign(job):
                 write_injected_fits(mask_path, t_m, f_m, q_m, fcol)
                 p2 = _screen(mask_path, tic, sector)
                 r["pass2"] = _subset(p2)
-                r["oracle_recovered"] = bool(check_recovery(p2, spec))
+                r["oracle_recovered"] = bool(
+                    check_recovery(p2, spec["period_d"]))
                 r["pass2_match"] = period_match_class(
                     p2.get("period_days"), tr["period_d"])
                 if not keep_fits:
@@ -564,7 +565,7 @@ def run_host_campaign(job):
                 p2b = _screen(art_path, tic, sector)
                 r["pass2b"] = _subset(p2b)
                 r["artifact_recovered"] = bool(
-                    check_recovery(p2b, spec))
+                    check_recovery(p2b, spec["period_d"]))
                 r["pass2b_match"] = period_match_class(
                     p2b.get("period_days"), tr["period_d"])
                 if not keep_fits:
@@ -946,7 +947,8 @@ def run_artifact_host(job):
             write_injected_fits(str(art_path), t_a, f_a, q_a, fcol)
             p2b = _screen(str(art_path), tic, sector)
             r["pass2b"] = _subset(p2b)
-            r["artifact_recovered"] = bool(check_recovery(p2b, spec))
+            r["artifact_recovered"] = bool(
+                check_recovery(p2b, spec["period_d"]))
             r["pass2b_match"] = period_match_class(
                 p2b.get("period_days"), tr["period_d"])
             if not keep_fits:
