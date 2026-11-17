@@ -2127,6 +2127,45 @@ dispatched to a coordinator; Claude leg is Dev's paste. This is a
 scoping consultation, not the Phase 4 vote (that still happens
 after Phase 3 merges).
 
+**PB-2 finding — the recorded S97 screens are bulk_v1 screens,
+not bulk_v4 (PROVEN 2026-11-17, Phase 4 pre-build):** the S97
+rescore (2026-11-16, run_id bulk-20261116T045947Z-bffc,
+labelled bulk_v4) screened with bulk_v1 preprocessing —
+quality mask 17087 (lightkurve default) + symmetric clip —
+while stamping records bulk_v4. Proof: (1) the recorded
+`bls_input_hash` for TIC 11613680 (`74f0298d…`) is reproduced
+EXACTLY by one fingerprint combo (17087 + symmetric +
+SYS_RM_FLUX) and not by the bulk_v4 combo; (2) re-screening
+under bulk_v1 reproduces the recorded P/SDE/mes/n_ev exactly
+on 3/3 sampled stars, and the full S97 rescore under bulk_v1
+validates 13,990/13,990 with 0 mismatches; (3) mechanism in
+source — `bulk_screen.py` `main()` sets the calibration in
+the PARENT only (line 1661) and stamps records with it (line
+1675), but the screen workers run in a `ProcessPoolExecutor`
+(line 1774) with NO initializer, and on macOS (spawn) they
+re-import the module and fall back to bulk_v1
+(`EXHUNT_BULK_CALIBRATION` never set; `bulk_v1.yaml` declares
+neither `quality_mask` nor `clip_option`, so `_apply_profile`
+falls back to the 17087 + symmetric defaults). The campaign
+is unaffected — `inject_campaign.py` HAS a pool initializer
+(`_init_worker`) that propagates the calibration, which is
+why the campaign screens reproduced 960/960 under bulk_v4.
+Eliminated: input files (sha256 match), calibration file
+(content hash match), committed code (zero screen-path
+commits 40ab9a9..60ea49c), environment (requirements.txt sha
+match); the `working_tree_clean: False` flag on all rows was
+a red herring. Consequence: EVERY `bulk_screen.py` CLI run on
+macOS screens with v1 preprocessing regardless of
+`--calibration`. The merge's S97 numbers (14,293 post-veto,
+13,983 in clusters, ranker 4/26 TOIs top decile) rest on v1
+preprocessing; the S96 bulk_v4 screen (4,692 → 734) is
+affected the same way IF it ran via this CLI path (not
+verified). P4-8's out-of-process runner MUST propagate the
+calibration to workers (the `inject_campaign.py` pattern) —
+this bug is a P4-8 acceptance input. Full record:
+Phase 4 pre-build `PB2_RESCORE.md` (S97 root-cause section);
+diagnostics `prebuild/diag_s97*.py`.
+
 ## P3-20 — Decision record: proceed with the 3A experiment (parent, 2026-11-16 ~07:05 IST)
 
 **Decision: PROCEED with P3-16–P3-19 as scoped** (offline
