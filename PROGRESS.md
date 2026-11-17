@@ -2592,6 +2592,31 @@ is a gate, not build work.
   get green. (This PM-9 commit touches only
   PROGRESS.md — the code under test is identical to
   the code at 620bdf8.)
+- **Re-run after PM-3 (this commit):** `python
+  tests/run_golden.py --fast` on tip 8369516 —
+  **GOLDEN SUITE: PASS (899 test(s))**, Ran 899 tests
+  in 1557.3 s, OK (skipped=1, expected failures=1).
+  Count matches the expectation exactly: 898 + 1 net
+  new test (PM-3's two 700c tests minus the removed
+  pending test); skipped dropped 2 → 1 (the 700c
+  pending skip is gone; only the seed-band skip
+  remains). No test was weakened or loosened to get
+  green. First re-run attempt went red (2 nightly
+  failures — the harness gap fixed in the PM-3
+  follow-up commit, see the PM-3 section); the second
+  attempt was killed mid-run by SIGTERM (VM
+  replacement, ~19 min in, no test result); the third
+  attempt is this green run. Full log:
+  `phase3-vote/pm9-rerun2-20261117.log` (goal dir).
+  (This PM-9 record commit touches only PROGRESS.md —
+  the code under test is identical to the code at
+  8369516.)
+- **Merge tip:** 14 commits on top of 6dd1766 at the
+  re-run tip 8369516; 15 including this record commit.
+  (The previous coordinator's report said 9 commits on
+  top of 6dd1766 at its tip; the true count then was 10
+  — PROGRESS.md never recorded the 9, so there was
+  nothing to correct.)
 - **PR CI is the parent's gate:** full PR CI on the
   actual PR head (incl. full offline coverage +
   lockfile install) runs after the parent opens the
@@ -2602,5 +2627,3 @@ is a gate, not build work.
   diff (the reviewed commit must be 6dd1766 or an
   explicitly reviewed successor) — the parent handles
   it; the coordinator does not merge.
-- **PM-3 caveat:** PM-9 must RE-RUN after PM-3 lands
-  (the 700c fixture + test change the tip).
