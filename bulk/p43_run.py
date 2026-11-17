@@ -655,10 +655,13 @@ def run_host_null_p43(job):
                            "q": q[keep], "fcol": fcol,
                            "crowdsap": rec["crowdsap"]})
         r["sectors"] = {str(k): v for k, v in per_sector.items()}
-        # Pass-1 baseline: the stitched UNMASKED screen.
+        # Pass-1 baseline: the stitched UNMASKED screen. A
+        # distinct base so the FITS does not collide with the
+        # masked pass-2 file (_stitched.fits) when keep_fits is on.
         t_u, f_u, q_u, tr_u = p43.stitch_weighted(unmasked, sigmas)
+        base_u = workdir / f"{tic}_null_unmasked"
         p1s, _ = _stitched_pass2(t_u, f_u, q_u, unmasked[0]["fcol"],
-                                 base, tic, sectors[0], keep_fits)
+                                 base_u, tic, sectors[0], keep_fits)
         r["pass1"] = p1s
         r["pass1_survivor"] = bool(p1s.get("status") == "survivor")
         r["stitch_unmasked"] = tr_u
