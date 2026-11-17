@@ -2276,7 +2276,7 @@ Until all five are met, the ranker stays an offline experiment:
 it may order a queue for a human, it may never filter, veto, or
 promote a candidate on its own.
 
-## P3-21 — S97 validation: PREPPED, pending on the Mac (2026-11-16)
+## P3-21 — S97 validation — RESCORE COMPLETE 2026-11-16 (prepped 2026-11-16)
 
 **Status: preparation complete; the run waits for a free Mac
 slot.** The panel retry (P3-9) launched 2026-11-16 08:31 IST via
@@ -2287,6 +2287,44 @@ commands doc is
 `phase3-vote/p3-21-mac-commands.md` (exact commands, md5 gate,
 pre-flight, smoke, launch, resume, copy-back, scoring, S98
 verification). Nothing has been run on the Mac.
+
+**RUN COMPLETE 2026-11-16 (Mac; run_id
+bulk-20261116T045947Z-bffc, pipeline 40ab9a9, 35,400 stars).**
+bulk_v4 rescore: 14,800 pre-veto survivors (v1: 14,732
+post-filter — v4 found 68 MORE pre-veto survivors); post-veto
+**14,293 (14,286 tier A + 7 tier B)** — a 3.0% cut, vs S96's
+84.4% (4,692 → 734). Screen-count conservation holds:
+14,800 survivor + 10,552 demoted + 10,029 recorded + 18
+below_floor + 1 search_invalid = 35,400; 14,800 − 500 veto −
+7 zooniverse = 14,293. Source:
+`mac-run-data/rescore-v4-s97/summary.json` (conservation.ok
+true) + `run_s0097-v4.log`.
+
+**Mega-cluster counts (PB-5, committed 2026-11-17 — these are
+S97's, not S96's; S96's epoch-cluster record is counts-only
+(EPOCH-CLUSTER removed 3,934 tier-B / flagged 147 tier-A in
+the P3-11 replay) and carries no cluster sizes).** The
+EPOCH-CLUSTER veto found 4 mega-clusters on S97:
+
+| Cluster | Size |
+|---|---|
+| 1 | 9,565 |
+| 2 | 4,796 |
+| 3 | 77 |
+| 4 | 45 |
+| **Total clustered** | **14,483** |
+
+500 tier-B rows demoted, 13,983 tier-A rows flagged and kept
+(500 + 13,983 = 14,483). 13,983/14,286 = 97.9% of S97's
+Tier-A survivors sit in the 4 mega-clusters; only 310
+survivors are unclustered (303 tier A + 7 tier B). Mechanism
+(adopted diagnosis, CB-7): Tier A is defined by raw event
+count (≥3), so a ~13.2 d or ~27 d systematic in S97's ~55-day
+baseline produces ≥3 events, lands in Tier A, and bypasses
+both demotions — Tier A is flagged, never demoted, under
+bulk_v4. Claim language: bulk_v4 is "S96-effective,
+S97-inert". The fix is BP-1 / P4-2 (before Phase 4
+multi-sector production screens and before unlocking S98).
 
 **Design decisions (recorded — the doc carries the reasoning):**
 - The rescore uses `bulk/run_chunked.py --sector 97
