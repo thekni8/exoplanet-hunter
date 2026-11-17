@@ -2282,7 +2282,7 @@ vote record frozen (CB-1); never weaken an assertion; small
 frequent commits naming the PM-item. PM-10 (Dev's human review)
 is a gate, not build work.
 
-### PM-1 — Hard trilegal_missing / background-scenario check (DONE, implementation + tests; Mac verification PENDING)
+### PM-1 — Hard trilegal_missing / background-scenario check (DONE 2026-11-17)
 
 - **Change:** `gauntlet/tools/run_triceratops.py` fails closed
   when the background population was silently skipped:
@@ -2311,7 +2311,8 @@ is a gate, not build work.
   background scenarios (prob 0.0, so the existing metric
   assertions are unchanged); a `skipped_background`
   behaviour models the silent skip. Module: 33/33 PASS.
-- **Mac verification (PENDING — parent runs):**
+- **Mac verification v1 (run by the parent 2026-11-17
+  ~11:14 IST):**
   `phase3-vote/pm1-mac-check.py` (plain json/csv, no
   lightkurve): checks the 10 latest completed panel rows'
   scenario_split + the two golden workdir outputs for all 6
@@ -2332,13 +2333,18 @@ is a gate, not build work.
   unaffected (it reads the full probs table, not
   scenario_split). The two golden outputs PASSED under v1
   (their CSVs).
-- **Mac verification v2 (PENDING — parent runs):**
+- **Mac verification v2 (PASS 12/12 — parent ran
+  2026-11-17 ~11:57 IST):**
   `phase3-vote/pm1-mac-check-v2.py` checks the TOOL CSVs
   instead — each of the 10 panel targets' latest completed
   row via its `probs_csv` field (fallback: workdir glob)
   + the two golden workdir CSVs, 12 checks total. Run:
   `cat phase3-vote/pm1-mac-check-v2.py | ~/workspace/mac/mac-ssh.sh 'python3 -'`.
-  Result: PENDING at commit time.
+  Result: OVERALL PASS — all 10 panel tool CSVs + both
+  golden CSVs carry all 6 background scenarios. The
+  background population was NOT silently skipped in any
+  panel run or golden output. PM-1 is fully closed (code
+  + verification).
 
 ### PM-2 — receipt records timeout_s (DONE 2026-11-17)
 
