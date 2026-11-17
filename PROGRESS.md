@@ -2185,3 +2185,50 @@ names its trigger. (Also recorded in GOAL.md.)
 | 16 | **TRICERATOPS timeout question** (TB-9) | In 3.1 (or when the nightly is scheduled): 1800 s vs Gemini's 2,700 s candidate. Evidence: the first nightly's WASP-29b run timed out at 1800 s on a slow TRILEGAL server (2026-11-16); WASP-29b's C-10 run already used 1,553 s (86% of budget). Decide from the timeout percentiles, not from one slow night. |
 | 17 | **Depth-coverage gap** (P3-18) | In 3.1, as promotion-gate condition 4: the campaign's planet depth grid caps at 1.0%, so the model learned "deep = FP" — the 3 deepest held-out planets missed the top decile (TOI-2384.01 rank 972 at 2.87%, TOI-2624.01 rank 1,081 at 1.79%, TOI-4655.01 rank 2,418 at 1.49%). Fix: planet injections across the full depth range, then re-check R3 to 10/10 (or diagnose + accept the misses). |
 | 18 | **Duration / fold-sigma features** (P3-16) | In 3.1, as promotion-gate condition 5: the implied-density ratio (duration / period^(1/3)) and the fold sigmas (odd_even_sigma, phase_05_secondary_sigma, v_shape_metric) are unavailable — the campaign persists a reduced screen dict (no duration_hours / secondary_depth_percent / v_ratio) and the VM has no light-curve cache. Fix: persist the full screen record in future campaigns, or explicitly waive them for the production feature set. |
+
+## Phase 3 completion-vote pre-merge (PM-items) — 2026-11-17
+
+Work order: `phase3-vote/PRE_MERGE_BRIEF.md`; requirements source:
+`phase3-vote/COMPARISON_COMPLETION.md` (unanimous 3/3 GO WITH
+CHANGES, 2026-11-17). Hard rules: no push / merge / PR; no new
+dependencies; calibrations byte-frozen; run data off limits; the
+vote record frozen (CB-1); never weaken an assertion; small
+frequent commits naming the PM-item. PM-10 (Dev's human review)
+is a gate, not build work.
+
+### PM-1 — Hard trilegal_missing / background-scenario check (DONE, implementation + tests; Mac verification PENDING)
+
+- **Change:** `gauntlet/tools/run_triceratops.py` fails closed
+  when the background population was silently skipped:
+  (a) right after target construction, when the tool set
+  `trilegal_missing` — before the expensive calc_probs;
+  (b) after calc_probs, when any of the 6 background
+  scenarios (DTP, DEB, DEBx2P, BTP, BEB, BEBx2P) is absent
+  from the probability table, naming the missing ones.
+  Skipped for a degenerate computation (its table is
+  meaningless; the degenerate flag already marks the run
+  invalid and the adapter maps it to UNMEASURED).
+  `metrics.background_scenarios_checked` records that the
+  check ran and passed (True on completed non-degenerate
+  runs, False otherwise); the schema gains it as an
+  OPTIONAL metrics property (following the phase_seconds
+  pattern — old outputs still validate).
+- **Judgment call (recorded, not silent):** no retry on
+  trilegal_missing. The brief's condition is fail-closed;
+  a retry-on-trilegal-missing is a possible 3.1
+  enhancement, not this build.
+- **Tests:** 2 new tests in `tests/test_triceratops.py`
+  (`test_trilegal_missing_fails_fast`,
+  `test_missing_background_scenarios_fail_closed`) + the
+  flag asserted in `test_success_planet` and the degenerate
+  test. The fake target's planet/eb tables now carry all 6
+  background scenarios (prob 0.0, so the existing metric
+  assertions are unchanged); a `skipped_background`
+  behaviour models the silent skip. Module: 33/33 PASS.
+- **Mac verification (PENDING — parent runs):**
+  `phase3-vote/pm1-mac-check.py` (plain json/csv, no
+  lightkurve): checks the 10 latest completed panel rows'
+  scenario_split + the two golden workdir outputs for all 6
+  background scenarios. Run:
+  `cat phase3-vote/pm1-mac-check.py | ~/workspace/mac/mac-ssh.sh 'python3 -'`.
+  Result: PENDING at commit time.

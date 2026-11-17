@@ -68,6 +68,18 @@ TRICERATOPS specifics, verified against the 1.1.0 source:
   status "completed" with fpp_degenerate=true so the
   evidence is preserved; the ADAPTER maps degenerate to
   UNMEASURED + EXEC_ERROR.
+* PM-1 (fail closed on a skipped background population):
+  if the Gaia background query fails, the tool sets
+  trilegal_missing and silently omits the 6 background
+  scenarios (DTP, DEB, DEBx2P, BTP, BEB, BEBx2P) from the
+  probability table. The wrapper fails the run instead of
+  reporting an FPP computed without them: right after
+  target construction when trilegal_missing is set, and
+  after calc_probs when any of the 6 scenarios is absent
+  from the table (skipped for a degenerate computation,
+  whose table is meaningless). metrics.
+  background_scenarios_checked records that the check ran
+  and passed.
 * N=1,000,000 is the tool default (the published cost,
   ~5–15 min/target). calc_probs is a blocking in-process
   call, so the RUNNER's timeout is the enforcement for
@@ -143,6 +155,14 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
 # Planet scenarios in the tool's naming (FPP = 1 - their sum,
 # per the tool's own definition).
 PLANET_SCENARIOS = ("TP", "PTP", "DTP")
+# PM-1: the scenarios the tool computes only from the
+# background-star population (Gaia DR3 by default). If the
+# background query fails, the tool sets trilegal_missing
+# and silently omits them from the probability table — the
+# FPP it then reports was computed without the background
+# scenarios. The wrapper fails closed on that (see run()).
+BACKGROUND_SCENARIOS = ("DTP", "DEB", "DEBx2P", "BTP", "BEB",
+                        "BEBx2P")
 EB_TARGET_SCENARIOS = ("EB", "EBx2P")
 EB_NEIGHBOUR_SCENARIOS = ("BEB", "BEBx2P")
 EB_HIERARCHICAL_SCENARIOS = ("PEB", "PEBx2P", "SEB", "SEBx2P")
@@ -277,6 +297,19 @@ def _scenario_sum(probs, scenarios):
     return total
 
 
+def _missing_background_scenarios(probs):
+    """Background scenarios absent from the probs table
+    (PM-1). Fail closed: an unreadable table counts as all
+    missing."""
+    try:
+        present = {str(row["scenario"])
+                   for _, row in probs.iterrows()}
+    except Exception:  # noqa: BLE001 - unreadable table
+        return list(BACKGROUND_SCENARIOS)
+    return [s for s in BACKGROUND_SCENARIOS
+            if s not in present]
+
+
 def _most_likely_fp(probs):
     """Highest-probability non-planet scenario as
     '<scenario> on TIC <id>', or None when the table is
@@ -325,6 +358,9 @@ def _null_metrics(dilution_corrected, contrast_curve_used,
         "contrast_curve_used": contrast_curve_used,
         "n_fold_points": n_fold_points,
         "phase_seconds": phase_seconds,
+        # PM-1: the background-scenario check did not pass
+        # (it never ran, or it failed the run).
+        "background_scenarios_checked": False,
     }
 
 
@@ -504,6 +540,22 @@ def run(input_path, output_path):
         return _failed(f"target construction failed after "
                        f"{init_attempts} attempt(s): "
                        f"{last_error}")
+    # PM-1: fail closed on a silently skipped background
+    # population. If the Gaia query failed, the tool sets
+    # trilegal_missing and omits the background scenarios
+    # from the probability table — the FPP it would then
+    # report was computed without them. Catch it here,
+    # before the expensive calc_probs, instead of trusting
+    # the number. No retry: the brief's condition is
+    # fail-closed (a retry-on-trilegal-missing is a
+    # possible 3.1 enhancement, not this build).
+    if getattr(tgt, "trilegal_missing", False):
+        _log_phase("target_init done but trilegal_missing "
+                   "is set: background population skipped")
+        return _failed("background population missing "
+                       "(trilegal_missing): the tool skipped "
+                       "the background scenarios; the FPP "
+                       "would be computed without them")
     np.random.seed(seed)
     try:
         t_phase = time.monotonic()
@@ -534,6 +586,25 @@ def run(input_path, output_path):
             "log-evidences -inf; FPP=1.0 reflects a failed "
             "computation, not a confident false positive")
     probs = tgt.probs
+    # PM-1: verify the background scenarios are present in
+    # the probability table — a silent skip must fail the
+    # run, never report an FPP. Skipped for a degenerate
+    # computation: its table is meaningless and the
+    # degenerate flag already marks the run invalid (the
+    # adapter maps it to UNMEASURED).
+    background_scenarios_checked = False
+    if not degenerate:
+        missing = _missing_background_scenarios(probs)
+        if missing:
+            return _failed("background scenarios missing "
+                           "from the probability table: "
+                           + ", ".join(missing) +
+                           " — the background population "
+                           "was silently skipped; FPP is "
+                           "not valid")
+        background_scenarios_checked = True
+        _log_phase("background check passed: 6/6 background "
+                   "scenarios present")
     probs_path = os.path.join(workdir,
                               "triceratops_probs.csv")
     try:
@@ -560,6 +631,8 @@ def run(input_path, output_path):
         "contrast_curve_used": contrast_curve_used,
         "n_fold_points": n_fold_points,
         "phase_seconds": phase_seconds,
+        "background_scenarios_checked":
+            background_scenarios_checked,
     }
     return _output(tool_version, seed, config_hash, "completed",
                    fpp, metrics, input_hashes, artifacts,

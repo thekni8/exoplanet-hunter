@@ -308,6 +308,12 @@ FAKE_TRI = textwrap.dedent("""\
             self.ID = ID
             self.sectors = sectors
             self.FPP_degenerate = False
+            # PM-1: the real tool sets trilegal_missing when
+            # the background query fails; the fake models it
+            # via behaviour so the wrapper's fail-closed
+            # check can be tested without the real tool.
+            self.trilegal_missing = (
+                behaviour == "trilegal_missing")
 
         def calc_depths(self, tdepth, all_ap_pixels=None,
                         dilution_corrected=True):
@@ -349,17 +355,45 @@ FAKE_TRI = textwrap.dedent("""\
                 self.NFPP = 0.001
                 self.probs = pd.DataFrame({
                     "ID": [423498314, 423498314, 423498315,
+                           423498314, 423498315, 423498315,
+                           423498315, 423498315, 423498315],
+                    "scenario": ["TP", "EB", "BEB", "SEB",
+                                 "DTP", "DEB", "DEBx2P", "BTP",
+                                 "BEBx2P"],
+                    "prob": [0.13, 0.80, 0.05, 0.02, 0.0, 0.0,
+                             0.0, 0.0, 0.0]})
+                return
+            if behaviour == "skipped_background":
+                # PM-1: the table the tool produces when the
+                # background population was silently skipped
+                # — 5 of the 6 background scenarios are
+                # absent (BEB is present, to prove the check
+                # is per-scenario, not all-or-nothing).
+                self.FPP = 0.0032
+                self.NFPP = 0.0009
+                self.probs = pd.DataFrame({
+                    "ID": [423498314, 423498314, 423498315,
                            423498314],
-                    "scenario": ["TP", "EB", "BEB", "SEB"],
-                    "prob": [0.13, 0.80, 0.05, 0.02]})
+                    "scenario": ["TP", "EB", "BEB", "PEB"],
+                    "prob": [0.9968, 0.0021, 0.0009, 0.0002]})
                 return
             self.FPP = 0.0032
             self.NFPP = 0.0009
+            # PM-1: the table carries all 6 background
+            # scenarios (DTP, DEB, DEBx2P, BTP, BEB,
+            # BEBx2P) — the real tool's table does when the
+            # background population is present. The new rows
+            # carry prob 0.0 so the existing metric
+            # assertions (prob_eb_neighbour 0.0009 etc.) are
+            # unchanged.
             self.probs = pd.DataFrame({
                 "ID": [423498314, 423498314, 423498315,
-                       423498314],
-                "scenario": ["TP", "EB", "BEB", "PEB"],
-                "prob": [0.9968, 0.0021, 0.0009, 0.0002]})
+                       423498314, 423498315, 423498315,
+                       423498315, 423498315, 423498315],
+                "scenario": ["TP", "EB", "BEB", "PEB", "DTP",
+                             "DEB", "DEBx2P", "BTP", "BEBx2P"],
+                "prob": [0.9968, 0.0021, 0.0009, 0.0002, 0.0,
+                         0.0, 0.0, 0.0, 0.0]})
     """)
 
 
@@ -456,6 +490,9 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
             self.assertEqual(m["most_likely_false_positive"],
                              "EB on TIC 423498314")
             self.assertFalse(m["fpp_degenerate"])
+            # PM-1: the background-scenario check ran and
+            # passed (all 6 background scenarios present).
+            self.assertTrue(m["background_scenarios_checked"])
             self.assertFalse(m["dilution_corrected"])
             self.assertFalse(m["contrast_curve_used"])
             self.assertEqual(out["n_transits"], 7)
@@ -520,6 +557,11 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
             self.assertTrue(out["metrics"]["fpp_degenerate"])
             self.assertTrue(any("degenerate" in w
                                 for w in out["warnings"]))
+            # PM-1: the background check is skipped for a
+            # degenerate computation (its table is
+            # meaningless) — the flag stays False.
+            self.assertFalse(
+                out["metrics"]["background_scenarios_checked"])
             # And the adapter maps it to unmeasured, not fail.
             res = triceratops_result(out, policy=_POLICY)
             self.assertEqual(res.status, "unmeasured")
@@ -631,6 +673,42 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
             self.assertIn("target_init attempt 1 done",
                           log.read_text())
             self.assertIn(str(log), out["artifacts"])
+
+    def test_trilegal_missing_fails_fast(self):
+        # PM-1: a silently skipped background population
+        # fails the run before calc_probs — never an FPP
+        # computed without the background scenarios.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            _w, out, obs = self._run_wrapper(
+                tmp, fakevenv, _input_dict(tmp),
+                behaviour="trilegal_missing")
+            self.assertEqual(out["status"], "failed")
+            self.assertIsNone(out["value"])
+            self.assertTrue(any("trilegal_missing" in w
+                                for w in out["warnings"]))
+            self.assertFalse(
+                out["metrics"]["background_scenarios_checked"])
+            # calc_probs never ran: no random draw recorded.
+            self.assertNotIn("random_draw", obs)
+            validate_triceratops_output(out)
+
+    def test_missing_background_scenarios_fail_closed(self):
+        # PM-1: a probability table missing background
+        # scenarios fails the run and names the missing
+        # ones (here 5 of 6 are absent; BEB is present).
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            _w, out, _obs = self._run_wrapper(
+                tmp, fakevenv, _input_dict(tmp),
+                behaviour="skipped_background")
+            self.assertEqual(out["status"], "failed")
+            self.assertIsNone(out["value"])
+            self.assertTrue(any("DTP" in w and "DEB" in w
+                                for w in out["warnings"]))
+            self.assertFalse(
+                out["metrics"]["background_scenarios_checked"])
+            validate_triceratops_output(out)
 
 
 class TestBinFold(unittest.TestCase):
