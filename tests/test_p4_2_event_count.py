@@ -324,5 +324,30 @@ class TestInitializerSpawn(unittest.TestCase):
             self.assertEqual(summary["thresholds"]["event_guard_d"], 0.0)
 
 
+class TestChunkedSummaryCalibration(unittest.TestCase):
+    def test_merged_summary_stamps_requested_calibration(self):
+        # run_chunked's merge hardcoded {"bulk": "v1"} in the
+        # merged summary (P3-21's summary shows it on a v4 run)
+        # — the stamp must follow --calibration like the
+        # manifest does.
+        from tests.test_resume import _build_workdir, _run_driver
+        with tempfile.TemporaryDirectory() as td:
+            work, recipe = _build_workdir(td)
+            stub_log = Path(td) / "stub.log"
+            rc, out = _run_driver(work, recipe, stub_log,
+                                  extra_args=("--calibration",
+                                              "bulk_v4"))
+            self.assertEqual(rc, 0, out[-2000:])
+            summary = json.loads(
+                (work / "run_s0999" / "summary.json").read_text())
+            self.assertEqual(
+                summary["provenance"]["calibration_version"],
+                {"bulk": "v4"})
+            manifest = json.loads(
+                (work / "run_s0999" / "manifest.json").read_text())
+            self.assertEqual(manifest["calibration"]["versions"],
+                             {"bulk": "v4"})
+
+
 if __name__ == "__main__":
     unittest.main()
