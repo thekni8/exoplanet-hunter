@@ -159,14 +159,10 @@ def preprocess_arrays(t, f, q):
 
 
 def segments_from_times(t, gap_d=GAP_D):
-    """Contiguous valid segments: list of (start_idx, end_idx)
-    (end exclusive) split wherever consecutive times jump > gap_d."""
-    if len(t) == 0:
-        return []
-    breaks = np.where(np.diff(t) > gap_d)[0]
-    bounds = [0] + [int(b) + 1 for b in breaks] + [len(t)]
-    return [(bounds[i], bounds[i + 1])
-            for i in range(len(bounds) - 1)]
+    """Contiguous valid segments — the production implementation
+    (bulk_screen.segments_from_times); kept as a local alias so
+    this driver's call sites are unchanged."""
+    return bs.segments_from_times(t, gap_d=gap_d)
 
 
 def rescore_filtered(t, f, period, t0, duration,
@@ -174,108 +170,17 @@ def rescore_filtered(t, f, period, t0, duration,
                      filter_events=True):
     """_rescore with the P4-2 event filter.
 
-    Identical arithmetic to bulk_screen._rescore, except the event
-    list is filtered (when filter_events) to fully-in-span events:
-    the full event window must lie within one contiguous segment
-    with `guard_d` clearance from the segment edges, with
-    in-window coverage >= min_cov_frac of the expected cadences
-    and >= MIN_COV_N cadences. With filter_events=False the
-    result must equal _rescore exactly (the validation path).
-    Returns the _rescore dict plus event detail, or None when the
-    noise cannot be measured (same conditions as _rescore)."""
-    phase_t = t - t0
-    events = np.round(phase_t / period)
-    centres = t0 + events * period
-    inwin = np.abs(t - centres) <= 0.5 * duration
-    if inwin.sum() < 3:
-        return None
-    ev_list = [e for e in np.unique(events[inwin])
-               if (inwin & (events == e)).sum() >= 1]
-    if not ev_list:
-        return None
-    kept, dropped = [], []
-    if filter_events:
-        segs = segments_from_times(t)
-        dt = float(np.median(np.diff(t))) if len(t) > 1 else 0.0
-        expected = max(duration / dt, 1.0) if dt > 0 else 1.0
-        for e in ev_list:
-            c = float(t0 + e * period)
-            lo, hi = c - 0.5 * duration, c + 0.5 * duration
-            n_in = int(((t >= lo) & (t <= hi)).sum())
-            cov = n_in / expected
-            in_seg = False
-            for (a, b) in segs:
-                if t[a] - 1e-9 <= lo and hi <= t[b - 1] + 1e-9:
-                    if (lo - t[a] >= guard_d - 1e-9
-                            and t[b - 1] - hi >= guard_d - 1e-9):
-                        in_seg = True
-                    break
-            if (in_seg and cov >= min_cov_frac
-                    and n_in >= MIN_COV_N):
-                kept.append(e)
-            else:
-                dropped.append(e)
-    else:
-        kept = list(ev_list)
-    if not kept:
-        # No event survives the filter: the signal has no counted
-        # event. Return a zero-event rescore (not None: the noise
-        # IS measurable, the event count is what changed).
-        out = {"mes_pink": 0.0, "cdpp_pct": None, "n_events": 0,
-               "n_strong_events": 0, "max_event_snr": 0.0,
-               "v_ratio": 0.0, "n_events_dropped": len(dropped),
-               "events_kept": [], "events_dropped": [float(e) for e in dropped]}
-        # cdpp still measurable: compute it for the record.
-        phase = ((phase_t / period + 0.5) % 1.0) - 0.5
-        outwin = (~inwin) & (np.abs(phase) < 0.45)
-        if outwin.sum() >= 20:
-            dt2 = float(np.median(np.diff(t))) if len(t) > 1 else 0.0
-            chunk = max(int(round(duration / dt2)), 1) if dt2 > 0 else 1
-            out_idx = np.where(outwin)[0]
-            means = []
-            for seg in np.split(out_idx,
-                                np.where(np.diff(out_idx) > chunk)[0] + 1):
-                for i in range(0, len(seg) - chunk + 1, chunk):
-                    means.append(np.mean(f[seg[i:i + chunk]]))
-            if len(means) >= 5:
-                out["cdpp_pct"] = float(np.std(means)) * 100.0
-        return out
-    phase = ((phase_t / period + 0.5) % 1.0) - 0.5
-    outwin = (~inwin) & (np.abs(phase) < 0.45)
-    if outwin.sum() < 20:
-        return None
-    base = np.median(f[outwin])
-    kept_mask = np.isin(events, kept)
-    inwin_k = inwin & kept_mask
-    depth = float(base - np.mean(f[inwin_k]))
-    dt = float(np.median(np.diff(t)))
-    chunk = max(int(round(duration / dt)), 1)
-    out_idx = np.where(outwin)[0]
-    means = []
-    for seg in np.split(out_idx, np.where(np.diff(out_idx) > chunk)[0] + 1):
-        for i in range(0, len(seg) - chunk + 1, chunk):
-            means.append(np.mean(f[seg[i:i + chunk]]))
-    if len(means) < 5:
-        return None
-    cdpp = float(np.std(means))
-    if cdpp <= 0:
-        return None
-    ev_snr = [float(base - np.mean(f[inwin & (events == e)])) / cdpp
-              for e in kept]
-    off = t - centres
-    c_m = inwin_k & (np.abs(off) <= duration / 6)
-    e_m = inwin_k & (np.abs(off) > duration / 6)
-    d_c = float(base - np.mean(f[c_m])) if c_m.sum() >= 1 else 0.0
-    d_e = float(base - np.mean(f[e_m])) if e_m.sum() >= 1 else 0.0
-    return {"mes_pink": depth / cdpp * math.sqrt(len(kept)),
-            "cdpp_pct": cdpp * 100.0, "n_events": len(kept),
-            "n_strong_events": int(sum(1 for s in ev_snr
-                                       if s >= bs.STRONG_EVENT_SNR)),
-            "max_event_snr": float(max(ev_snr)) if ev_snr else 0.0,
-            "v_ratio": (d_e / d_c) if d_c > 0 else 0.0,
-            "n_events_dropped": len(dropped),
-            "events_kept": [float(e) for e in kept],
-            "events_dropped": [float(e) for e in dropped]}
+    P4-2: this is now a thin delegation to the production
+    bulk_screen._rescore — one implementation of the rule, so
+    the guard curve this driver measures IS the production
+    rule's curve. (PB-2's driver carried its own copy; the
+    P4-2 build ported the rule into _rescore and this function
+    delegates to it. The driver's constants GAP_D /
+    MIN_COV_FRAC / MIN_COV_N equal the profile defaults, so
+    the delegation is exact.)"""
+    return bs._rescore(t, f, period, t0, duration, guard_d=guard_d,
+                       min_cov_frac=min_cov_frac,
+                       filter_events=filter_events)
 
 
 def derive_tier(rs, sde, depth_pct):

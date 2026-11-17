@@ -203,6 +203,8 @@ def _apply_profile(prof):
     global TWO_COMBINED_ENABLED, EPOCH_CLUSTER_VETO_ENABLED
     global EPOCH_CLUSTER_TOL_P, EPOCH_CLUSTER_TOL_T0_D
     global EPOCH_CLUSTER_MIN_SIZE
+    global EVENT_GUARD_D, EVENT_GAP_D, EVENT_MIN_COVERAGE
+    global EVENT_MIN_CADENCES
     _BULK_CAL = prof
     CALIBRATION_VERSION = prof["version"]
     # Provenance map (A-2): per-subsystem bare versions, {"bulk": "v1"}.
@@ -296,6 +298,30 @@ def _apply_profile(prof):
             f"— expected the P3-13 criterion "
             f"({_RM_CLUSTER_TOL_P}, {_RM_CLUSTER_TOL_T0_D}, "
             f"{_RM_CLUSTER_MIN_SIZE}) from bulk/replay_matrix.py")
+    # Event-count rule (P4-2, Phase 4): an event counts only if
+    # its full window lies within one contiguous valid segment
+    # with a guard clearance from the segment edges, with
+    # in-window coverage >= EVENT_MIN_COVERAGE of the expected
+    # cadences and >= EVENT_MIN_CADENCES cadences. Profiles that
+    # predate the fields mean the PB-6 pre-registered values
+    # (guard 0.0, gap 0.05 d, coverage 0.5, min 3 cadences) —
+    # the rule is a measurement correction, not a threshold
+    # change, so it applies under every profile; the guard is
+    # the one tunable, chosen from the PB-2 curve. A profile
+    # that declares invalid values fails loudly here.
+    EVENT_GUARD_D = float(prof.get("event_guard_d", 0.0))
+    EVENT_GAP_D = float(prof.get("event_gap_d", 0.05))
+    EVENT_MIN_COVERAGE = float(prof.get("event_min_coverage", 0.5))
+    EVENT_MIN_CADENCES = int(prof.get("event_min_cadences", 3))
+    if EVENT_GUARD_D < 0 or EVENT_GAP_D <= 0 \
+            or not (0 < EVENT_MIN_COVERAGE <= 1.0) \
+            or EVENT_MIN_CADENCES < 1:
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"invalid event-count rule "
+            f"(guard {EVENT_GUARD_D}, gap {EVENT_GAP_D}, "
+            f"coverage {EVENT_MIN_COVERAGE}, "
+            f"min cadences {EVENT_MIN_CADENCES})")
 
 
 def set_calibration(name):
@@ -317,6 +343,35 @@ def set_clip_option(option):
             f"unknown clip option {option!r} — expected one of "
             f"{', '.join(_CLIP_ALL_OPTIONS)}")
     CLIP_OPTION = option
+
+
+def set_event_guard(guard_d):
+    """Override the event-count guard in-process — MEASUREMENT +
+    TESTS ONLY. Production runs get the guard from the profile
+    (default 0.0); this exists so the guard curve can be
+    measured through the real screen path without a profile per
+    guard value (the set_clip_option pattern)."""
+    global EVENT_GUARD_D
+    guard_d = float(guard_d)
+    if guard_d < 0:
+        raise ValueError(
+            f"event guard must be >= 0, got {guard_d}")
+    EVENT_GUARD_D = guard_d
+
+
+def _init_worker(calibration, event_guard_d=None):
+    """ProcessPoolExecutor initializer (P4-2): each worker sets
+    its own calibration (+ optional event-guard override), so a
+    spawn worker (macOS) screens under the requested profile
+    instead of the import-time bulk_v1 default. The
+    inject_campaign.py _init_worker pattern. Without this,
+    every bulk_screen.py CLI run on macOS screened with bulk_v1
+    preprocessing regardless of --calibration while stamping
+    records with the requested calibration (PB-2, proven
+    2026-11-17)."""
+    set_calibration(calibration)
+    if event_guard_d is not None:
+        set_event_guard(event_guard_d)
 
 
 _apply_profile(_load_profile(
@@ -904,7 +959,22 @@ def _odd_even(t, f, period, t0, duration):
     return d_odd, d_even, float(ratio)
 
 
-def _rescore(t, f, period, t0, duration):
+def segments_from_times(t, gap_d=None):
+    """Contiguous valid segments: list of (start_idx, end_idx)
+    (end exclusive) split wherever consecutive times jump more
+    than gap_d (default the profile's EVENT_GAP_D)."""
+    if gap_d is None:
+        gap_d = EVENT_GAP_D
+    if len(t) == 0:
+        return []
+    breaks = np.where(np.diff(t) > gap_d)[0]
+    bounds = [0] + [int(b) + 1 for b in breaks] + [len(t)]
+    return [(bounds[i], bounds[i + 1])
+            for i in range(len(bounds) - 1)]
+
+
+def _rescore(t, f, period, t0, duration, guard_d=None,
+             min_cov_frac=None, filter_events=True):
     """Pink-noise MES rescore of a recorded hit (v1.1 calibration).
 
     Refolds the (already flattened) light curve at the BLS ephemeris and
@@ -912,10 +982,29 @@ def _rescore(t, f, period, t0, duration):
     duration — the std of means of out-of-transit chunks one duration
     long — so red noise on the transit timescale is priced in, unlike
     the white-noise fold error. MES = depth / CDPP * sqrt(N_events).
-    Also returns per-event SNRs (an event = >= 1 in-window cadence;
-    QLP FFI is 30-min, so a 1-2 h transit is only 2-4 points) and the
-    folded profile's edge/centre depth ratio (box ~1, V-shape << 1).
-    Returns None when the noise cannot be measured (< 5 chunks)."""
+    Also returns per-event SNRs and the folded profile's edge/centre
+    depth ratio (box ~1, V-shape << 1).
+    Returns None when the noise cannot be measured (< 5 chunks).
+
+    P4-2 event-count rule (default): an event counts only if its
+    full [centre-D/2, centre+D/2] window lies within one
+    contiguous valid segment (a gap is a jump > EVENT_GAP_D
+    between consecutive valid cadences) with `guard_d` clearance
+    from the segment edges, with in-window coverage >=
+    min_cov_frac of the expected cadences and >=
+    EVENT_MIN_CADENCES cadences. Dropped events contribute
+    nothing to depth/MES. guard_d/min_cov_frac default to the
+    profile values (EVENT_GUARD_D / EVENT_MIN_COVERAGE).
+    filter_events=False reproduces the pre-P4-2 rule (an event =
+    >= 1 in-window cadence) — a MEASUREMENT seam only, for
+    validating fresh screens against recorded rows; production
+    always filters. When no event survives the filter, returns a
+    zero-event dict (not None: the noise IS measurable, the
+    event count is what changed)."""
+    if guard_d is None:
+        guard_d = EVENT_GUARD_D
+    if min_cov_frac is None:
+        min_cov_frac = EVENT_MIN_COVERAGE
     phase_t = t - t0
     events = np.round(phase_t / period)
     centres = t0 + events * period
@@ -926,12 +1015,63 @@ def _rescore(t, f, period, t0, duration):
                if (inwin & (events == e)).sum() >= 1]
     if not ev_list:
         return None
+    kept, dropped = [], []
+    if filter_events:
+        segs = segments_from_times(t)
+        dt = float(np.median(np.diff(t))) if len(t) > 1 else 0.0
+        expected = max(duration / dt, 1.0) if dt > 0 else 1.0
+        for e in ev_list:
+            c = float(t0 + e * period)
+            lo, hi = c - 0.5 * duration, c + 0.5 * duration
+            n_in = int(((t >= lo) & (t <= hi)).sum())
+            cov = n_in / expected
+            in_seg = False
+            for (a, b) in segs:
+                if t[a] - 1e-9 <= lo and hi <= t[b - 1] + 1e-9:
+                    if (lo - t[a] >= guard_d - 1e-9
+                            and t[b - 1] - hi >= guard_d - 1e-9):
+                        in_seg = True
+                    break
+            if (in_seg and cov >= min_cov_frac
+                    and n_in >= EVENT_MIN_CADENCES):
+                kept.append(e)
+            else:
+                dropped.append(e)
+    else:
+        kept = list(ev_list)
+    if not kept:
+        # No event survives the filter: the signal has no counted
+        # event. Return a zero-event rescore (not None: the noise
+        # IS measurable, the event count is what changed).
+        out = {"mes_pink": 0.0, "cdpp_pct": None, "n_events": 0,
+               "n_strong_events": 0, "max_event_snr": 0.0,
+               "v_ratio": 0.0, "n_events_dropped": len(dropped),
+               "events_kept": [],
+               "events_dropped": [float(e) for e in dropped]}
+        # cdpp still measurable: compute it for the record.
+        phase = ((phase_t / period + 0.5) % 1.0) - 0.5
+        outwin = (~inwin) & (np.abs(phase) < 0.45)
+        if outwin.sum() >= 20:
+            dt2 = float(np.median(np.diff(t))) if len(t) > 1 else 0.0
+            chunk = max(int(round(duration / dt2)), 1) if dt2 > 0 \
+                else 1
+            out_idx = np.where(outwin)[0]
+            means = []
+            for seg in np.split(out_idx,
+                                np.where(np.diff(out_idx) > chunk)[0] + 1):
+                for i in range(0, len(seg) - chunk + 1, chunk):
+                    means.append(np.mean(f[seg[i:i + chunk]]))
+            if len(means) >= 5:
+                out["cdpp_pct"] = float(np.std(means)) * 100.0
+        return out
     phase = ((phase_t / period + 0.5) % 1.0) - 0.5
     outwin = (~inwin) & (np.abs(phase) < 0.45)
     if outwin.sum() < 20:
         return None
     base = np.median(f[outwin])
-    depth = float(base - np.mean(f[inwin]))
+    kept_mask = np.isin(events, kept)
+    inwin_k = inwin & kept_mask
+    depth = float(base - np.mean(f[inwin_k]))
     dt = float(np.median(np.diff(t)))
     chunk = max(int(round(duration / dt)), 1)
     out_idx = np.where(outwin)[0]
@@ -945,18 +1085,21 @@ def _rescore(t, f, period, t0, duration):
     if cdpp <= 0:
         return None
     ev_snr = [float(base - np.mean(f[inwin & (events == e)])) / cdpp
-              for e in ev_list]
+              for e in kept]
     off = t - centres
-    c_m = inwin & (np.abs(off) <= duration / 6)
-    e_m = inwin & (np.abs(off) > duration / 6)
+    c_m = inwin_k & (np.abs(off) <= duration / 6)
+    e_m = inwin_k & (np.abs(off) > duration / 6)
     d_c = float(base - np.mean(f[c_m])) if c_m.sum() >= 1 else 0.0
     d_e = float(base - np.mean(f[e_m])) if e_m.sum() >= 1 else 0.0
-    return {"mes_pink": depth / cdpp * math.sqrt(len(ev_list)),
-            "cdpp_pct": cdpp * 100.0, "n_events": len(ev_list),
+    return {"mes_pink": depth / cdpp * math.sqrt(len(kept)),
+            "cdpp_pct": cdpp * 100.0, "n_events": len(kept),
             "n_strong_events": int(sum(1 for s in ev_snr
                                        if s >= STRONG_EVENT_SNR)),
             "max_event_snr": float(max(ev_snr)) if ev_snr else 0.0,
-            "v_ratio": (d_e / d_c) if d_c > 0 else 0.0}
+            "v_ratio": (d_e / d_c) if d_c > 0 else 0.0,
+            "n_events_dropped": len(dropped),
+            "events_kept": [float(e) for e in kept],
+            "events_dropped": [float(e) for e in dropped]}
 
 
 def _raw_in_transit_flags(t_raw, q_raw, period, t0, duration):
@@ -1592,6 +1735,14 @@ def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
         "n_clusters": len(clusters),
         "cluster_sizes": sorted((len(c) for c in clusters),
                                 reverse=True),
+        # P4-2 (IB-3): cluster identity + membership, explicitly
+        # recorded. cluster_id is the rank in largest-first
+        # order (0 = largest); members are the cluster's TICs,
+        # sorted. Deterministic: the union-find input order is
+        # the survivor order and the output is sorted.
+        "clusters": [{"cluster_id": i, "size": len(c),
+                      "members": sorted(c)}
+                     for i, c in enumerate(clusters)],
         "n_clustered": len(clustered),
         "demoted_tier_b": len(demoted_tics),
         "flagged_tier_a": len(flagged_tics),
@@ -1649,6 +1800,10 @@ def main(argv=None):
     ap.add_argument("--calibration", default="bulk_v1",
                     help="bulk calibration profile (default: bulk_v1; "
                          "bulk_v2 fixes the MAD-clip defect)")
+    ap.add_argument("--event-guard", type=float, default=None,
+                    help="event-count guard in days (P4-2 "
+                         "measurement seam; default: the profile "
+                         "value, 0.0)")
     ap.add_argument("--allow-v1", action="store_true",
                     help="allow screening a sector outside 96-98 "
                          "under bulk_v1 (known MAD-clip defect — "
@@ -1660,7 +1815,9 @@ def main(argv=None):
     try:
         set_calibration(args.calibration)
         enforce_v1_gate(args.calibration, args.sector, args.allow_v1)
-    except _CalibrationError as exc:
+        if args.event_guard is not None:
+            set_event_guard(args.event_guard)
+    except (_CalibrationError, ValueError) as exc:
         ap.error(str(exc))
 
     out_dir = Path(args.out_dir)
@@ -1718,7 +1875,11 @@ def main(argv=None):
                               "tier_a_min_events": TIER_A_MIN_EVENTS,
                               "tier_a_min_strong": TIER_A_MIN_STRONG,
                               "tier_b_event_snr": TIER_B_EVENT_SNR,
-                              "tier_b_max_depth_pct": TIER_B_MAX_DEPTH_PCT},
+                              "tier_b_max_depth_pct": TIER_B_MAX_DEPTH_PCT,
+                              "event_guard_d": EVENT_GUARD_D,
+                              "event_gap_d": EVENT_GAP_D,
+                              "event_min_coverage": EVENT_MIN_COVERAGE,
+                              "event_min_cadences": EVENT_MIN_CADENCES},
                "control_tic": args.control_tic}
 
     # 1 — star list ------------------------------------------------------
@@ -1771,7 +1932,15 @@ def main(argv=None):
     t = time.time()
     by_tic = {s["tic"]: s for s in kept}
     jobs = [(tic, paths[tic], args.sector, by_tic[tic]) for tic in paths]
-    with ProcessPoolExecutor(max_workers=args.workers) as ex:
+    # P4-2: the pool initializer propagates the calibration (+
+    # event-guard override) to each worker — without it, spawn
+    # workers (macOS) re-import this module and fall back to
+    # bulk_v1 regardless of --calibration (PB-2, proven
+    # 2026-11-17).
+    with ProcessPoolExecutor(max_workers=args.workers,
+                             initializer=_init_worker,
+                             initargs=(args.calibration,
+                                       args.event_guard)) as ex:
         # C-1: per-star watchdog — a pathological star is recorded
         # unmeasured instead of hanging the slice. F-13: the
         # circuit breaker stops the slice on systematic timeouts
