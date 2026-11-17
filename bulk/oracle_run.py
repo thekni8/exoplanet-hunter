@@ -407,9 +407,11 @@ def _init_worker(calibration):
 # Campaign mode (PB-1 + PB-2 on the 960 planet trials)
 # ---------------------------------------------------------------------------
 
-def _screen(path, tic, sector, calibration):
-    return bs._screen_one(screen_job(path, tic, sector,
-                                     calibration=calibration))
+def _screen(path, tic, sector):
+    # Calibration is global (set by _init_worker / the serial
+    # path via bs.set_calibration); screen_job takes no
+    # calibration argument.
+    return bs._screen_one(screen_job(path, tic, sector))
 
 
 def _eb_demoted(pass1):
@@ -463,7 +465,7 @@ def run_host_campaign(job):
             base = workdir / f"{tic}_s{sector:04d}_{tr['trial_id']}"
             inj_path = str(base) + ".fits"
             write_injected_fits(inj_path, t, f_inj, q, fcol)
-            p1 = _screen(inj_path, tic, sector, calibration)
+            p1 = _screen(inj_path, tic, sector)
             r["pass1"] = _subset(p1)
             # --- pass-1 reproduction vs the recorded campaign ---
             rec = tr["recorded"]
@@ -545,7 +547,7 @@ def run_host_campaign(job):
                 r["oracle_mask"] = mstats
                 mask_path = str(base) + "_masked.fits"
                 write_injected_fits(mask_path, t_m, f_m, q_m, fcol)
-                p2 = _screen(mask_path, tic, sector, calibration)
+                p2 = _screen(mask_path, tic, sector)
                 r["pass2"] = _subset(p2)
                 r["oracle_recovered"] = bool(check_recovery(p2, spec))
                 r["pass2_match"] = period_match_class(
@@ -559,7 +561,7 @@ def run_host_campaign(job):
                 r["artifact_mask"] = astats
                 art_path = str(base) + "_artifact.fits"
                 write_injected_fits(art_path, t_a, f_a, q_a, fcol)
-                p2b = _screen(art_path, tic, sector, calibration)
+                p2b = _screen(art_path, tic, sector)
                 r["pass2b"] = _subset(p2b)
                 r["artifact_recovered"] = bool(
                     check_recovery(p2b, spec))
@@ -942,7 +944,7 @@ def run_artifact_host(job):
                         / f"{tic}_s{sector:04d}_{tr['trial_id']}"
                         "_artifact.fits")
             write_injected_fits(str(art_path), t_a, f_a, q_a, fcol)
-            p2b = _screen(str(art_path), tic, sector, calibration)
+            p2b = _screen(str(art_path), tic, sector)
             r["pass2b"] = _subset(p2b)
             r["artifact_recovered"] = bool(check_recovery(p2b, spec))
             r["pass2b_match"] = period_match_class(
