@@ -787,6 +787,12 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
     blocks the verdict (the paired baseline is invalid).
     """
     out_dir = Path(out_dir)
+    # Cell definitions come from the FROZEN MANIFEST (pre-registered
+    # section 0.2) -- the single-leg records do not carry
+    # n_events_expected (k3_run never stored it), so reading it
+    # from the leg would silently empty the low-event cell.
+    man_trials = {(tr["tic"], tr["sector"], tr["trial_id"]): tr
+                  for tr in manifest.get("trials", [])}
     single = {}
     for p in sorted((out_dir / "hosts").glob("*.json")):
         try:
@@ -808,15 +814,17 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
                 stitched[(tr["tic"], tr["sector"],
                           tr["trial_id"])] = tr
     keys = sorted(set(single) & set(stitched))
+    not_in_manifest = [k for k in keys if k not in man_trials]
     paired = []
     for k in keys:
         s_tr = single[k]
         t_tr = stitched[k]
+        m_tr = man_trials.get(k) or {}
         paired.append({
             "tic": k[0], "sector": k[1], "trial_id": k[2],
-            "group": s_tr.get("group"),
-            "period_d": s_tr.get("period_d"),
-            "n_events_expected": s_tr.get("n_events_expected"),
+            "group": m_tr.get("group", s_tr.get("group")),
+            "period_d": m_tr.get("period_d", s_tr.get("period_d")),
+            "n_events_expected": m_tr.get("n_events_expected"),
             "single": bool(s_tr.get("final_recovered") is True),
             "stitched": bool(t_tr.get("final_recovered") is True),
             "single_genuine": bool(
@@ -951,6 +959,7 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None):
         "tool": "p43_run", "mode": "campaign", "arm": ARM,
         "manifest_sha": manifest.get("_sha256"),
         "n_trials_paired": len(paired),
+        "n_not_in_manifest": len(not_in_manifest),
         "n_single_only": len(set(single) - set(stitched)),
         "n_stitched_only": len(set(stitched) - set(single)),
         "cells": cells,

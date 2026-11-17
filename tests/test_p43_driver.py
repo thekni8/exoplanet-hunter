@@ -16,7 +16,9 @@ caught (both would otherwise fail silently in the trial records):
    "fresh-not-masked" then.
 """
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -104,6 +106,75 @@ class TestMaskSeedDiagnostic(unittest.TestCase):
         self.assertIsNotNone(out["duty_recorded"])
         # Same seed period -> the two masks agree (jaccard ~1).
         self.assertGreater(out["jaccard_dropped"], 0.9)
+
+
+class TestMergeCellsUseManifest(unittest.TestCase):
+    def test_low_event_cell_uses_manifest_n_events(self):
+        # Regression: the merge read n_events_expected from the
+        # single-leg record, but k3_run never stores it -- the
+        # low-event cell came out EMPTY on the smoke (0 trials
+        # although the manifest has 57). Cells must come from the
+        # frozen manifest.
+        with tempfile.TemporaryDirectory() as d:
+            out_dir = Path(d)
+            (out_dir / "hosts").mkdir()
+            (out_dir / "hosts-p43").mkdir()
+            manifest = {"_sha256": "x",
+                        "trials": [
+                            {"tic": "1", "sector": 95,
+                             "trial_id": "planet01",
+                             "group": "lockon_207", "period_d": 12.0,
+                             "n_events_expected": 2},
+                            {"tic": "1", "sector": 95,
+                             "trial_id": "planet02",
+                             "group": "lockon_207", "period_d": 3.0,
+                             "n_events_expected": 5}]}
+            single = {"tic": "1", "sector": 95, "complete": True,
+                      "arm": "no-depth-trigger", "trials": [
+                          {"tic": "1", "sector": 95,
+                           "trial_id": "planet01", "group": "x",
+                           "period_d": 12.0, "final_recovered": True,
+                           "final_genuine": True, "seconds": 1.0,
+                           "pass1": {"period_days": 12.0}},
+                          {"tic": "1", "sector": 95,
+                           "trial_id": "planet02", "group": "x",
+                           "period_d": 3.0, "final_recovered": False,
+                           "final_genuine": False, "seconds": 1.0,
+                           "pass1": {"period_days": 3.0}}]}
+            stitched = {"tic": "1", "sectors": [95, 96, 97],
+                        "complete": True, "arm": "no-depth-trigger",
+                        "trials": [
+                            {"tic": "1", "sector": 95,
+                             "trial_id": "planet01",
+                             "final_recovered": True,
+                             "final_genuine": True, "seconds": 4.0,
+                             "inj_check_ok": True,
+                             "sectors": {"95": {"pass1": {
+                                 "period_days": 12.0}}}},
+                            {"tic": "1", "sector": 95,
+                             "trial_id": "planet02",
+                             "final_recovered": False,
+                             "final_genuine": False, "seconds": 4.0,
+                             "inj_check_ok": True,
+                             "sectors": {"95": {"pass1": {
+                                 "period_days": 3.0}}}}]}
+            (out_dir / "hosts" / "1_s0095.json").write_text(
+                json.dumps(single))
+            (out_dir / "hosts-p43" / "1_p43.json").write_text(
+                json.dumps(stitched))
+            summary = p43_run.merge_campaign_p43(out_dir, manifest)
+            self.assertEqual(summary["n_trials_paired"], 2)
+            # planet01 is low-event (2 ev) AND long-period (12 d);
+            # planet02 is neither. The cells must see that.
+            self.assertEqual(
+                summary["cells"]["low_event"]["n_trials"], 1)
+            self.assertEqual(
+                summary["cells"]["long_period"]["n_trials"], 1)
+            self.assertEqual(
+                summary["cells"]["short_period"]["n_trials"], 1)
+            self.assertEqual(summary["n_not_in_manifest"], 0)
+            # The summary file is written.
+            self.assertTrue((out_dir / "p43_summary.json").exists())
 
 
 if __name__ == "__main__":
