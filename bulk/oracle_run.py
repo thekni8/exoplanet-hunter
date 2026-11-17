@@ -283,8 +283,14 @@ def derive_tier(rs, sde, depth_pct):
     TWO_COMBINED, from a rescore dict. Returns (tier, status,
     gate_reason). `depth_pct` and `sde` are the pass-1 values
     (unchanged by the rescore). EB-flag demotion is applied by
-    the caller (flags don't change under the rescore)."""
-    if rs is None or sde is None or sde < bs.SURVIVOR_SDE:
+    the caller (flags don't change under the rescore).
+    Below-floor rows (sde < RECORD_FLOOR_SDE) keep their
+    below_floor status: _screen_one returns early for them."""
+    if rs is None:
+        return None, "recorded", None
+    if sde is not None and sde < bs.RECORD_FLOOR_SDE:
+        return None, "below_floor", None
+    if sde is None or sde < bs.SURVIVOR_SDE:
         return None, "recorded", None
     tier = None
     if (rs["n_events"] >= bs.TIER_A_MIN_EVENTS
@@ -494,22 +500,33 @@ def run_host_campaign(job):
                 p1_rs = {k: p1.get(k) for k in
                          ("mes_pink", "n_events", "n_strong_events",
                           "max_event_snr")}
-                match = (
-                    rs["n_events"] == p1_rs["n_events"]
-                    and rs["n_strong_events"]
-                    == p1_rs["n_strong_events"]
-                    and abs(rs["mes_pink"] - p1_rs["mes_pink"])
-                    <= 1e-6 * max(1.0, abs(p1_rs["mes_pink"]))
-                    and abs(rs["max_event_snr"]
-                            - p1_rs["max_event_snr"])
-                    <= 1e-6 * max(1.0, abs(p1_rs["max_event_snr"])))
-                r["preproc_validation"] = {
-                    "matched": bool(match),
-                    "unfiltered": {k: rs[k] for k in
-                                   ("mes_pink", "n_events",
-                                    "n_strong_events",
-                                    "max_event_snr")},
-                    "pass1": p1_rs}
+                if p1_rs["mes_pink"] is None:
+                    # Below-floor pass 1: _screen_one returns
+                    # early with no rs fields, so there is
+                    # nothing to compare against (not a
+                    # mismatch — the rescore is unvalidated
+                    # for these trials, and they cannot be
+                    # survivors under any guard).
+                    r["preproc_validation"] = {
+                        "matched": None, "reason": "pass1-no-rs"}
+                else:
+                    match = (
+                        rs["n_events"] == p1_rs["n_events"]
+                        and rs["n_strong_events"]
+                        == p1_rs["n_strong_events"]
+                        and abs(rs["mes_pink"] - p1_rs["mes_pink"])
+                        <= 1e-6 * max(1.0, abs(p1_rs["mes_pink"]))
+                        and abs(rs["max_event_snr"]
+                                - p1_rs["max_event_snr"])
+                        <= 1e-6 * max(1.0,
+                                      abs(p1_rs["max_event_snr"])))
+                    r["preproc_validation"] = {
+                        "matched": bool(match),
+                        "unfiltered": {k: rs[k] for k in
+                                       ("mes_pink", "n_events",
+                                        "n_strong_events",
+                                        "max_event_snr")},
+                        "pass1": p1_rs}
             else:
                 r["preproc_validation"] = {"matched": None,
                                            "reason": "no-rescore"}
@@ -526,7 +543,11 @@ def run_host_campaign(job):
                         continue
                     tier, status, gate = derive_tier(
                         rv, p1_s, p1.get("depth_percent"))
-                    if eb and status == "survivor":
+                    if eb:
+                        # EB-flag demotion persists regardless
+                        # of tier (as in _screen_one: demote
+                        # flags set status demoted even with
+                        # tier None).
                         status = "demoted"
                     variants[str(guard)] = {
                         "n_events": rv["n_events"],
@@ -797,7 +818,7 @@ def run_s97_chunk(job):
                     continue
                 tier, status, gate = derive_tier(
                     rv, row["sde"], row["depth_percent"])
-                if eb and status == "survivor":
+                if eb:
                     status = "demoted"
                 variants[str(guard)] = {
                     "n_events": rv["n_events"],
@@ -968,6 +989,58 @@ def run_artifact_host(job):
             "n_trials": len(results), "n_recovered": n_rec}
 
 
+def _derive_phase2_spans(p1_dir, out_dir):
+    """Derive S95 glitch epochs from the phase-1 pass-1 T0s of
+    wrong-period trials, after validating the T0-clustering
+    method on S96 against the P3-13 spans. Returns the S95
+    spans, or None if the S96 validation fails (<2/4 spans)."""
+    p1_dir = Path(p1_dir)
+    host_files = sorted((p1_dir / "hosts").glob("*.json"))
+    t0s_by_sector = {95: [], 96: []}
+    for p in host_files:
+        try:
+            rec = json.loads(p.read_text())
+        except ValueError:
+            continue
+        if rec.get("complete") is not True:
+            continue
+        for tr in rec["trials"]:
+            if tr["group"] not in ORACLE_GROUPS:
+                continue
+            p1 = tr.get("pass1") or {}
+            if (p1.get("t0_btjd") is not None
+                    and period_match_class(
+                        p1.get("period_days"),
+                        tr["period_d"]) == "wrong"):
+                t0s_by_sector[rec["sector"]].append(p1["t0_btjd"])
+    spans96 = cluster_t0s(t0s_by_sector[96])
+    n_hit = sum(1 for s in S96_GLITCH_SPANS
+                if any(_spans_overlap(s, d) for d in spans96))
+    print(f"[oracle] phase2: S96 derived spans {spans96}; "
+          f"P3-13 spans recovered {n_hit}/4 "
+          f"({len(t0s_by_sector[96])} wrong-period T0s)",
+          flush=True)
+    validation = {"s96_derived_spans": spans96,
+                  "p3_13_spans_recovered": n_hit,
+                  "n_s96_t0s": len(t0s_by_sector[96]),
+                  "n_s95_t0s": len(t0s_by_sector[95])}
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    (Path(out_dir) / "phase2_validation.json").write_text(
+        json.dumps(validation, indent=2))
+    if n_hit < 2:
+        print("[oracle] phase2: S96 validation FAILED "
+              "(<2/4 P3-13 spans) — S95 step skipped, "
+              "artifact baseline is S96-only", flush=True)
+        return None
+    spans95 = cluster_t0s(t0s_by_sector[95])
+    print(f"[oracle] phase2: S95 derived spans {spans95} "
+          f"({len(t0s_by_sector[95])} T0s)", flush=True)
+    validation["s95_derived_spans"] = spans95
+    (Path(out_dir) / "phase2_validation.json").write_text(
+        json.dumps(validation, indent=2))
+    return spans95
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1006,6 +1079,12 @@ def main(argv=None):
                     help="S97 screen_hits.jsonl (s97 mode)")
     ap.add_argument("--phase1-dir", default=None,
                     help="phase-1 campaign out-dir (phase2 mode)")
+    ap.add_argument("--phase2-sector", type=int, default=95,
+                    help="sector for the phase2 artifact run")
+    ap.add_argument("--spans-file", default=None,
+                    help="JSON list of [lo, hi] spans for the "
+                         "phase2 artifact run; skips the T0 "
+                         "derivation/validation when given")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
 
@@ -1140,75 +1219,46 @@ def main(argv=None):
         return 0
 
     if args.mode == "phase2":
-        if args.manifest is None or args.phase1_dir is None:
-            raise SystemExit("--manifest and --phase1-dir are "
-                             "required for phase2 mode")
+        if args.manifest is None:
+            raise SystemExit("--manifest is required for phase2 mode")
         manifest = _load_manifest(args.manifest)
-        p1_dir = Path(args.phase1_dir)
-        host_files = sorted((p1_dir / "hosts").glob("*.json"))
-        t0s_by_sector = {95: [], 96: []}
-        for p in host_files:
-            try:
-                rec = json.loads(p.read_text())
-            except ValueError:
-                continue
-            if rec.get("complete") is not True:
-                continue
-            for tr in rec["trials"]:
-                if tr["group"] not in ORACLE_GROUPS:
-                    continue
-                p1 = tr.get("pass1") or {}
-                if (p1.get("t0_btjd") is not None
-                        and period_match_class(
-                            p1.get("period_days"),
-                            tr["period_d"]) == "wrong"):
-                    t0s_by_sector[rec["sector"]].append(
-                        p1["t0_btjd"])
-        spans96 = cluster_t0s(t0s_by_sector[96])
-        n_hit = sum(1 for s in S96_GLITCH_SPANS
-                    if any(_spans_overlap(s, d) for d in spans96))
-        print(f"[oracle] phase2: S96 derived spans {spans96}; "
-              f"P3-13 spans recovered {n_hit}/4 "
-              f"({len(t0s_by_sector[96])} wrong-period T0s)",
-              flush=True)
-        validation = {"s96_derived_spans": spans96,
-                      "p3_13_spans_recovered": n_hit,
-                      "n_s96_t0s": len(t0s_by_sector[96]),
-                      "n_s95_t0s": len(t0s_by_sector[95])}
-        (out_dir / "phase2_validation.json").write_text(
-            json.dumps(validation, indent=2))
-        if n_hit < 2:
-            print("[oracle] phase2: S96 validation FAILED "
-                  "(<2/4 P3-13 spans) — S95 step skipped, "
-                  "artifact baseline is S96-only", flush=True)
-            return 0
-        spans95 = cluster_t0s(t0s_by_sector[95])
-        print(f"[oracle] phase2: S95 derived spans {spans95} "
-              f"({len(t0s_by_sector[95])} T0s)", flush=True)
-        validation["s95_derived_spans"] = spans95
-        (out_dir / "phase2_validation.json").write_text(
-            json.dumps(validation, indent=2))
+        sector = args.phase2_sector
+        if args.spans_file is not None:
+            spans = [tuple(s) for s in
+                     json.loads(Path(args.spans_file).read_text())]
+            print(f"[oracle] phase2: spans from "
+                  f"{args.spans_file}: {len(spans)} spans, "
+                  f"sector {sector}", flush=True)
+        else:
+            if args.phase1_dir is None:
+                raise SystemExit("--phase1-dir is required for "
+                                 "phase2 mode without --spans-file")
+            p1_dir = Path(args.phase1_dir)
+            spans = _derive_phase2_spans(p1_dir, out_dir)
+            if spans is None:
+                return 0
         if args.dry_run:
             return 0
         (out_dir / "hosts").mkdir(exist_ok=True)
         (out_dir / "injected").mkdir(exist_ok=True)
         hosts = {}
         for tr in manifest["trials"]:
-            if tr["group"] == "depth_148" and tr["sector"] == 95:
-                hosts.setdefault((tr["tic"], 95), []).append(tr)
+            if (tr["group"] == "depth_148"
+                    and tr["sector"] == sector):
+                hosts.setdefault((tr["tic"], sector), []).append(tr)
         jobs = []
-        for (tic, sector), trs in sorted(hosts.items()):
-            path = cache / f"s{sector:04d}" / f"{tic}.fits"
+        for (tic, sec), trs in sorted(hosts.items()):
+            path = cache / f"s{sec:04d}" / f"{tic}.fits"
             if not path.exists():
                 continue
-            jobs.append({"tic": tic, "sector": sector,
+            jobs.append({"tic": tic, "sector": sec,
                          "path": str(path), "trials": trs,
                          "out_dir": str(out_dir),
                          "workdir": str(out_dir / "injected"),
                          "calibration": args.calibration,
-                         "spans": spans95,
+                         "spans": spans,
                          "keep_fits": args.keep_fits})
-        print(f"[oracle] phase2: {len(jobs)} S95 depth hosts, "
+        print(f"[oracle] phase2: {len(jobs)} s{sector} depth hosts, "
               f"{sum(len(j['trials']) for j in jobs)} trials",
               flush=True)
         t0 = time.time()
