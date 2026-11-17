@@ -2231,4 +2231,25 @@ is a gate, not build work.
   scenario_split + the two golden workdir outputs for all 6
   background scenarios. Run:
   `cat phase3-vote/pm1-mac-check.py | ~/workspace/mac/mac-ssh.sh 'python3 -'`.
+  Result: the v1 check FAILED all 12 TICs with completed
+  rows on scenario_split (each missing exactly
+  DEB/DEBx2P/BTP) — PROVED a check artifact by the parent
+  (2026-11-17), NOT a skipped background: (1) the panel
+  tool CSVs (TOI-700c TIC 150428135 + TOI-7689.01 TIC
+  12999193, checked directly) contain all 6 background
+  scenarios; (2) the panel driver builds scenario_split
+  from a hardcoded 12-scenario tuple (driver
+  p3_9_panel_driver.py, ~line 529) that omits
+  DEB/DEBx2P/BTP by construction. scenario_split is a
+  12-scenario SUBSET — never use it as
+  background-completeness evidence. The wrapper code is
+  unaffected (it reads the full probs table, not
+  scenario_split). The two golden outputs PASSED under v1
+  (their CSVs).
+- **Mac verification v2 (PENDING — parent runs):**
+  `phase3-vote/pm1-mac-check-v2.py` checks the TOOL CSVs
+  instead — each of the 10 panel targets' latest completed
+  row via its `probs_csv` field (fallback: workdir glob)
+  + the two golden workdir CSVs, 12 checks total. Run:
+  `cat phase3-vote/pm1-mac-check-v2.py | ~/workspace/mac/mac-ssh.sh 'python3 -'`.
   Result: PENDING at commit time.
