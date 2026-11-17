@@ -105,6 +105,7 @@ class TestFrozenSeed(unittest.TestCase):
         out = p43_run._mask_seed_and_eligibility(
             t_p, f_p, trial, p1, "frozen")
         self.assertEqual(out["seed_source"], "frozen")
+        self.assertEqual(out["seed_agreement"], "disagree")
         self.assertAlmostEqual(out["seed_period"], 3.0)
         self.assertTrue(out["eligible"])
         self.assertEqual(out["reason"], "frozen-contaminant")
@@ -154,7 +155,36 @@ class TestFrozenSeed(unittest.TestCase):
         # A shallow (0.5%) contaminant at high fold SNR is
         # confirmed via the SNR branch even though the depth
         # branch does not fire -- mirroring P4-1b section 0.3's
-        # "OR survivor" branch.
+        # "OR survivor" branch. The fresh peak (1.3 d) disagrees
+        # with the frozen seed (3.0 d), so the frozen path applies
+        # (agreement gate, section 0.4a).
+        rng = np.random.default_rng(13)
+        t, f, q = _synth_multi(
+            3800.0, 1300, [(3.0, 3801.7, 0.005, 0.12)], 0.002, rng)
+        t_p, f_p = orc.preprocess_arrays(t, f, q)
+        trial = {"recorded": {"period_days": 3.0,
+                              "depth_percent": 0.5}}
+        p1 = {"period_days": 1.3, "depth_percent": 1.0,
+              "status": "survivor"}
+        out = p43_run._mask_seed_and_eligibility(
+            t_p, f_p, trial, p1, "frozen")
+        self.assertEqual(out["seed_source"], "frozen")
+        self.assertEqual(out["seed_agreement"], "disagree")
+        self.assertTrue(out["eligible"])
+        self.assertEqual(out["reason"], "frozen-contaminant")
+        # The depth branch did NOT fire (fold depth < 1%) -- the
+        # SNR branch did.
+        self.assertLess(out["ephemeris"]["depth_est_frac"], 0.01)
+        self.assertGreaterEqual(out["ephemeris"]["snr_est"], 7.0)
+
+    def test_frozen_agree_shallow_not_masked(self):
+        # Agreement gate (section 0.4a): the fresh peak agrees
+        # with the frozen record (3.0 d = 3.0 d), so P4-3's fresh
+        # rule applies -- a shallow (0.5%) non-survivor is NOT
+        # masked, even though the frozen fold would confirm it
+        # (high SNR). This is the 261107054 planet02 case: the
+        # recorded period IS the planet, and masking it would
+        # mask the planet.
         rng = np.random.default_rng(13)
         t, f, q = _synth_multi(
             3800.0, 1300, [(3.0, 3801.7, 0.005, 0.12)], 0.002, rng)
@@ -165,12 +195,32 @@ class TestFrozenSeed(unittest.TestCase):
               "status": "recorded"}
         out = p43_run._mask_seed_and_eligibility(
             t_p, f_p, trial, p1, "frozen")
+        self.assertEqual(out["seed_source"], "frozen-agree")
+        self.assertEqual(out["seed_agreement"], "agree")
+        self.assertFalse(out["eligible"])
+        self.assertEqual(out["reason"], "not-confirmed")
+        # The fresh rule's depth_for_mask is the fresh peak's
+        # depth, not the recorded depth.
+        self.assertEqual(out["depth_for_mask"], 0.5)
+
+    def test_frozen_agree_deep_masked(self):
+        # Agreement gate, the other side: the fresh peak agrees
+        # with the frozen record AND is a confirmed contaminant
+        # (deep, 2.0%) -- P4-3's fresh rule masks it.
+        rng = np.random.default_rng(18)
+        t, f, q = _synth_multi(
+            3800.0, 1300, [(3.0, 3801.7, 0.02, 0.12)], 0.003, rng)
+        t_p, f_p = orc.preprocess_arrays(t, f, q)
+        trial = {"recorded": {"period_days": 3.0,
+                              "depth_percent": 2.0}}
+        p1 = {"period_days": 3.0, "depth_percent": 2.0,
+              "status": "recorded"}
+        out = p43_run._mask_seed_and_eligibility(
+            t_p, f_p, trial, p1, "frozen")
+        self.assertEqual(out["seed_source"], "frozen-agree")
+        self.assertEqual(out["seed_agreement"], "agree")
         self.assertTrue(out["eligible"])
-        self.assertEqual(out["reason"], "frozen-contaminant")
-        # The depth branch did NOT fire (fold depth < 1%) -- the
-        # SNR branch did.
-        self.assertLess(out["ephemeris"]["depth_est_frac"], 0.01)
-        self.assertGreaterEqual(out["ephemeris"]["snr_est"], 7.0)
+        self.assertEqual(out["reason"], "confirmed-contaminant")
 
     def test_frozen_fallback_without_recorded(self):
         # No recorded period: fall back to the fresh peak (P4-3
@@ -204,6 +254,7 @@ class TestFrozenSeed(unittest.TestCase):
         out = p43_run._mask_seed_and_eligibility(
             t_p, f_p, trial, p1, "frozen")
         self.assertEqual(out["seed_source"], "frozen")
+        self.assertEqual(out["seed_agreement"], "no-fresh-peak")
         self.assertIsNotNone(out["ephemeris"])
         self.assertAlmostEqual(
             out["ephemeris"]["period_ref_d"], 3.0, delta=0.05)

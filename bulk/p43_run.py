@@ -158,20 +158,30 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
     (non-original sector, P4-3b fix).
 
     Returns a dict with seed_period, seed_source ("fresh" /
-    "frozen" / "fresh-fallback"), seed_fallback_reason (or None),
-    ephemeris (or None when no seed exists), secondary (or None),
-    eligible (bool), reason (stable string), and depth_for_mask
-    (the recorded_depth_pct for build_k2_mask).
+    "frozen" / "frozen-agree" / "fresh-fallback"),
+    seed_agreement ("agree" / "disagree" / "no-fresh-peak" /
+    "n/a"), seed_fallback_reason (or None), ephemeris (or None
+    when no seed exists), secondary (or None), eligible (bool),
+    reason (stable string), and depth_for_mask (the
+    recorded_depth_pct for build_k2_mask).
 
     Fresh path (unchanged from P4-3): seed = the fresh pass-1 peak;
     eligible iff fresh depth > 1% OR fresh status == "survivor".
 
-    Frozen path (P43B_PREREG section 0.4): seed = the FROZEN
-    recorded period; the ephemeris is estimated per sector from
-    that seed; eligible iff the contaminant is confirmed present
-    in THIS sector -- fold depth > 1% OR fold SNR >= 7.0. The
-    depth passed to build_k2_mask is the frozen recorded depth
-    (mirroring k2_run). If no recorded period exists, fall back to
+    Frozen path (P43B_PREREG sections 0.4 + 0.4a): seed = the
+    FROZEN recorded period; the ephemeris is estimated per sector
+    from that seed; eligible iff the contaminant is confirmed
+    present in THIS sector -- fold depth > 1% OR fold SNR >= 7.0.
+    The depth passed to build_k2_mask is the frozen recorded depth
+    (mirroring k2_run). The frozen seed is used ONLY where the
+    fresh peak is misleading -- where it DISAGREES with the frozen
+    record (> 1%, the match tolerance) or is absent (the
+    agreement gate, section 0.4a: the recorded period is the
+    PLANET, not a contaminant, for 163/272 trials, so masking it
+    unconditionally would mask the planet). Where the fresh peak
+    AGREES with the frozen record, the two seeds target the same
+    signal and P4-3's fresh rule applies (seed_source
+    "frozen-agree"). If no recorded period exists, fall back to
     the fresh peak (P4-3 behavior) and record it.
     """
     if seed_mode not in ("fresh", "frozen"):
@@ -180,7 +190,18 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
             "(expected 'fresh' or 'frozen')")
     p_rec = (trial.get("recorded") or {}).get("period_days")
     p1_p = p1.get("period_days")
-    if seed_mode == "frozen" and p_rec is not None:
+    # Agreement gate (P43B_PREREG section 0.4a).
+    agreement = "n/a"
+    use_frozen = seed_mode == "frozen" and p_rec is not None
+    if use_frozen and p1_p is not None:
+        if abs(p1_p - float(p_rec)) / float(p_rec) < 0.01:
+            use_frozen = False
+            agreement = "agree"
+        else:
+            agreement = "disagree"
+    elif use_frozen:
+        agreement = "no-fresh-peak"
+    if use_frozen:
         seed_period = float(p_rec)
         seed_source = "frozen"
         fallback_reason = None
@@ -188,14 +209,18 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
             "depth_percent")
     else:
         seed_period = p1_p
-        if seed_mode == "frozen":
+        if seed_mode == "frozen" and p_rec is None:
             seed_source = "fresh-fallback"
             fallback_reason = "no-recorded-period"
+        elif seed_mode == "frozen" and agreement == "agree":
+            seed_source = "frozen-agree"
+            fallback_reason = None
         else:
             seed_source = "fresh"
             fallback_reason = None
         depth_for_mask = p1.get("depth_percent")
     out = {"seed_period": seed_period, "seed_source": seed_source,
+           "seed_agreement": agreement,
            "seed_fallback_reason": fallback_reason,
            "ephemeris": None, "secondary": None,
            "eligible": False,
@@ -240,13 +265,16 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
     stitch needs (t, f_inj, q, keep, sigma, ephemeris, mstats).
     The injection uses the ABSOLUTE epoch_btjd (pre-registered).
 
-    seed_mode (P43B_PREREG section 0.4): "fresh" (the original
-    sector -- the fresh pass-1 peak seeds the mask, unchanged from
-    P4-3) or "frozen" (a non-original sector -- the FROZEN
-    recorded period seeds the mask, so the mask targets the
-    contaminant instead of the planet). The fresh pass 1 still
-    runs in every sector (validation + diagnostics); it simply
-    no longer seeds the mask in non-original sectors.
+    seed_mode (P43B_PREREG sections 0.4 + 0.4a): "fresh" (the
+    original sector -- the fresh pass-1 peak seeds the mask,
+    unchanged from P4-3) or "frozen" (a non-original sector --
+    the FROZEN recorded period seeds the mask, so the mask targets
+    the contaminant instead of the planet, but ONLY where the
+    fresh peak disagrees with the frozen record -- the agreement
+    gate: where they agree, P4-3's fresh rule applies). The fresh
+    pass 1 still runs in every sector (validation + diagnostics);
+    it simply no longer seeds the mask in non-original sectors
+    where it disagrees with the frozen record.
     """
     period = trial["period_d"]
     epoch = trial["epoch_btjd"]
@@ -276,6 +304,7 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
     sec_est = round(time.time() - t_e, 2)
     rec["seed_source"] = seed["seed_source"]
     rec["seed_period_d"] = seed["seed_period"]
+    rec["seed_agreement"] = seed["seed_agreement"]
     if seed.get("seed_fallback_reason"):
         rec["seed_fallback_reason"] = seed["seed_fallback_reason"]
     if seed["ephemeris"] is None:
