@@ -285,13 +285,22 @@ def _centres_in_span(t0, period, t_min, t_max, phase=0.0):
     return [anchor + k * period for k in range(k_min, k_max + 1)]
 
 
-def build_k2_mask(t, f, q, ephemeris, recorded_depth_pct, secondary=None):
+def build_k2_mask(t, f, q, ephemeris, recorded_depth_pct, secondary=None,
+                  duty_cap=DUTY_CYCLE_CAP, depth_trigger=True):
     """Build the K=2 prototype mask for one trial.
 
     t, f, q are the RAW arrays (pre-quality-mask). ephemeris is the dict
     from estimate_ephemeris. recorded_depth_pct is the frozen recorded
     pass-1 depth (percent). secondary is the (phase, depth, snr) tuple from
     scan_secondary, or None if the scan was not run.
+
+    P4-1b extension (optional parameters; defaults preserve P4-1a
+    behaviour exactly): duty_cap overrides the 25% cumulative cap
+    (e.g. the period-aware cap arm, or 1.0 to bypass the internal
+    check when the caller applies the cap to a UNION mask itself);
+    depth_trigger=False disables the recorded-depth > 1% co-mask
+    trigger (the depth-trigger ablation arm) while keeping the
+    secondary-SNR trigger.
 
     Returns (keep, stats): keep is a boolean array over the raw arrays
     (True = keep); stats carries the mask parameters, the duty cycle, the
@@ -325,7 +334,7 @@ def build_k2_mask(t, f, q, ephemeris, recorded_depth_pct, secondary=None):
         comask_phase, sec_depth, sec_snr = (float(secondary[0]),
                                             float(secondary[1]),
                                             float(secondary[2]))
-        if recorded_depth_pct is not None and recorded_depth_pct > COMASK_DEPTH_PCT:
+        if depth_trigger and recorded_depth_pct is not None and recorded_depth_pct > COMASK_DEPTH_PCT:
             comask = True
             comask_trigger = "depth_gt_1pct"
         elif sec_snr >= COMASK_SNR:
@@ -370,10 +379,12 @@ def build_k2_mask(t, f, q, ephemeris, recorded_depth_pct, secondary=None):
         "n_valid_cadences": n_valid,
         "n_valid_dropped": n_dropped_valid,
         "duty_cycle": float(duty),
+        "duty_cap": float(duty_cap),
+        "depth_trigger": bool(depth_trigger),
         "stopped": False,
         "stop_reason": None,
     }
-    if duty > DUTY_CYCLE_CAP:
+    if duty > duty_cap:
         stats["stopped"] = True
         stats["stop_reason"] = "STOPPED_MASK_DUTY_CYCLE"
         keep = np.ones(len(t), dtype=bool)
