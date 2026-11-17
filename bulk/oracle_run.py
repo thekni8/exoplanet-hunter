@@ -1091,15 +1091,27 @@ def main(argv=None):
                if r["status"] == "survivor"
                or r.get("disposition")
                == "DEMOTED_SECTOR_EPOCH_CLUSTER"]
+        # P4-2: the veto's clustering input is the v3-tier
+        # survivor set — survivors PLUS the TWO-COMBINED-demoted
+        # rows (gate_reason FAILED_TWO_COMBINED, still in hits).
+        # Without them, borderline clusters shrink below the >20
+        # bar and their tier-A members escape the target set
+        # (the fixed S97 run: 8 clusters / 34 tier-A without
+        # them, 10 / 48 with them — the veto's own numbers).
+        # TWO-COMBINED rows are clustering input only, never
+        # targets (they are already demoted).
+        cluster_input = pre + [r for r in rows
+                               if r.get("gate_reason")
+                               == bs.GATE_REASON_TWO_COMBINED]
         from bulk.replay_matrix import sector_epoch_cluster_tics
-        clustered, clusters = sector_epoch_cluster_tics(pre)
+        clustered, clusters = sector_epoch_cluster_tics(cluster_input)
         sizes = sorted((len(c) for c in clusters), reverse=True)
         print(f"[oracle] s97 clusters: {len(clusters)} clusters "
               f">= 21, sizes {sizes[:8]}, total clustered "
               f"{len(clustered)}", flush=True)
         by_tic = {r["tic"]: r for r in pre}
         targets = [by_tic[t] for c in clusters for t in c
-                   if by_tic[t]["tier"] == "A"]
+                   if t in by_tic and by_tic[t]["tier"] == "A"]
         print(f"[oracle] s97 Tier-A mega-cluster members: "
               f"{len(targets)}", flush=True)
         if args.dry_run:
