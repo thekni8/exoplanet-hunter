@@ -189,6 +189,34 @@ class TestFrozenSeed(unittest.TestCase):
         self.assertTrue(out["eligible"])
         self.assertEqual(out["reason"], "confirmed-contaminant")
 
+    def test_frozen_with_no_fresh_peak(self):
+        # Frozen mode does not need the fresh peak: with no fresh
+        # pass-1 period, the ephemeris is still estimated from the
+        # frozen seed (new behavior vs P4-3, where a missing fresh
+        # peak meant no mask at all).
+        rng = np.random.default_rng(16)
+        t, f, q = _synth_multi(
+            3800.0, 1300, [(3.0, 3801.7, 0.02, 0.12)], 0.003, rng)
+        t_p, f_p = orc.preprocess_arrays(t, f, q)
+        trial = {"recorded": {"period_days": 3.0,
+                              "depth_percent": 2.0}}
+        p1 = {"period_days": None}
+        out = p43_run._mask_seed_and_eligibility(
+            t_p, f_p, trial, p1, "frozen")
+        self.assertEqual(out["seed_source"], "frozen")
+        self.assertIsNotNone(out["ephemeris"])
+        self.assertAlmostEqual(
+            out["ephemeris"]["period_ref_d"], 3.0, delta=0.05)
+        self.assertTrue(out["eligible"])
+
+    def test_invalid_seed_mode_raises(self):
+        rng = np.random.default_rng(17)
+        t, f, q = _synth_multi(3800.0, 1300, [], 0.003, rng)
+        t_p, f_p = orc.preprocess_arrays(t, f, q)
+        with self.assertRaises(ValueError):
+            p43_run._mask_seed_and_eligibility(
+                t_p, f_p, {}, {"period_days": 1.0}, "bogus")
+
 
 class TestFreshPathUnchanged(unittest.TestCase):
     def test_shallow_non_survivor_not_eligible(self):

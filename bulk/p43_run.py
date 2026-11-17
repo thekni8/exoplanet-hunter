@@ -99,6 +99,13 @@ DUTY_CAP = 0.25  # settled -- do not re-raise
 # phase x duration scan is ~4 sigma and SNR >= 7 is confident).
 FROZEN_DEPTH_MIN_FRAC = 0.01
 FROZEN_SNR_MIN = 7.0
+# Resume discriminator (review 2026-11-18): the stitched host
+# record carries this marker, and the resume check requires it --
+# without it, running the fixed driver into the OLD P4-3 out-dir
+# would silently skip all 34 hosts and re-report P4-3's result
+# as P4-3b's. P4-3's host files lack the marker, so they are
+# never resumed by the fixed driver.
+SEED_FIX = "p43b"
 BOOTSTRAP_SEED = 20261117
 BOOTSTRAP_REPS = 10000
 BULK_PER_STAR_S = 1.175  # bulk-screen per-star wall (P4-1b section 6.3)
@@ -167,6 +174,10 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
     (mirroring k2_run). If no recorded period exists, fall back to
     the fresh peak (P4-3 behavior) and record it.
     """
+    if seed_mode not in ("fresh", "frozen"):
+        raise ValueError(
+            f"unknown seed_mode {seed_mode!r} "
+            "(expected 'fresh' or 'frozen')")
     p_rec = (trial.get("recorded") or {}).get("period_days")
     p1_p = p1.get("period_days")
     if seed_mode == "frozen" and p_rec is not None:
@@ -479,6 +490,7 @@ def run_host_campaign_p43(job):
                 and prev.get("manifest_sha") == manifest_sha
                 and prev.get("arm") == ARM
                 and prev.get("calibration") == calibration
+                and prev.get("seed_fix") == SEED_FIX
                 and not any("error" in tr
                             for tr in prev.get("trials", []))):
             return {"status": "skipped", "tic": tic}
@@ -666,7 +678,8 @@ def run_host_campaign_p43(job):
         results.append(r)
     rec = {"tic": tic, "sectors": list(sectors), "complete": True,
            "manifest_sha": manifest_sha, "calibration": calibration,
-           "arm": ARM, "n_trials": len(results),
+           "arm": ARM, "seed_fix": SEED_FIX,
+           "n_trials": len(results),
            "seconds": round(time.time() - t_start, 1),
            "trials": results}
     tmp = out_path.with_suffix(".tmp")
@@ -1093,9 +1106,10 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
     p1_frozen_compared = sum(
         1 for tr in single.values() if tr.get("pass1_repro"))
     # --- diagnostic: fresh-vs-fresh seed agreement (section 0.6 --
-    # the stitched leg seeds each sector from its fresh pass-1 peak,
-    # the single leg from the frozen record). NOT the section 0.8
-    # validation; named as such.
+    # the stitched leg's ORIGINAL sector seeds from its fresh
+    # pass-1 peak (P4-3b: non-original sectors seed from the
+    # frozen recorded period), the single leg from the frozen
+    # record). NOT the section 0.8 validation; named as such.
     seed_matches = 0
     seed_compared = 0
     for t in paired:
