@@ -661,7 +661,8 @@ def merge_campaign(out_dir, manifest):
 
 
 # ---------------------------------------------------------------------------
-# S97 mode (PB-2 on the 13,983 Tier-A mega-cluster members)
+# S97 mode (PB-2 on the Tier-A mega-cluster members; P4-2 re-measures
+# the guard curve on the FIXED screen's Tier-A members)
 # ---------------------------------------------------------------------------
 
 def run_s97_chunk(job):
@@ -694,9 +695,16 @@ def run_s97_chunk(job):
             t, f, q, fcol, meta = load_real_fits(str(path))
             t_p, f_p = preprocess_arrays(t, f, q)
             dur_d = row["duration_hours"] / 24.0
+            # P4-2: the recorded row comes from a screen that
+            # applies the event-count filter at guard 0 (the
+            # screen default), so the validation reproduces it
+            # with the SAME filter — an unfiltered rescore would
+            # mismatch on every row the filter touched. A match
+            # proves driver preprocessing + rule reproduce the
+            # screen's recorded numbers exactly.
             rs = rescore_filtered(t_p, f_p, row["period_days"],
                                   row["t0_btjd"], dur_d,
-                                  filter_events=False)
+                                  guard_d=0.0, filter_events=True)
             if rs is not None:
                 match = (
                     rs["n_events"] == row.get("n_events")
