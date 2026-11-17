@@ -32,6 +32,7 @@ All bands are TOLERANCE BANDS, never exact floats:
 TRICERATOPS fetches neighbours and TRILEGAL remotely, so
 identical inputs do not guarantee bitwise-identical output.
 """
+import copy
 import json
 import sys
 import unittest
@@ -69,6 +70,39 @@ class TestGoldenFixtures(unittest.TestCase):
         self.assertEqual(res.policy_version, "external_tools_v2")
         self.assertGreaterEqual(
             fx["tool_output"]["metrics"]["fpp"], 0.5)
+
+    def test_eb_fpp_one_is_a_legitimate_refute(self):
+        # P4-8: the full nightly measured FPP = 1.0 exactly
+        # for the EB (prob_planet underflowed to 0.0,
+        # degenerate False, NEBx2P on TIC 308851379). A
+        # non-degenerate FPP of 1.0 is a legitimate
+        # strong-EB outcome and must read FAIL — the old
+        # fpp_max 1.0 bound (with a >= check) rejected it.
+        fx = load_fixture("308851365")
+        out = copy.deepcopy(fx["tool_output"])
+        out["metrics"]["fpp"] = 1.0
+        out["metrics"]["nfpp"] = 0.99999998
+        out["metrics"]["prob_planet"] = 0.0
+        out["metrics"]["fpp_degenerate"] = False
+        out["value"] = 1.0
+        policy = load_profile("external_tools_v2")
+        failures = check_fixture_output(fx, out, policy)
+        self.assertEqual(failures, [])
+
+    def test_eb_degenerate_never_reads_fail(self):
+        # P4-8: the guard that replaces the removed fpp_max
+        # bound is the disposition itself — a degenerate
+        # computation reads UNMEASURED, never FAIL, so it
+        # cannot pass the EB fixture check.
+        fx = load_fixture("308851365")
+        out = copy.deepcopy(fx["tool_output"])
+        out["metrics"]["fpp"] = 1.0
+        out["metrics"]["fpp_degenerate"] = True
+        policy = load_profile("external_tools_v2")
+        failures = check_fixture_output(fx, out, policy)
+        self.assertNotEqual(failures, [])
+        res = triceratops_result(out, policy=policy)
+        self.assertEqual(res.status, "unmeasured")
 
     def test_wasp29b_inconclusive(self):
         # TB-4: INCONCLUSIVE; FPP < 0.5 (not a FAIL);
