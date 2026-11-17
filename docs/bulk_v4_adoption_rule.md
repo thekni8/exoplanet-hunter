@@ -194,10 +194,14 @@ the **full recovered-planet population (n = 412)** PLUS a hard
 **1–2-event point check of 0 losses among the 16** recovered
 1–2-event trials. The **5% / 10% bars are unchanged** — the
 point estimate must be ≤ 5% and the 95% Wilson upper bound
-≤ 10% on n = 412, and the 1–2-event check adds a stricter
-point condition (0/16) the original rule did not have. The
-amendment fixes an unmeasurable denominator and adds a
-stricter check — **it loosens nothing.**
+≤ 10% on n = 412, and the 1–2-event check records **no
+in-regime losses observed in 16** (0/16; 95% Wilson upper
+bound 19.4%). CORRECTED 2026-11-17 (PM-6): 0/16 does NOT
+establish the original Wilson-bound requirement (5% point
+estimate / 10% upper bound on ≥200 recovered 1–2-event
+planets) — the earlier wording overstated what n = 16 can
+show. The amendment fixes an unmeasurable denominator;
+the 1–2-event evidence is a point observation, not a bound.
 
 **What was rejected instead:** (a) judging §2 on all 113
 1–2-event trials (dilutes the loss by the 14.2% recovery

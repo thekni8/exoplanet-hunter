@@ -2430,3 +2430,24 @@ is a gate, not build work.
   ENFORCEMENT (BN-1/BN-2, CB-2). Grep-verified: the
   "slow server" explanation no longer appears in
   P3-22 item 16.
+
+### PM-6 — Amendment A wording corrected (DONE 2026-11-17)
+
+- **File:** `docs/bulk_v4_adoption_rule.md` — Amendment
+  A now records "no in-regime losses observed in 16"
+  (0/16; 95% Wilson upper bound 19.4%) and states
+  explicitly that 0/16 does NOT establish the original
+  Wilson-bound requirement (5% point estimate / 10%
+  upper bound on ≥200 recovered 1–2-event planets).
+  The "stricter / loosens nothing" wording is removed.
+  The adoption itself is unchanged — the gates stay
+  adopted, reversible, demote-not-delete.
+- **PROGRESS.md:** no Amendment A "stricter" claim
+  exists in the P3-11/P3-15 sections (verified by
+  grep — the only "Amendment" mention is P3-22 item
+  13, factual), so no edit there beyond this record.
+  The remaining "stricter" (line ~249, mask-fix
+  artifact gate) and "loosen" (DEPTH_EB gate) hits in
+  PROGRESS.md are unrelated claims and stay.
+  `phase3-vote/p3-11-decision.md` is NOT rewritten
+  (historical decision record).
