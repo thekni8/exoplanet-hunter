@@ -326,6 +326,15 @@ def run_nightly(inputs_dir, fixtures_dir, receipt_path, workdir,
     with open(receipt_path, "w") as fh:
         json.dump(receipt, fh, indent=2, sort_keys=True)
         fh.write("\n")
+    if overall_pass:
+        # BM-2 (Phase 4 completion vote): a successful run
+        # clears a stale FAILURE marker. The P4-8 driver wrote
+        # the marker on failure but never cleared it, so a
+        # stale marker lingered after a later green run.
+        marker = receipt_path.parent / "FAILURE"
+        if marker.exists():
+            marker.unlink()
+            print("cleared stale FAILURE marker")
     return overall_pass, receipt
 
 
