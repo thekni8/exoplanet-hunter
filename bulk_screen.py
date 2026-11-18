@@ -944,6 +944,232 @@ def _fold_depth(t, f, period, t0, duration, phase_center=0.0):
     return depth, int(inwin.sum()), noise
 
 
+# ---------------------------------------------------------------------------
+# Batched fold-depth grid (4.1-8 estimator optimisation, class EXACT)
+# ---------------------------------------------------------------------------
+# fold_depth_grid computes the same mathematical function as _fold_depth
+# over a (duration x phase) grid, by sorting the folded phase ONCE per
+# (period, t0) and locating the in/out window boundaries with
+# searchsorted. It exists because the fold-scan estimator
+# (bulk/k2_prototype) calls _fold_depth 3,370 times per trial on the
+# same (t, f) with a fixed period, and _fold_depth re-folds, re-masks
+# and re-reduces the full arrays on every call (ESTIMATOR_PROFILE_P41:
+# 99.3% of the estimator's time).
+#
+# Exactness (this is an EXACT optimisation, not a method change):
+# - the in/out point SETS are identical to _fold_depth's: every
+#   searchsorted boundary is verified against _fold_depth's exact
+#   circular-distance predicate on the points within 32 ulps of the
+#   threshold (the only points on which the two computations can
+#   disagree — they differ by < ~6 ulps), so a boundary point is
+#   never gained or lost to floating-point reassociation (a cell
+#   whose band predicate is non-monotone falls back to _fold_depth
+#   itself);
+# - n_in is an exact integer count; the median is bit-identical
+#   (the kth order statistic, via np.partition, is order-independent);
+# - the mean and std use centred prefix sums — algebraically
+#   identical to np.mean/np.std, differing only by floating-point
+#   reassociation (~1e-10 relative on realistic data, four orders
+#   inside the 1e-6 preservation bar). The one-pass variance is
+#   accurate while var >> 1e-6 * E[x^2] (real preprocessed curves
+#   have var/E[x^2] ~ 0.5-1.0); it degrades only when the scatter is
+#   3+ orders below the flux offset, which real data never is. The
+#   callers (k2_prototype) additionally re-select the winning cell
+#   with exact _fold_depth recomputes, so the estimator's outputs
+#   are bit-identical to the per-call loop's. Requires finite t and
+#   f, as preprocess_arrays guarantees (the same implicit
+#   assumption _fold_depth makes).
+
+def _exact_dist(phase, pc):
+    """Circular phase distance, bit-identical to _fold_depth's
+    formula (same expression, same operation order)."""
+    return np.abs(((phase - pc + 0.5) % 1.0) - 0.5)
+
+
+def _partition_median(a):
+    """Median of a 1-D float array via np.partition — the same value
+    np.median returns (the kth order statistic is unique, and the
+    even-n average is (a+b)/2 in both), without the wrapper overhead.
+    Modifies a in place. Requires finite input."""
+    m = a.shape[0]
+    k = m // 2
+    if m % 2 == 1:
+        return float(np.partition(a, k)[k])
+    part = np.partition(a, (k - 1, k))
+    return float((part[k - 1] + part[k]) / 2.0)
+
+
+def fold_depth_grid(t, f, period, t0, durations, phases):
+    """Batch _fold_depth over a (duration x phase) grid.
+
+    Returns (depth, n_in, noise) arrays of shape
+    (len(durations), len(phases)) with cell [d, p] equal to
+    _fold_depth(t, f, period, t0, durations[d],
+    phase_center=phases[p]) — n_in exact, median bit-identical,
+    depth/noise within ~1e-10 relative (floating-point
+    reassociation in the mean/std prefix sums only). Guard cells
+    return (0.0, n_in, inf) exactly as _fold_depth does.
+    """
+    t = np.asarray(t, dtype=float)
+    f = np.asarray(f, dtype=float)
+    durations = [float(d) for d in durations]
+    phases = np.asarray(phases, dtype=float)
+    n_d, n_p = len(durations), len(phases)
+    depth = np.zeros((n_d, n_p))
+    n_in = np.zeros((n_d, n_p), dtype=np.int64)
+    noise = np.full((n_d, n_p), np.inf)
+    n = len(t)
+    if n == 0 or n_d == 0 or n_p == 0:
+        return depth, n_in, noise
+    # Fold once (same expression as _fold_depth) and sort by phase.
+    phase = ((t - t0) / period + 0.5) % 1.0 - 0.5
+    order = np.argsort(phase, kind="stable")
+    ph_s = phase[order]
+    f_s = f[order]
+    # Triple-extended phase: pc +/- 0.45 lies in [-0.95, 0.95] for
+    # pc in [-0.5, 0.5), inside the extended [-1.5, 1.5) span, and
+    # every window narrower than 1.0 holds each point at most once.
+    # p_true carries the TRUE phase alongside: (p + 1) - 1 != p in
+    # floating point, so the boundary verification must not
+    # reconstruct the phase from the shifted copy.
+    ph_e = np.concatenate((ph_s - 1.0, ph_s, ph_s + 1.0))
+    p_true = np.concatenate((ph_s, ph_s, ph_s))
+    f_e = np.concatenate((f_s, f_s, f_s))
+    # Centred prefix sums for O(1) mean/std per cell.
+    centre = float(np.mean(f))
+    g_e = f_e - centre
+    g2_e = g_e * g_e
+    prefix = np.concatenate(([0.0], np.cumsum(g_e)))
+    prefix2 = np.concatenate(([0.0], np.cumsum(g2_e)))
+    n_ext = 3 * n
+
+    def _correct(x, kind, half, two_half, rising):
+        """Exact boundary from a searchsorted threshold x (shape (P,)).
+
+        Only points within 32 ulps of x can disagree between the
+        u-comparison and the exact circular-distance predicate (the
+        two computations differ by < ~6 ulps: the +-1 phase shift,
+        the threshold rounding, and the modulo formula). Points
+        outside that band are decided identically by both, so the
+        exact cut is the searchsorted estimate adjusted only inside
+        the band: rising cuts take the first True in the band (or
+        the band's upper edge when none), falling cuts the first
+        False. Returns (cut, ok): ok is False when the predicate is
+        non-monotone inside the band (two distinct phases within
+        ~2 ulps of each other with fp-flipped predicates — the
+        caller falls back to _fold_depth for that cell).
+        """
+        tol = 32.0 * np.spacing(np.maximum(np.abs(x), 1.0))
+        lo = np.searchsorted(ph_e, x - tol, side="left")
+        hi = np.searchsorted(ph_e, x + tol, side="right")
+        width = hi - lo
+        cut = hi.copy()
+        ok = np.ones(phases.shape[0], dtype=bool)
+        wmax = int(width.max()) if width.size else 0
+        if wmax == 0:
+            return cut, ok
+        offs = np.arange(wmax)
+        idx = lo[:, None] + offs[None, :]
+        valid = offs[None, :] < width[:, None]
+        idx_c = np.clip(idx, 0, n_ext - 1)
+        dist = _exact_dist(p_true[idx_c], phases[:, None])
+        if kind == "in":
+            pred = dist <= half
+        else:
+            pred = (dist > two_half) & (dist < 0.45)
+        if rising:
+            masked = np.where(valid, pred, False)
+            any_true = masked.any(axis=1)
+            first_true = np.argmax(masked, axis=1)
+            cut = np.where(any_true, lo + first_true, hi)
+            seen_true = np.maximum.accumulate(masked, axis=1)
+            ok = ~np.any(valid & seen_true & ~pred, axis=1)
+        else:
+            masked = np.where(valid, ~pred, False)
+            any_false = masked.any(axis=1)
+            first_false = np.argmax(masked, axis=1)
+            cut = np.where(any_false, lo + first_false, hi)
+            seen_false = np.maximum.accumulate(masked, axis=1)
+            ok = ~np.any(valid & seen_false & pred, axis=1)
+        return cut, ok
+
+    for di, dur in enumerate(durations):
+        half = 0.5 * dur / period
+        two_half = 2.0 * half
+        pc = phases
+        # Exact boundaries (vectorised over phases): inwin
+        # [pc-half, pc+half]; outwin (pc-0.45, pc-2h) and
+        # (pc+2h, pc+0.45) — sides match _fold_depth's <= / > / <.
+        bnd = {}
+        bnd["L"], ok_l = _correct(pc - half, "in", half, two_half,
+                                  True)
+        bnd["R"], ok_r = _correct(pc + half, "in", half, two_half,
+                                  False)
+        bnd["L2"], ok_l2 = _correct(pc - 0.45, "out", half, two_half,
+                                    True)
+        bnd["R2"], ok_r2 = _correct(pc - two_half, "out", half,
+                                    two_half, False)
+        bnd["L3"], ok_l3 = _correct(pc + two_half, "out", half,
+                                    two_half, True)
+        bnd["R3"], ok_r3 = _correct(pc + 0.45, "out", half, two_half,
+                                    False)
+        ok_all = ok_l & ok_r & ok_l2 & ok_r2 & ok_l3 & ok_r3
+        left, right = bnd["L"], bnd["R"]
+        left2, right2 = bnd["L2"], bnd["R2"]
+        left3, right3 = bnd["L3"], bnd["R3"]
+        # Empty outwin intervals (2*half >= 0.45) clamp to zero width.
+        right2c = np.maximum(right2, left2)
+        right3c = np.maximum(right3, left3)
+        n_in_d = right - left
+        n_out_d = (right2c - left2) + (right3c - left3)
+        guard = (n_in_d < 3) | (n_out_d < 20)
+        sum_in = prefix[right] - prefix[left]
+        sum_out = ((prefix[right2c] - prefix[left2])
+                   + (prefix[right3c] - prefix[left3]))
+        sumsq_out = ((prefix2[right2c] - prefix2[left2])
+                     + (prefix2[right3c] - prefix2[left3]))
+        mean_in = centre + sum_in / np.maximum(n_in_d, 1)
+        n_out_safe = np.maximum(n_out_d, 1)
+        mean_out = sum_out / n_out_safe
+        ex2_out = sumsq_out / n_out_safe
+        var_out = ex2_out - mean_out * mean_out
+        # Degenerate guard: variance at/below floating-point noise
+        # relative to E[x^2] is exactly 0.0, as np.std returns on
+        # constant data (the caller skips noise <= 0 cells, so a
+        # tiny-positive fp artefact here would change behaviour).
+        # Genuine data has var/E[x^2] ~ 1 (centred); the 1e-12
+        # threshold only fires when the scatter is 6+ orders below
+        # the flux offset — a regime where _fold_depth's own SNR is
+        # floating-point noise.
+        var_out = np.where(var_out <= 1e-12 * np.maximum(ex2_out, 0.0),
+                           0.0, var_out)
+        noise_d = (np.sqrt(np.maximum(var_out, 0.0))
+                   / np.sqrt(np.maximum(n_in_d, 1)))
+        for pi in range(n_p):
+            if not ok_all[pi]:
+                # Boundary unverifiable: exact recompute (paranoia
+                # fallback; never observed in practice).
+                dep, nin, noi = _fold_depth(
+                    t, f, period, t0, dur,
+                    phase_center=float(phases[pi]))
+                depth[di, pi] = dep
+                n_in[di, pi] = nin
+                noise[di, pi] = noi
+                continue
+            if guard[pi]:
+                depth[di, pi] = 0.0
+                n_in[di, pi] = int(n_in_d[pi])
+                noise[di, pi] = np.inf
+                continue
+            out = np.concatenate((f_e[left2[pi]:right2c[pi]],
+                                  f_e[left3[pi]:right3c[pi]]))
+            base = _partition_median(out)
+            depth[di, pi] = base - mean_in[pi]
+            n_in[di, pi] = int(n_in_d[pi])
+            noise[di, pi] = float(noise_d[pi])
+    return depth, n_in, noise
+
+
 def _odd_even(t, f, period, t0, duration):
     """Alternate-transit depths. Returns (depth_odd, depth_even, ratio)
     with ratio = min/max in [0,1]; 1.0 = identical."""
