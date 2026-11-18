@@ -70,6 +70,19 @@ class TestOverrides(unittest.TestCase):
         out = apply_overrides(base, {"require_radius": False})
         self.assertFalse(out["window"]["require_radius"])
 
+    def test_k3_defaults_off(self):
+        # 4.1-1a: K=1 stays the default — the K=3 stage is opt-in
+        # per recipe or CLI, never silently on.
+        r = load_recipe(RECIPES / "default.yaml")
+        self.assertIs(r["k3"], False)
+
+    def test_k3_override(self):
+        base = load_recipe(RECIPES / "default.yaml")
+        r = apply_overrides(base, {"k3": True})
+        self.assertIs(r["k3"], True)
+        r2 = apply_overrides(r, {"k3": False})
+        self.assertIs(r2["k3"], False)
+
 
 class TestValidation(unittest.TestCase):
     def _bad(self, **kw):
@@ -110,6 +123,9 @@ class TestValidation(unittest.TestCase):
 
     def test_negative_limit(self):
         self._bad_window(limit_ids=-5)
+
+    def test_bad_k3(self):
+        self._bad(k3="yes")
 
     def test_unknown_override_key(self):
         base = load_recipe(RECIPES / "default.yaml")
