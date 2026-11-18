@@ -291,7 +291,8 @@ def run_host_campaign_k3(job):
             prev = {}
         if (prev.get("complete") is True
                 and prev.get("manifest_sha") == manifest_sha
-                and prev.get("arm") == arm):
+                and prev.get("arm") == arm
+                and prev.get("mes_gate") == job.get("mes_gate")):
             return {"status": "skipped", "tic": tic, "sector": sector}
     t_start = time.time()
     try:
@@ -433,7 +434,8 @@ def run_host_campaign_k3(job):
         results.append(r)
     rec = {"tic": tic, "sector": sector, "complete": True,
            "manifest_sha": manifest_sha, "calibration": calibration,
-           "arm": arm, "n_trials": len(results),
+           "arm": arm, "mes_gate": job.get("mes_gate"),
+           "n_trials": len(results),
            "seconds": round(time.time() - t_start, 1),
            "trials": results}
     tmp = out_path.with_suffix(".tmp")
@@ -462,10 +464,13 @@ def run_host_null_k3(job):
             prev = json.loads(out_path.read_text())
         except ValueError:
             prev = {}
-        if prev.get("complete") is True and prev.get("arm") == arm:
+        if (prev.get("complete") is True
+                and prev.get("arm") == arm
+                and prev.get("mes_gate") == job.get("mes_gate")):
             return {"status": "skipped", "tic": tic, "sector": sector}
     t_start = time.time()
-    r = {"tic": tic, "sector": sector, "arm": arm}
+    r = {"tic": tic, "sector": sector, "arm": arm,
+         "mes_gate": job.get("mes_gate")}
     try:
         t, f, q, fcol, meta = load_real_fits(job["path"])
     except Exception as exc:  # noqa: BLE001

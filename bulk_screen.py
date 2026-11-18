@@ -365,6 +365,28 @@ def set_event_guard(guard_d):
     EVENT_GUARD_D = guard_d
 
 
+def set_mes_gate(mes_gate):
+    """Override the tier-A MES bar in-process — MEASUREMENT +
+    TESTS ONLY. Production runs get the bar from the profile
+    (bulk_v5: 9.0); this exists so the 4.1-2 MES sweep's settled
+    gate (9 -> 8 -> 7) can be applied to the 4.1-3 / 4.1-10
+    campaigns through the real screen path without a profile
+    per gate value (the set_clip_option / set_event_guard
+    pattern). Call AFTER set_calibration -- set_calibration
+    re-derives TIER_A_MES from the profile and would undo the
+    override. The override also moves the two-event combined
+    bar, which reuses tier_a_mes by design. Refuses gates
+    outside the swept range [7.0, 9.0]: a gate outside it is
+    not a settled sweep outcome."""
+    global TIER_A_MES
+    mes_gate = float(mes_gate)
+    if not 7.0 <= mes_gate <= 9.0:
+        raise ValueError(
+            f"MES gate must be within the swept range "
+            f"[7.0, 9.0], got {mes_gate}")
+    TIER_A_MES = mes_gate
+
+
 def _init_worker(calibration, event_guard_d=None):
     """ProcessPoolExecutor initializer (P4-2): each worker sets
     its own calibration (+ optional event-guard override), so a

@@ -659,9 +659,9 @@ def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
 
 
 def run_host_campaign_p43(job):
-    """One TIC: inject each trial into all 3 sectors (absolute
-    epoch), per-sector fresh pass 1 + pre-mask, stitch, pass 2,
-    pass 3 where eligible, verdicts. Mirrors
+    """One TIC: inject each trial into all of the host's sectors
+    (absolute epoch), per-sector fresh pass 1 + pre-mask, stitch,
+    pass 2, pass 3 where eligible, verdicts. Mirrors
     k3_run.run_host_campaign_k3's record shape where the legs
     share a field (final_recovered / final_genuine / pass2_match /
     epoch_delta_d), so the merge can join the legs per trial.
@@ -694,6 +694,7 @@ def run_host_campaign_p43(job):
                 and prev.get("arm") == ARM
                 and prev.get("calibration") == calibration
                 and prev.get("seed_fix") == seed_fix
+                and prev.get("mes_gate") == job.get("mes_gate")
                 and not any("error" in tr
                             for tr in prev.get("trials", []))):
             return {"status": "skipped", "tic": tic}
@@ -904,6 +905,7 @@ def run_host_campaign_p43(job):
     rec = {"tic": tic, "sectors": list(sectors), "complete": True,
            "manifest_sha": manifest_sha, "calibration": calibration,
            "arm": ARM, "seed_fix": seed_fix,
+           "mes_gate": job.get("mes_gate"),
            "agreement_only": agreement_only,
            "seed_mode": seed_mode,
            "n_trials": len(results),
@@ -979,10 +981,12 @@ def run_host_null_p43(job):
                 and prev.get("manifest_sha") == manifest_sha
                 and prev.get("arm") == ARM
                 and prev.get("calibration") == calibration
+                and prev.get("mes_gate") == job.get("mes_gate")
                 and "error" not in prev):
             return {"status": "skipped", "tic": tic}
     t_start = time.time()
-    r = {"tic": tic, "sectors": list(sectors), "arm": ARM}
+    r = {"tic": tic, "sectors": list(sectors), "arm": ARM,
+         "mes_gate": job.get("mes_gate")}
     try:
         base = workdir / f"{tic}_null"
         per_sector = {}
@@ -1550,31 +1554,51 @@ def merge_null_p43(out_dir):
 def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
                 workdir_single, keep_fits, calibration, tics=None,
                 limit_hosts=None, agreement_only=False,
-                seed_mode="frozen"):
-    """Build the paired job lists (single + stitched) for the 34
-    TICs. Returns (single_jobs, stitched_jobs, missing). A missing
-    sector FITS skips the TIC ENTIRELY (no single job either): a
-    single-only host would silently shrink the paired set, and the
-    completeness check would then block the verdict. calibration is
-    the CLI value (args.calibration), not the manifest's -- the
-    workers are initialized with it, so the records must agree.
+                seed_mode="frozen", mes_gate=None):
+    """Build the paired job lists (single + stitched) for the
+    manifest's TICs. Returns (single_jobs, stitched_jobs,
+    missing). A missing sector FITS skips the TIC ENTIRELY (no
+    single job either): a single-only host would silently
+    shrink the paired set, and the completeness check would
+    then block the verdict. calibration is the CLI value
+    (args.calibration), not the manifest's -- the workers are
+    initialized with it, so the records must agree.
     agreement_only (P4-3c) and seed_mode (P4-3 rule arm) are
     carried on the stitched jobs only -- the single leg and the
     null leg never read them (the null leg is unchanged by the
-    flag: no trial record, no frozen seed)."""
+    flag: no trial record, no frozen seed).
+    Per-host sectors (4.1-10 / 4.1-3): when the manifest
+    carries sectors_by_host {tic: [sectors]}, each host's
+    stitched stack uses ITS list (the 4.1-10 hosts have 2/3/4
+    sectors in nine combos; the P4-3 default SECTORS would skip
+    every non-3-sector host). Otherwise SECTORS (95/96/97) is
+    used, exactly as before -- P4-3/BP-1 manifests are
+    unaffected. The trial's original sector must be in the
+    host's list. mes_gate (None = profile bar) is carried on
+    every job: the leg functions record it and refuse to resume
+    a host file written at a different gate (tiers differ)."""
     hosts = {}
     for tr in manifest["trials"]:
         hosts.setdefault(tr["tic"], {"sector": tr["sector"],
                                      "trials": []})
         hosts[tr["tic"]]["trials"].append(tr)
+    sectors_by_host = manifest.get("sectors_by_host") or {}
     single_jobs, stitched_jobs, missing = [], [], []
     for tic in sorted(hosts, key=int):
         if tics and tic not in tics:
             continue
         sector = hosts[tic]["sector"]
+        if tic in sectors_by_host:
+            host_sectors = sorted(int(s)
+                                  for s in sectors_by_host[tic])
+            assert sector in host_sectors, (
+                f"TIC {tic}: original sector {sector} not in "
+                f"sectors_by_host {host_sectors}")
+        else:
+            host_sectors = list(SECTORS)
         paths = {}
         ok = True
-        for sec in SECTORS:
+        for sec in host_sectors:
             p = _sector_fits_path(cache_dir, tic, sec)
             if not p.exists():
                 missing.append((tic, sec))
@@ -1590,9 +1614,10 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
              "workdir": str(workdir_single),
              "calibration": calibration,
              "keep_fits": keep_fits, "arm": ARM, "spans": None,
-             "manifest_sha": manifest["_sha256"]})
+             "manifest_sha": manifest["_sha256"],
+             "mes_gate": mes_gate})
         stitched_jobs.append(
-            {"tic": tic, "sectors": list(SECTORS), "paths": paths,
+            {"tic": tic, "sectors": list(host_sectors), "paths": paths,
              "trials": hosts[tic]["trials"],
              "out_dir": str(out_dir),
              "workdir": str(workdir_p43),
@@ -1600,7 +1625,8 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
              "keep_fits": keep_fits,
              "agreement_only": agreement_only,
              "seed_mode": seed_mode,
-             "manifest_sha": manifest["_sha256"]})
+             "manifest_sha": manifest["_sha256"],
+             "mes_gate": mes_gate})
     if limit_hosts is not None:
         single_jobs = single_jobs[:limit_hosts]
         stitched_jobs = stitched_jobs[:limit_hosts]
