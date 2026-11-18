@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Fixes round 1 (2026-11-18): TRICERATOPS golden nightly, 03:00
+       local daily. Installed to ~/Library/LaunchAgents/ on the Mac
+       by scripts/launchd/install-nightly.sh (run it on the Mac).
+       v2 replaces the P4-8 plist, which put EVERYTHING launchd
+       touches at spawn time on /Volumes/NVME (program, working
+       directory, stdout/stderr). At 03:00 on 2026-11-18 the Mac was
+       in clamshell sleep, the NVMe volume was inaccessible
+       ("Bad volume: /Volumes/NVME" 02:40-04:35), and launchd could
+       not open the stdout path -> spawn failed -> exit 78
+       EX_CONFIG. The job never started: no log, no receipt.
+       v2: the launcher + log live on the INTERNAL disk (always
+       accessible at spawn); the launcher waits for the NVMe volume
+       (up to 9 h) and then runs the nightly under caffeinate.
+       No WorkingDirectory key: the launcher cds to the repo itself
+       once the volume is available (a WorkingDirectory on NVMe
+       would be another spawn-time dependency on the volume).
+       Receipt: vetting_results/triceratops-golden/receipt.json
+       (the driver's default; the P4-8 plist comment naming
+       triceratops-nightly-receipt.json was wrong).
+       Log: ~/Library/Logs/exoplanet-hunter/triceratops-nightly.log
+       (internal disk; the install script creates the directory:
+       launchd does NOT create parent dirs for StandardOutPath).
+       No no-issue flag: on failure the driver attempts a GitHub issue
+       (graceful warning if gh is absent) and always writes the
+       FAILURE marker + non-zero exit. -->
+  <key>Label</key>
+  <string>com.takeshi.exoplanet.triceratops-nightly</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/dk/Library/LaunchAgents/triceratops-nightly-launcher.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/dk/Library/Logs/exoplanet-hunter/triceratops-nightly.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/dk/Library/Logs/exoplanet-hunter/triceratops-nightly.log</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
