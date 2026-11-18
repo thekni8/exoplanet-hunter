@@ -271,13 +271,18 @@ def _sha(path):
 # Scoring
 # ---------------------------------------------------------------------------
 
-def score_campaign(manifest, run_dir, bars, run_gate):
+def score_campaign(manifest, run_dir, bars, run_gate, partial=False):
     """Score the campaign legs. Returns the curve dict.
 
     Fails loudly on: a threshold above the run gate; missing
     host files / trials / errors; a nesting violation across
     gates 9/8/7; a re-derived tier-A recovery whose leg status
     is not "survivor" at threshold == run gate.
+    partial=True (SMOKE ONLY): score the trials present and
+    skip the completeness failures + the 121-trial
+    aspirational-cell assert; the output is stamped partial
+    and is NEVER a publishable curve. Errors still fail
+    loudly -- an error is a broken run, not incompleteness.
     """
     if bars.mes_gate > run_gate + 1e-9:
         raise SystemExit(
@@ -290,6 +295,7 @@ def score_campaign(manifest, run_dir, bars, run_gate):
     nsec = {str(h["tic"]): int(h["n_sectors"])
             for h in manifest["hosts"]}
     out = {"gate": bars.mes_gate, "run_gate": run_gate,
+           "partial": bool(partial),
            "calibration": bars.calibration,
            "bars": {"survivor_sde": bars.survivor_sde,
                     "tier_a_min_events": bars.min_events,
@@ -307,7 +313,7 @@ def score_campaign(manifest, run_dir, bars, run_gate):
                 leg_trials[(tr["tic"], int(tr["sector"]),
                             tr["trial_id"])] = tr
         missing = [k for k in man_trials if k not in leg_trials]
-        if missing:
+        if missing and not partial:
             raise SystemExit(
                 f"[p4110-score] {leg} leg: {len(missing)} "
                 f"manifest trials have no host record (e.g. "
@@ -323,7 +329,11 @@ def score_campaign(manifest, run_dir, bars, run_gate):
         tier_b = 0
         runner_genuine = 0
         cross_mismatch = 0
-        for key, m_tr in sorted(man_trials.items()):
+        scored_keys = ([k for k in sorted(man_trials)
+                        if k in leg_trials] if partial
+                       else sorted(man_trials))
+        for key in scored_keys:
+            m_tr = man_trials[key]
             rec = leg_trials[key]
             recovers = trial_recovers(rec, m_tr, bars, 1.0)
             recovers_half = trial_recovers(rec, m_tr, bars, 0.5)
@@ -380,8 +390,9 @@ def score_campaign(manifest, run_dir, bars, run_gate):
         curve_rows = [r for r in rows
                       if not r["trial"]["is_demo"]]
         demo_rows = [r for r in rows if r["trial"]["is_demo"]]
-        assert len(demo_rows) == 1, (
-            f"{leg} leg: {len(demo_rows)} demo trials (want 1)")
+        if not partial:
+            assert len(demo_rows) == 1, (
+                f"{leg} leg: {len(demo_rows)} demo trials (want 1)")
 
         def _row_group(subset):
             by_host = defaultdict(lambda: [0, 0])
@@ -422,25 +433,32 @@ def score_campaign(manifest, run_dir, bars, run_gate):
         asp = [r for r in curve_rows
                if r["trial"]["depth_idx"] == 1
                and r["trial"]["period_d"] < 5.0]
-        assert len(asp) == 121, (
-            f"aspirational cell has {len(asp)} trials, want 121")
-        demo = demo_rows[0]
-        d_rec = leg_trials[demo["key"]]
-        demo_entry = {
-            "tic": demo["trial"]["tic"],
-            "depth_frac": demo["trial"]["depth_frac"],
-            "period_d": demo["trial"]["period_d"],
-            "stitched_cdpp_ppm_2p39h": next(
-                h["stitched_cdpp_ppm_2p39h"]
-                for h in manifest["hosts"]
-                if h["tic"] == demo["trial"]["tic"]),
-            "recovered_at_gate": bool(demo["recovers"]),
-            "note": ("n=1 DEMONSTRATION reported alongside the "
-                     "curve (pre-reg section 2.10) -- candidate "
-                     "(c) alone doesn't count."),
-            "pass2": d_rec.get("pass2"),
-            "pass3": d_rec.get("pass3"),
-        }
+        if not partial:
+            assert len(asp) == 121, (
+                f"aspirational cell has {len(asp)} trials, "
+                f"want 121")
+        if demo_rows:
+            demo = demo_rows[0]
+            d_rec = leg_trials[demo["key"]]
+            demo_entry = {
+                "tic": demo["trial"]["tic"],
+                "depth_frac": demo["trial"]["depth_frac"],
+                "period_d": demo["trial"]["period_d"],
+                "stitched_cdpp_ppm_2p39h": next(
+                    h["stitched_cdpp_ppm_2p39h"]
+                    for h in manifest["hosts"]
+                    if h["tic"] == demo["trial"]["tic"]),
+                "recovered_at_gate": bool(demo["recovers"]),
+                "note": ("n=1 DEMONSTRATION reported alongside "
+                         "the curve (pre-reg section 2.10) -- "
+                         "candidate (c) alone doesn't count."),
+                "pass2": d_rec.get("pass2"),
+                "pass3": d_rec.get("pass3"),
+            }
+        else:
+            demo_entry = {
+                "note": ("demo trial not in this partial run "
+                         "(smoke only) -- no demo verdict.")}
         out[leg] = {
             "n_trials": len(curve_rows),
             "n_hosts": len({r["trial"]["tic"]
@@ -475,7 +493,8 @@ def score_campaign(manifest, run_dir, bars, run_gate):
         counts = {}
         for j in range(4):
             k = sum(1 for key, m_tr in man_trials.items()
-                    if not m_tr["is_demo"]
+                    if key in leg_trials
+                    and not m_tr["is_demo"]
                     and m_tr["depth_idx"] == j
                     and trial_recovers(leg_trials[key], m_tr, b,
                                        1.0))
@@ -493,12 +512,15 @@ def score_campaign(manifest, run_dir, bars, run_gate):
     return out
 
 
-def score_null(manifest_null, run_dir, bars):
+def score_null(manifest_null, run_dir, bars, partial=False):
     """Score the null legs (stitched primary, single secondary).
-    Returns per-leg null rates per 1,000 (overall + stratum)."""
+    Returns per-leg null rates per 1,000 (overall + stratum).
+    partial=True (SMOKE ONLY): score the null hosts present;
+    the output is stamped partial."""
     nsec = {t["tic"]: int(t["n_sectors"])
             for t in manifest_null["trials"]}
-    out = {"gate": bars.mes_gate, "calibration": bars.calibration}
+    out = {"gate": bars.mes_gate, "calibration": bars.calibration,
+           "partial": bool(partial)}
     for leg, subdir in (("stitched", "null-p43"),
                         ("single", "null_hosts")):
         recs = _load_host_files(run_dir, subdir)
@@ -513,7 +535,7 @@ def score_null(manifest_null, run_dir, bars):
                 f"carry errors; the null run is incomplete.")
         missing = [t for t in manifest_null["trials"]
                    if t["tic"] not in {r["tic"] for r in recs}]
-        if missing:
+        if missing and not partial:
             raise SystemExit(
                 f"[p4110-score] {leg} null: "
                 f"{len(missing)} manifest null hosts have no "
@@ -553,6 +575,10 @@ def main(argv=None):
                          "<run-dir>/p4110_summary.json, else the "
                          "threshold itself)")
     ap.add_argument("--calibration", default="bulk_v5")
+    ap.add_argument("--partial", action="store_true",
+                    help="SMOKE ONLY: score the trials/hosts "
+                         "present; the output is stamped "
+                         "partial and is NEVER publishable.")
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
     manifest = json.loads(Path(args.manifest).read_text())
@@ -565,14 +591,16 @@ def main(argv=None):
         else:
             run_gate = args.mes_threshold
     bars = GateBars(args.calibration, args.mes_threshold)
-    curve = score_campaign(manifest, args.run_dir, bars, run_gate)
+    curve = score_campaign(manifest, args.run_dir, bars, run_gate,
+                           partial=args.partial)
     curve["tool"] = "bulk/p4110_score.py"
     curve["item"] = "4.1-10 deep-sample curve"
     curve["manifest_sha256"] = _sha(args.manifest)
     curve["run_dir"] = str(args.run_dir)
     if args.null_manifest:
         null_man = json.loads(Path(args.null_manifest).read_text())
-        curve["null"] = score_null(null_man, args.run_dir, bars)
+        curve["null"] = score_null(null_man, args.run_dir, bars,
+                                   partial=args.partial)
         curve["null_manifest_sha256"] = _sha(args.null_manifest)
     out = Path(args.out)
     out.write_text(json.dumps(curve, indent=1, sort_keys=True))

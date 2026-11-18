@@ -17,10 +17,27 @@ the campaign trial count):
   null measures the false-survivor rate on the same stack
   shapes as the curve (same baselines, same sector counts).
 - Pools: per-sector cached-FITS inventories from the Mac
-  (subcommand `inventory`); a combo's pool is the intersection
-  of its sectors' inventories (hosts with FITS in ALL combo
-  sectors -- whether they also have other sectors' data is
-  irrelevant, the stack uses only the combo).
+  (subcommand `inventory`). A combo's EXACT pool is the hosts
+  with FITS in ALL combo sectors and NO other sector (S95-S98)
+  -- the faithful match to the curve hosts, whose census
+  combos are their full data coverage (a census 3-sec host has
+  data in exactly those 3 sectors). Draws take the exact pool
+  FIRST (exact pools are disjoint by coverage pattern, so no
+  draw depletes another combo's pool).
+- Top-up rule (pinned): if a combo's exact pool is short of
+  its count after base exclusions, the remainder is drawn from
+  the combo's SUPERSET pool (hosts with FITS in all combo
+  sectors, extra sectors allowed), excluding already-drawn +
+  base exclusions -- AFTER all exact draws complete. The
+  top-up hosts' stacks still use ONLY the combo sectors (the
+  extra sectors' data is simply not stacked), so the stack
+  shape matches the curve's. Measured 2026-11-18: only the
+  S96+S97 combo needs a top-up (exact eligible 1,989 vs 2,122
+  needed -- short 133; the other eight combos' exact pools
+  cover their counts with margins 37-4,642). A superset-first
+  draw was REJECTED: it fails feasibility (the 4-sec + 2-sec
+  draws deplete the S96+S97+S98 superset pool to 322 eligible
+  vs 327 needed -- measured 2026-11-18).
 - Draw (pre-reg section 1 procedure, BP-1 pattern): sort the
   eligible pool by TIC ascending (numeric); seeded shuffle with
   a FRESH numpy Generator(MASTER_SEED) per combo; take the
@@ -165,22 +182,41 @@ def _draw(pool, excluded, n, label):
 
 
 def draw_nulls(pools, excluded):
-    """Draw the 8,000 null hosts per COMBO_COUNTS. Returns the
-    trial list (dummy trials, BP-1 shape) + per-combo record."""
+    """Draw the 8,000 null hosts per COMBO_COUNTS. Two phases
+    (see module docstring): Phase 1 draws every combo from its
+    EXACT pool (hosts with FITS in all combo sectors and no
+    other sector); Phase 2 tops up any short combo from its
+    SUPERSET pool. Returns the trial list (dummy trials, BP-1
+    shape) + per-combo record."""
+    pool_sets = {int(s): set(v) for s, v in pools.items()}
+    all_secs = set(SECTORS)
     trials = []
     combo_record = {}
     drawn_all = set()
+    shortfalls = []
+    # Phase 1: exact pools (disjoint -- order-independent).
     for combo, n in COMBO_COUNTS:
-        pool = set(pools[str(combo[0])])
-        for sec in combo[1:]:
-            pool &= set(pools[str(sec)])
         label = _combo_label(combo)
-        drawn = _draw(sorted(pool, key=int),
-                      excluded | drawn_all, n, label)
+        sup = set.intersection(
+            *[pool_sets[s] for s in combo])
+        if len(combo) < 4:
+            others = set.union(
+                *[pool_sets[s] for s in all_secs - set(combo)])
+            exact = sup - others
+        else:
+            exact = sup
+        eligible_exact = sorted(exact - excluded, key=int)
+        take = min(n, len(eligible_exact))
+        drawn = _draw(eligible_exact, set(), take,
+                      f"{label} (exact)") if take else []
         drawn_all |= set(drawn)
         combo_record[label] = {
             "sectors": list(combo), "n_sectors": len(combo),
-            "pool_size": len(pool), "n_drawn": len(drawn)}
+            "superset_pool_size": len(sup),
+            "exact_pool_size": len(exact),
+            "exact_eligible": len(eligible_exact),
+            "exact_drawn": len(drawn), "topup_drawn": 0,
+            "n_drawn": len(drawn)}
         for tic in drawn:
             trials.append({
                 "tic": tic, "sector": min(combo),
@@ -188,6 +224,30 @@ def draw_nulls(pools, excluded):
                 "n_sectors": len(combo),
                 "sectors": list(combo),
                 "combo": label,
+                "null_source": "exact_pool",
+            })
+        if len(drawn) < n:
+            shortfalls.append((combo, n - len(drawn)))
+    # Phase 2: top-ups from the superset pools (after ALL exact
+    # draws, so no top-up steals another combo's exact host).
+    for combo, need in shortfalls:
+        label = _combo_label(combo)
+        sup = set.intersection(
+            *[pool_sets[s] for s in combo])
+        drawn = _draw(sorted(sup, key=int),
+                      excluded | drawn_all, need,
+                      f"{label} (top-up)")
+        drawn_all |= set(drawn)
+        combo_record[label]["topup_drawn"] = len(drawn)
+        combo_record[label]["n_drawn"] += len(drawn)
+        for tic in drawn:
+            trials.append({
+                "tic": tic, "sector": min(combo),
+                "trial_id": "null01", "kind": "null_placeholder",
+                "n_sectors": len(combo),
+                "sectors": list(combo),
+                "combo": label,
+                "null_source": "superset_topup",
             })
     assert len(trials) == sum(n for _c, n in COMBO_COUNTS), (
         f"drew {len(trials)} != table total "

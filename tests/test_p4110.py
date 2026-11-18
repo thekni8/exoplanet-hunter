@@ -231,7 +231,7 @@ class TestNullTable(unittest.TestCase):
             nul.COMBO_COUNTS = [((95, 96), 10), ((97, 98), 10),
                                 ((95, 96, 97, 98), 10)]
             nul.EXPECTED_STRATA = {2: 20, 4: 10}
-            t1, _ = nul.draw_nulls(pools, excluded)
+            t1, rec1 = nul.draw_nulls(pools, excluded)
             t2, _ = nul.draw_nulls(pools, excluded)
         finally:
             nul.COMBO_COUNTS = orig
@@ -240,6 +240,16 @@ class TestNullTable(unittest.TestCase):
                          [t["tic"] for t in t2])
         self.assertEqual(len({t["tic"] for t in t1}), 30)
         self.assertFalse({t["tic"] for t in t1} & excluded)
+        # Every host is in all four sectors here, so the 2-sec
+        # exact pools are empty and both 2-sec combos top up
+        # from their superset pools; the 4-sec combo is exact.
+        self.assertEqual(rec1["S95+S96"]["exact_drawn"], 0)
+        self.assertEqual(rec1["S95+S96"]["topup_drawn"], 10)
+        self.assertEqual(rec1["S97+S98"]["topup_drawn"], 10)
+        self.assertEqual(
+            rec1["S95+S96+S97+S98"]["exact_drawn"], 10)
+        self.assertEqual(
+            rec1["S95+S96+S97+S98"]["topup_drawn"], 0)
 
 
 class TestMesGateOverride(unittest.TestCase):
@@ -634,6 +644,25 @@ class TestScoreCampaignSynthetic(unittest.TestCase):
                     "nesting_stitched_9_8_7"].items():
                 self.assertTrue(all(v == 200
                                     for v in counts.values()))
+
+    def test_partial_scores_subset_and_full_refuses(self):
+        m = synthetic_manifest()
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = self._write_run(tmp, m)
+            # Keep only the first host's files (both legs).
+            first_tic = m["hosts"][0]["tic"]
+            for sub in ("hosts-p43", "hosts"):
+                for p in (run_dir / sub).glob("*.json"):
+                    if first_tic not in p.name:
+                        p.unlink()
+            bars = score.GateBars("bulk_v5", 9.0)
+            with self.assertRaises(SystemExit):
+                score.score_campaign(m, run_dir, bars, 9.0)
+            curve = score.score_campaign(m, run_dir, bars, 9.0,
+                                         partial=True)
+            self.assertTrue(curve["partial"])
+            self.assertEqual(curve["stitched"]["n_hosts"], 1)
+            self.assertEqual(curve["stitched"]["n_trials"], 17)
 
     def test_threshold_above_run_gate_refused(self):
         m = synthetic_manifest()
