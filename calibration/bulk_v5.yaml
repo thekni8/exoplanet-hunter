@@ -1,0 +1,142 @@
+# Bulk-screen calibration profile v5 (post-merge fixes round 1,
+# 2026-11-18). All bulk_v4 gates carried over VERBATIM, plus ONE
+# change: the SECTOR_EPOCH_CLUSTER veto now demotes tier-A cluster
+# members too (epoch_cluster_veto_tier_a: true). Under v4, tier-A
+# members were flagged and KEPT — and the S98 one-shot showed why
+# that fails: 210/498 (42.2%) of the final queue sat in [13.5,
+# 15.0] d, 184 of them flagged tier-A cluster members, all
+# near_systematic. The veto removed tier-B cluster members but
+# the tier-A members stayed, so the 13.7 d systematic dominated
+# the queue even after the P4-2 event-count fix — exceeding the
+# >15% before-production gate (CC-8 / M6).
+# The discriminator is the (P, T0) cluster criterion, NOT the
+# period window: 20+ stars sharing a period to 1% AND an epoch to
+# 3 h cannot be independent planets — it is the spacecraft. This
+# is NOT DEMOTE-SYS (rejected in v4 for eating real planets on
+# period alone, 6/7 pricing): the epoch coincidence is what makes
+# the veto specific. Measured on S98 (fixes round 1, read-only
+# replay of the frozen run): queue 498 -> 314, M6 42.2% -> 8.3%,
+# 0 of the 11 recovered TOIs lost (none of their hosts is flagged);
+# the one flagged TOI host (TIC 231949697, found at 14.697 d) is a
+# systematic detection on a TOI host, correctly demoted. The 26
+# in-window rows that remain are unclustered (1 tier A + 25 tier
+# B) — the population where a real ~13.7 d planet could hide; they
+# stay in the queue, flagged near_systematic, for vetting.
+# systematic_windows UNCHANGED: the S98 measurement shows zero
+# flagged rows below 13.5 d, so widening the window would flag
+# more rows without demoting any — the veto extension is the
+# mechanism, not the window.
+# Nothing is deleted by this gate: a demoted row keeps
+# disposition DEMOTED_SECTOR_EPOCH_CLUSTER and stays in
+# screen_hits.jsonl, queryable and reversible (the manual-review
+# queue query is unchanged).
+# IMMUTABLE once used in a run: to change a threshold, copy
+# this file to bulk_v6.yaml, bump `version`, and update the
+# code + golden suite in the same change. See
+# calibration/README.md for the rules. Registered in
+# calibration/registry.json — the loader verifies this file's
+# sha256 against the registry and refuses a mismatch.
+version: bulk_v5
+status: active
+rationale: "Bulk calibration v5 (2026-11-18, post-merge fixes round 1 — ACTIVE): all bulk_v4 gates carried over verbatim + the SECTOR_EPOCH_CLUSTER veto extended to tier-A members (epoch_cluster_veto_tier_a: true; P3-13 criterion unchanged: (P, T0) within 1% / 3 h, clusters >20 stars). S98 measured effect (frozen-run replay): queue 498 -> 314, M6 42.2% -> 8.3%, 0/11 recovered TOIs lost. systematic_windows unchanged (zero flagged rows below 13.5 d in S98). Supersedes bulk_v4 for new screens."
+
+# --- quality mask --------------------------------------------------------
+quality_mask: 1610629823  # cadences with ANY of these bits set are
+                          # excluded from BLS input: lightkurve's
+                          # TESS default 17087 (bits 0,1,2,3,4,5,7,9,
+                          # 14) PLUS bits 29/30 (TESS scattered
+                          # light, 536870912 + 1073741824). v1/v2
+                          # profiles predate this field and mean
+                          # 17087. Bit 12 (4096) is deliberately NOT
+                          # masked: TOI-700 c's only sector-1
+                          # transit sits on bit-12 cadences.
+
+# --- clip option ----------------------------------------------------------
+clip_option: floor_10pct  # lower clip cut floored at 10% below the
+                          # median (mad_clip.py); the v1 symmetric
+                          # clip is kept only as bulk_v1's frozen
+                          # behaviour. One of mad_clip.PROFILE_OPTIONS.
+
+# --- survivor bar (carried over unchanged from bulk_v1) -------------------
+record_floor_sde: 6.0   # hits below this are not even recorded
+survivor_sde: 7.0       # screen bar (deep-pipeline discovery bar is 8.5)
+depth_min_pct: 0.02     # shallower dips are noise country
+depth_eb_pct: 3.0       # deeper dips are EB country
+
+# --- v1.1 tiers (pink-noise MES rescore) --------------------------------
+tier_a_mes: 9.0             # periodic tier: MES_pink >= 9
+tier_a_min_events: 3        # ... with >= 3 observed transit events
+tier_a_min_strong: 2        # ... and >= 2 events individually >= 3 sigma
+strong_event_snr: 3.0       # what counts as a "strong" single event
+tier_b_event_snr: 8.0       # few-transit tier (1-2 events): the best
+                            # single event must stand at >= 8 sigma pink
+tier_b_max_depth_pct: 1.0   # ... and depth <= 1% (deeper lone dips are
+                            # EB/artifact country; they stay recorded)
+
+# --- search grid ---------------------------------------------------------
+min_period_d: 0.5
+max_period_d: 20.0
+bls_grid_points: 12000
+bls_durations_d: [0.04, 0.06, 0.09, 0.13, 0.18, 0.25]
+systematic_periods: [13.7, 6.85, 27.4]  # mirrors hunter._SYSTEMATIC_PERIODS
+
+# --- per-sector systematic windows ---------------------------------------
+# Observed pile-ups from the S96-S98 screens (bulk_v1 runs): a hit
+# whose period falls inside its sector's window is flagged
+# near_systematic, the same as the generic +/-3% family check.
+# v1 had no windows (its pile-ups were found by hand, after the
+# fact, in the recalibration notes).
+systematic_windows:
+  96: [[12.7, 14.3], [6.3, 6.5]]
+  97: [[13.2, 15.0]]
+  98: [[13.5, 15.0], [7.0, 7.4]]
+
+# --- grid-edge disposition floor (P3-14) ----------------------------------
+# The quality floor for SINGLE_TRANSIT_POOL (search_health
+# vocabulary): a single-event grid-edge record enters the pool
+# only when its in-transit cadences carry no unmasked quality
+# flags and it has >= 4 in-transit cadences. The floor is a
+# disposition rule, not a threshold change — it adds a field,
+# it does not move a bar.
+grid_edge_min_in_transit_cadences: 4
+grid_edge_max_unmasked_flag_fraction: 0.0
+
+# --- tier-B tightening gates (P3-15, adopted 2026-11-16) ---------------
+# P3-11 decision (phase3-vote/p3-11-decision.md §9, parent
+# 2026-11-16, Amendment A approved). The implementations live
+# in bulk/replay_matrix.py (two_event_combined,
+# sector_epoch_cluster_tics) — the screen calls them, it does
+# not re-implement them. The criterion values below MUST match
+# replay_matrix's P3-13 constants; _apply_profile fails loud
+# on a mismatch, so the profile and the implementation can
+# never silently diverge.
+two_combined_enabled: true  # 2-event rows need n_strong >= 2
+                            # AND mes_pink >= 9.0 (tier_a_mes);
+                            # rows with n_events != 2 unaffected.
+                            # Failures demote with flag
+                            # TWO_EVENT_WEAK + gate_reason
+                            # FAILED_TWO_COMBINED (manual-review
+                            # marker, never a deletion).
+epoch_cluster_veto_enabled: true  # SECTOR_EPOCH_CLUSTER veto:
+                            # per sector, cluster (P, T0) within
+                            # 1% / 3 h (union-find, P3-13
+                            # criterion); clusters of >20 stars —
+                            # tier-B members demoted (disposition
+                            # DEMOTED_SECTOR_EPOCH_CLUSTER),
+                            # tier-A members demoted too when
+                            # epoch_cluster_veto_tier_a is true
+                            # (v5), flagged only when false (v4).
+                            # Sector-level: applied at
+                            # merge (run_chunked), never
+                            # per-slice (clusters span slices).
+epoch_cluster_veto_tier_a: true  # v5 (fixes round 1): tier-A
+                            # cluster members are DEMOTED like
+                            # tier-B (same disposition, same
+                            # reversibility). v4 and earlier mean
+                            # false (tier-A flagged, never
+                            # demoted) — a frozen profile's
+                            # behaviour must not change.
+epoch_cluster_tol_p: 0.01       # period tolerance (fraction)
+epoch_cluster_tol_t0_d: 0.125   # T0 tolerance, days (3 h)
+epoch_cluster_min_size: 21      # clusters of >20 stars
+
