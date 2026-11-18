@@ -98,6 +98,24 @@ class TestSurvivorValidation(unittest.TestCase):
         with self.assertRaises(RecordValidationError):
             validate_survivor(rec)
 
+    def test_k3_provenance_fields_validate(self):
+        # 4.1-1a: a K=3 row carries its pass + the masked
+        # contaminant period; both are optional schema fields.
+        rec = _complete_survivor()
+        rec["k3_pass"] = 2
+        rec["k3_masked_period_days"] = 3.25
+        validate_survivor(rec)  # must not raise
+        rec["k3_pass"] = 3
+        validate_survivor(rec)  # must not raise
+
+    def test_k3_pass_rejects_other_values(self):
+        # k3_pass is 2 or 3 only — pass 1 rows carry no k3_pass
+        # at all (absence, not 1).
+        rec = _complete_survivor()
+        rec["k3_pass"] = 1
+        with self.assertRaises(RecordValidationError):
+            validate_survivor(rec)
+
     def test_wrong_type_fails(self):
         # tic is a STRING in the bulk screen (the TOI join compares
         # strings). An integer tic is a bug, not a synonym.
