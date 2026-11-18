@@ -67,6 +67,16 @@ Host records written under the flag carry seed_fix "p43c"
 (the resume discriminator), so P4-3b and P4-3c host files can
 never resume each other.
 
+P4-3 rule arm (--seed-mode fresh): the non-original sectors seed
+from the FRESH pass-1 peak, as P4-3 did before the frozen-seed
+fix -- no frozen seed anywhere. This arm exists to define the
+P4-3c at-risk class on a fresh set (PHASE41_PREREG.md section
+2.4: the class is the P4-3-rule recoveries with recorded period
+= planet -- 5/272 on the frozen set, verified against the P4-3
+and P4-3b host files). It is incompatible with --agreement-only
+(the agreement test needs a frozen record to agree with). Host
+records carry seed_fix "p43".
+
 Null accounting is per ROW (PB-6 section 4): a host with both a
 pass-2 and a pass-3 survivor contributes 2 rows. The stitched
 null's pass-1 baseline is the stitched UNMASKED screen (the
@@ -131,6 +141,31 @@ SEED_FIX = "p43b"
 # P4-3c host files can never resume each other even if pointed
 # at the same out-dir.
 SEED_FIX_P43C = "p43c"
+# P4-3 rule arm (--seed-mode fresh): host records carry this
+# marker (the original P4-3 run predates the discriminator).
+SEED_FIX_P43 = "p43"
+
+
+def _seed_fix_for(seed_mode, agreement_only):
+    """Resume-discriminator marker for a stitched run, from its
+    rule: "p43" for the P4-3 rule arm (--seed-mode fresh), "p43c"
+    for the P4-3c agreement-only rule, "p43b" for the P4-3b
+    frozen-seed rule. Raises on an unknown seed mode and on the
+    invalid combination (--agreement-only needs the frozen seed
+    mode: the agreement test needs a frozen record to agree
+    with)."""
+    if seed_mode not in ("fresh", "frozen"):
+        raise ValueError(
+            f"unknown seed_mode {seed_mode!r} "
+            "(expected 'fresh' or 'frozen')")
+    if agreement_only and seed_mode != "frozen":
+        raise ValueError(
+            "--agreement-only requires the frozen seed mode "
+            "(the agreement test needs a frozen record to agree "
+            "with); got seed_mode 'fresh'")
+    if seed_mode == "fresh":
+        return SEED_FIX_P43
+    return SEED_FIX_P43C if agreement_only else SEED_FIX
 BOOTSTRAP_SEED = 20261117
 BOOTSTRAP_REPS = 10000
 BULK_PER_STAR_S = 1.175  # bulk-screen per-star wall (P4-1b section 6.3)
@@ -642,9 +677,12 @@ def run_host_campaign_p43(job):
     # P4-3c (PHASE41_PREREG section 2.4): the agreement-only rule
     # behind the --agreement-only flag. Host records written under
     # the flag carry seed_fix "p43c", so P4-3b and P4-3c host
-    # files can never resume each other.
+    # files can never resume each other. seed_mode selects the
+    # non-original sector seed: "frozen" (P4-3b, default) or
+    # "fresh" (the P4-3 rule arm -- no frozen seed anywhere).
     agreement_only = bool(job.get("agreement_only", False))
-    seed_fix = SEED_FIX_P43C if agreement_only else SEED_FIX
+    seed_mode = job.get("seed_mode", "frozen")
+    seed_fix = _seed_fix_for(seed_mode, agreement_only)
     out_path = out_dir / "hosts-p43" / f"{tic}_p43.json"
     if out_path.exists():
         try:
@@ -716,7 +754,7 @@ def run_host_campaign_p43(job):
                     sd["t"], sd["f"], sd["q"], sd["fcol"], tr, base,
                     tic, sec, keep_fits,
                     seed_mode=("fresh" if sec == tr["sector"]
-                               else "frozen"),
+                               else seed_mode),
                     agreement_only=agreement_only,
                     frozen_epoch_ref=frozen_epoch_ref)
                 if sec == orig_sec:
@@ -867,6 +905,7 @@ def run_host_campaign_p43(job):
            "manifest_sha": manifest_sha, "calibration": calibration,
            "arm": ARM, "seed_fix": seed_fix,
            "agreement_only": agreement_only,
+           "seed_mode": seed_mode,
            "n_trials": len(results),
            "seconds": round(time.time() - t_start, 1),
            "trials": results}
@@ -1510,7 +1549,8 @@ def merge_null_p43(out_dir):
 
 def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
                 workdir_single, keep_fits, calibration, tics=None,
-                limit_hosts=None, agreement_only=False):
+                limit_hosts=None, agreement_only=False,
+                seed_mode="frozen"):
     """Build the paired job lists (single + stitched) for the 34
     TICs. Returns (single_jobs, stitched_jobs, missing). A missing
     sector FITS skips the TIC ENTIRELY (no single job either): a
@@ -1518,9 +1558,10 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
     completeness check would then block the verdict. calibration is
     the CLI value (args.calibration), not the manifest's -- the
     workers are initialized with it, so the records must agree.
-    agreement_only (P4-3c) is carried on the stitched jobs only --
-    the single leg and the null leg never read it (the null leg is
-    unchanged by the flag: no trial record, no frozen seed)."""
+    agreement_only (P4-3c) and seed_mode (P4-3 rule arm) are
+    carried on the stitched jobs only -- the single leg and the
+    null leg never read them (the null leg is unchanged by the
+    flag: no trial record, no frozen seed)."""
     hosts = {}
     for tr in manifest["trials"]:
         hosts.setdefault(tr["tic"], {"sector": tr["sector"],
@@ -1558,6 +1599,7 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
              "calibration": calibration,
              "keep_fits": keep_fits,
              "agreement_only": agreement_only,
+             "seed_mode": seed_mode,
              "manifest_sha": manifest["_sha256"]})
     if limit_hosts is not None:
         single_jobs = single_jobs[:limit_hosts]
@@ -1603,7 +1645,18 @@ def main(argv=None):
                          "duration); mask NOTHING on disagreement. "
                          "The original sector and the null leg "
                          "are unchanged.")
+    ap.add_argument("--seed-mode", choices=("frozen", "fresh"),
+                    default="frozen",
+                    help="Non-original sector pre-mask seed: "
+                         "'frozen' (P4-3b, default) or 'fresh' "
+                         "(the P4-3 rule -- the fresh pass-1 peak "
+                         "seeds the mask, no frozen seed "
+                         "anywhere; defines the P4-3c at-risk "
+                         "class on a fresh set). Incompatible "
+                         "with --agreement-only.")
     args = ap.parse_args(argv)
+    if args.agreement_only and args.seed_mode != "frozen":
+        ap.error("--agreement-only requires --seed-mode frozen")
     out_dir = Path(args.out_dir)
     cache = Path(args.cache)
     manifest = orc._load_manifest(args.manifest)
@@ -1621,11 +1674,13 @@ def main(argv=None):
             manifest, cache, out_dir, out_dir / "injected-p43",
             out_dir / "injected", args.keep_fits,
             args.calibration, args.tics, args.limit_hosts,
-            agreement_only=args.agreement_only)
+            agreement_only=args.agreement_only,
+            seed_mode=args.seed_mode)
         print(f"[p43] campaign: {len(single_jobs)} single jobs, "
               f"{len(stitched_jobs)} stitched jobs, "
               f"{len(missing)} missing FITS; "
-              f"agreement_only={args.agreement_only}", flush=True)
+              f"agreement_only={args.agreement_only} "
+              f"seed_mode={args.seed_mode}", flush=True)
         if args.dry_run:
             return 0
         (out_dir / "hosts").mkdir(parents=True, exist_ok=True)

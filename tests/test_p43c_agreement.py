@@ -445,6 +445,24 @@ class TestProcessSectorAgreementOnly(unittest.TestCase):
                                places=6)
 
 
+class TestSeedFixFor(unittest.TestCase):
+    def test_markers(self):
+        self.assertEqual(
+            p43_run._seed_fix_for("frozen", False), "p43b")
+        self.assertEqual(
+            p43_run._seed_fix_for("frozen", True), "p43c")
+        self.assertEqual(
+            p43_run._seed_fix_for("fresh", False), "p43")
+
+    def test_agreement_only_requires_frozen(self):
+        with self.assertRaises(ValueError):
+            p43_run._seed_fix_for("fresh", True)
+
+    def test_unknown_seed_mode_raises(self):
+        with self.assertRaises(ValueError):
+            p43_run._seed_fix_for("bogus", False)
+
+
 class TestBuildJobsFlag(unittest.TestCase):
     def _setup(self, tmp):
         cache = Path(tmp) / "cache"
@@ -475,6 +493,27 @@ class TestBuildJobsFlag(unittest.TestCase):
                 Path(d) / "w43", Path(d) / "w1", False, "bulk_v5")
             self.assertEqual(len(stitched), 1)
             self.assertFalse(stitched[0]["agreement_only"])
+
+    def test_seed_mode_fresh(self):
+        # The P4-3 rule arm: non-original sectors seed from the
+        # fresh peak (no frozen seed anywhere).
+        with tempfile.TemporaryDirectory() as d:
+            cache, manifest = self._setup(d)
+            _s, stitched, _m = p43_run._build_jobs(
+                manifest, cache, Path(d) / "out",
+                Path(d) / "w43", Path(d) / "w1", False, "bulk_v5",
+                seed_mode="fresh")
+            self.assertEqual(len(stitched), 1)
+            self.assertEqual(stitched[0]["seed_mode"], "fresh")
+            self.assertFalse(stitched[0]["agreement_only"])
+
+    def test_seed_mode_defaults_frozen(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache, manifest = self._setup(d)
+            _s, stitched, _m = p43_run._build_jobs(
+                manifest, cache, Path(d) / "out",
+                Path(d) / "w43", Path(d) / "w1", False, "bulk_v5")
+            self.assertEqual(stitched[0]["seed_mode"], "frozen")
 
 
 if __name__ == "__main__":
