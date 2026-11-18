@@ -18,6 +18,29 @@ its fixture: the disposition (via the adapter, under the
 given policy) plus the expected bands. check_seed_stability()
 is the TB-4 seed check: same disposition across seeds AND
 the FPP band clear of the decision boundaries.
+
+FPP REPORTING POLICY (CC-4, Phase 4 completion vote) — the
+rule every FPP report follows (Gaia-path, no contrast
+curve):
+  * Run >= 5 FIXED seeds (MIN_SEEDS_FOR_BAND). No single-seed
+    FPP is ever quoted — one seed is a coin flip (TB-4: five
+    WASP-29b seeds span [0.001776, 0.379185], a ~210x spread;
+    one seed reads PASS while the other four read
+    INCONCLUSIVE).
+  * Quote the MEDIAN FPP as the central measurement, with the
+    full [min, max] band, the per-seed values, N, and the
+    convergence status. (WASP-29b median 0.168578 ->
+    INCONCLUSIVE.)
+  * PASS requires EVERY seed to pass (max FPP <= 0.015, the
+    fpp_validate_max bar). A median that passes while one
+    seed fails is not a PASS.
+  * A target that passes in only some seeds cannot validate
+    here and stays supporting-evidence-only (WASP-29b: 1 of
+    5 seeds passing).
+The stability assertion (check_seed_stability) is never
+silently replaced: while the WASP-29b band fails it, the
+golden test carries a STRICT xfail (BM-3) — the assertion
+stays verbatim and XPASS-strict is the tripwire.
 """
 import json
 from pathlib import Path

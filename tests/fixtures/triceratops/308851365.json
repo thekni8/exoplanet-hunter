@@ -1,8 +1,7 @@
 {
   "expected": {
-    "fpp_max": 1.0,
     "fpp_min": 0.5,
-    "note": "TB-4: the EB must read FAIL/refute (FPP >= 0.5). No upper band is needed — the refute bar is the assertion.",
+    "note": "TB-4: the EB must read FAIL/refute (FPP >= 0.5). No upper band is needed — the refute bar is the assertion. P4-8: fpp_max 1.0 REMOVED 2026-11-17 — the full nightly measured FPP = 1.0 exactly (prob_planet underflowed to 0.0, degenerate False, NEBx2P on TIC 308851379), a legitimate strong-EB outcome that the >= check rejected. Degeneracy is guarded by the disposition (triceratops_disposition returns UNMEASURED for a degenerate run, so it can never read FAIL), not by this bound.",
     "status": "fail"
   },
   "fixture_version": 1,

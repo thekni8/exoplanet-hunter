@@ -194,7 +194,7 @@ def _open_failure_issue(summary, receipt_path, sha):
 
 
 def run_nightly(inputs_dir, fixtures_dir, receipt_path, workdir,
-                policy_name="external_tools_v2", fast=False,
+                policy_name="external_tools_v3", fast=False,
                 no_issue=False, timeout_s=None, memory_mb=None,
                 config_override=None, rss_poll_s=5.0):
     """Run the golden targets; write the receipt; open an
@@ -326,6 +326,15 @@ def run_nightly(inputs_dir, fixtures_dir, receipt_path, workdir,
     with open(receipt_path, "w") as fh:
         json.dump(receipt, fh, indent=2, sort_keys=True)
         fh.write("\n")
+    if overall_pass:
+        # BM-2 (Phase 4 completion vote): a successful run
+        # clears a stale FAILURE marker. The P4-8 driver wrote
+        # the marker on failure but never cleared it, so a
+        # stale marker lingered after a later green run.
+        marker = receipt_path.parent / "FAILURE"
+        if marker.exists():
+            marker.unlink()
+            print("cleared stale FAILURE marker")
     return overall_pass, receipt
 
 
@@ -381,7 +390,7 @@ def main(argv=None):
                     help="golden fixture dir")
     ap.add_argument("--receipt", default=str(DEFAULT_RECEIPT))
     ap.add_argument("--workdir", default=str(DEFAULT_WORKDIR))
-    ap.add_argument("--policy", default="external_tools_v2")
+    ap.add_argument("--policy", default="external_tools_v3")
     ap.add_argument("--fast", action="store_true",
                     help="N=10,000 smoke run (plumbing only; "
                     "never gate-eligible)")

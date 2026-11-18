@@ -874,8 +874,14 @@ def main():
     summary = {
         "tool": "bulk_screen v1.2 chunked driver (run_chunked)",
         "sector": SECTOR, "stars_in": N_STARS,
+        # P4-2: the merged summary stamps the run's calibration
+        # from the manifest — the pre-P4-2 code hardcoded
+        # {"bulk": "v1"} here, so every chunked run's summary
+        # mis-stamped its calibration (the manifest was right;
+        # P3-21's summary shows the v1 stamp on a v4 run).
         "provenance": _prov.provenance_header(
-            RUN_ID, {"bulk": "v1"}, recipe_hash=R_HASH,
+            RUN_ID, MANIFEST["calibration"]["versions"],
+            recipe_hash=R_HASH,
             sha=MANIFEST["pipeline"]["git_sha"],
             timestamp_utc=MANIFEST["execution"]["started_at"]),
         "recipe": {"file": RECIPE["_file"],

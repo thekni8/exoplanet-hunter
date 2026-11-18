@@ -90,7 +90,7 @@ except ImportError:  # pragma: no cover - non-Unix hosts
     resource = None
 
 # The C-10 design doc's example seed. The policy file
-# (calibration/external_tools_v2.yaml) is the source of truth
+# (calibration/external_tools_v3.yaml) is the source of truth
 # at runtime; this constant is the fallback when no policy is
 # supplied. The seed is FIXED per tool config, not per target
 # and not random per run — a re-run reproduces the number.
@@ -519,10 +519,10 @@ def python_executable():
 KNOWN_TOOLS = ("latte", "triceratops")
 
 
-def load_external_tool_configs(policy_name="external_tools_v2",
+def load_external_tool_configs(policy_name="external_tools_v3",
                                repo_root=None):
     """ToolConfigs from a versioned policy file (default
-    calibration/external_tools_v2.yaml, registry-verified by
+    calibration/external_tools_v3.yaml, registry-verified by
     the calibration loader). Returns {tool: ToolConfig} for
     every tool the policy configures. The config_hash is the
     policy file's own sha256 — the policy IS the tool config.

@@ -1,0 +1,135 @@
+# External-tool configuration v3 (Phase 4, P4-8 — timeout re-derived).
+# IMMUTABLE once used in a run: to change a setting, copy this
+# file to external_tools_v4.yaml, bump `version`, and update the
+# code + golden suite in the same change. See calibration/README.md
+# for the rules. Registered in calibration/registry.json — the
+# loader verifies this file's sha256 against the registry and
+# refuses a mismatch. Supersedes external_tools_v2 (timeout
+# 1800 -> 3600 only; bars, seed, memory, venvs, disposition
+# unchanged; v2 stays registered and loadable so v2
+# dispositions re-derive from stored raw numbers, P-4).
+version: external_tools_v3
+status: active
+rationale: "External-tool configuration v3 (2026-11-17, Phase 4 P4-8): v2's venv paths, tool versions, seed, memory cap, TRICERATOPS bars and disposition policy (A) carried over UNCHANGED; the only change is timeout_s 1800 -> 3600. Evidence: the P4-8 full nightly (Mac, 2026-11-17) measured healthy walls 164.9-549.8 s and healthy inits up to 467.9 s (warm cache), but the outage-era healthy init tail reached 1714.3 s (TIC 399571743) — a healthy run can exceed the 1800 s cap (init 1714 s + calc ~300 s = ~2014 s), so the v2 cap sits below the healthy tail. The 3600 s cap is 2x the old cap with headroom over the worst observed healthy run; the wrapper's init budget is 2400 s (P4-8). The runner cap remains the ultimate bound (the in-process SIGALRM budget does not enforce — the tool's per-sector try/except swallows it). Supersedes external_tools_v2 for all new tool runs."
+
+# --- shared run settings -----------------------------------------------
+# The seed is FIXED per tool config, not per target and not random
+# per run — a re-run reproduces the number (C-10 constraint 3).
+seed: 20261114
+# Wall-clock timeout per tool invocation, seconds (C-10: 1800;
+# P4-8: 3600 — re-derived from the healthy-run tail; a healthy
+# run can exceed 1800 s, see the rationale above).
+timeout_s: 3600
+# RLIMIT_AS memory cap per tool invocation, MB (the Mac has
+# 16 GB; the cap is a guardrail for the Mac's other work, not
+# a constraint — the VM never runs these tools).
+memory_mb: 2048
+
+# --- LATTE (Eisner et al. 2020) -----------------------------------------
+# Version 1.0.21: the latest stable on PyPI at build time
+# (2026-11-15). Pins matplotlib==3.2.0 / astropy<=4.0 — the
+# venv needs Python 3.8 (see docs/external-tools-mac-setup.md).
+latte:
+  tool_version: "1.0.21"
+  venv_python: "/Volumes/NVME/pingu-jobs/exoplanet-hunter/venvs/latte/bin/python"
+  wrapper: "gauntlet/tools/run_latte.py"
+
+# --- TRICERATOPS (Giacalone et al. 2021) --------------------------------
+# Version 1.1.0: the latest release at build time (2026-11-15).
+# Pins numpy<2 / scipy<1.14 on Python < 3.13 — the venv needs
+# Python 3.11 or older (see docs/external-tools-mac-setup.md).
+triceratops:
+  tool_version: "1.1.0"
+  venv_python: "/Volumes/NVME/pingu-jobs/exoplanet-hunter/venvs/triceratops/bin/python"
+  wrapper: "gauntlet/tools/run_triceratops.py"
+  # P-10: the bars below are Giacalone et al. 2021's
+  # published validation criteria — full citation,
+  # verified 2026-11-15: Giacalone, S., Dressing, C. D.,
+  # Jensen, E. L. N., et al. 2021, AJ, 161, 24, "Vetting of
+  # 384 TESS Objects of Interest with TRICERATOPS and
+  # Statistical Validation of 12 Planet Candidates",
+  # doi:10.3847/1538-3881/abc6af, arXiv:2002.00691.
+  # Validated planets: FPP < 0.015 and NFPP < 1e-3; likely
+  # planets: FPP < 0.5 and NFPP < 1e-3; likely nearby FPs:
+  # NFPP > 1e-1. (C-10's "FPP < 0.01" was a misremembering
+  # — the paper's bar is 0.015.)
+  citation: "Giacalone, S., Dressing, C. D., Jensen, E. L. N., et al. 2021, AJ, 161, 24, doi:10.3847/1538-3881/abc6af, arXiv:2002.00691"
+  # PROVISIONAL policy bars — the vote ratifies or replaces
+  # them (C-10 open question 4). Until then the adapter
+  # computes the policy-mapped status for the evidence record
+  # but the result does not gate promotion.
+  # P3-9 (Phase 3 vote, TB-2): the bars are RATIFIED as the
+  # disposition policy (A) — the "provisional" qualifier is
+  # retired. The values are unchanged from v1.
+  fpp_validate_max: 0.015  # Giacalone et al. 2021 validation bar
+  nfpp_validate_max: 0.001  # (FPP < 0.015 and NFPP < 0.001)
+  fpp_refute_min: 0.5  # FPP above this reads FAIL ("likely FP")
+
+  # --- Disposition policy (A) — Phase 3 vote, TB-2 --------------------
+  # Ratified unanimous 3/3 (2026-11-15). The mapping lives in
+  # gauntlet/stage_result.py:triceratops_disposition; this
+  # section is the policy record it implements, with the
+  # citation + rationale + evidence it rests on. The bars
+  # above are the machine-readable thresholds; the rules below
+  # are the disposition semantics (human-readable; a future
+  # policy version may make them machine-readable).
+  #
+  # Rules:
+  #   VALIDATE: FPP <= 0.015 AND NFPP <= 0.001 (Giacalone et
+  #     al. 2021 validation bars). Both bars must clear.
+  #   REFUTE: FPP >= 0.5 ("likely false positive").
+  #   GREY ZONE: everything between the validation bars and
+  #     the refute bar reads INCONCLUSIVE — never "validated",
+  #     never "likely planet" (Giacalone's "likely planet"
+  #     label, FPP < 0.5 and NFPP < 1e-3, is NOT adopted: an
+  #     FPP of 0.2 with a clean NFPP is still inconclusive
+  #     here). A NaN FPP reads INCONCLUSIVE (it fails both
+  #     comparisons). NFPP alone never refutes: without a
+  #     contrast curve it is an upper bound.
+  #   NO CONTRAST CURVE: intermediate results read
+  #     INCONCLUSIVE, never "validated" — without a curve the
+  #     bound-companion (STP) scenario is unconstrained and
+  #     dominates the FPP (WASP-29b: STP 0.160 of FPP 0.169).
+  #     Collier et al. 2026: what contrast curves remove is
+  #     "almost entirely" the STP scenario, and 72% of
+  #     curve-bearing validated planets would fail validation
+  #     without one.
+  # Evidence: C-10 runs (Mac, TRICERATOPS 1.1.0, seed
+  #   20261114, N=1,000,000 draws): EB TIC 308851365 FPP
+  #   0.999998, NFPP 0.964 -> FAIL/refute (decisive); WASP-29b
+  #   TIC 183537452 FPP 0.169, NFPP 0.0, STP 0.160 + SEB
+  #   0.009, no contrast curve -> INCONCLUSIVE (planet
+  #   probability 0.831, but the FPP misses the 0.015 bar by
+  #   an order of magnitude because STP is unconstrained).
+  # B spike (P3-9, 2026-11-15): contrast curves exist
+  #   essentially only for TOIs (~3,000-4,000 of ~8,000 TOIs
+  #   covered, ExoFOP-TESS the aggregation point) — (B), the
+  #   contrast-curve integration, is CLOSED as a general
+  #   solution for new uncatalogued leads. WASP-29 (TOI-192)
+  #   already has two curves on ExoFOP (Gemini/Zorro 832 nm,
+  #   SOAR/HRCam); re-running WASP-29b with the Zorro curve is
+  #   the immediate 3D(A) calibration test.
+  # NOT adopted (TB-2): the STP-excluded disposition
+  #   (Gemini's LIKELY_PLANET_UNCONSTRAINED_STP — validating
+  #   on FPP-minus-STP) is NOT in this policy. If the
+  #   known-planet panel (P3-9) shows most true planets land
+  #   below 0.015 without contrast, (C) is revisited per
+  #   target; if most are STP-dominated like WASP-29b, the
+  #   panel is the evidence base for revisiting the
+  #   disposition in 3.1. Either branch is recorded in
+  #   PROGRESS.md when the panel lands.
+  # Open question (panel-dependent): whether a no-contrast
+  #   PASS (FPP <= 0.015, NFPP <= 0.001) is trustworthy.
+  #   The panel measures it; until then a no-contrast PASS
+  #   validates under the bars but carries the
+  #   contrast_curve_used=false flag in its metrics for the
+  #   human reviewer.
+  disposition:
+    policy: "A"
+    ratified: "Phase 3 vote 2026-11-15, unanimous 3/3, TB-2"
+    validate: "FPP <= 0.015 and NFPP <= 0.001"
+    refute: "FPP >= 0.5"
+    grey_zone: "inconclusive"
+    grey_zone_never: ["validated", "likely planet"]
+    no_contrast_curve: "intermediate results read INCONCLUSIVE, never validated"
+    stp_excluded_disposition: "not adopted in Phase 3 (TB-2); revisit in 3.1 on panel evidence"

@@ -2038,6 +2038,81 @@ a Phase 4 input (`phase4-inputs/campaign-evidence.md`) with the
 full ranked lever list (stacking, multi-peak, single-transit, TLS,
 ranker). Do NOT loosen the DEPTH_EB gate.
 
+**CORRECTION 2026-11-17 (PB-5) — the "below the SDE 7.0 bar"
+label in the paragraph above is WITHDRAWN.** The `recorded` 313
+were NOT below the SDE 7.0 survivor bar: **307/313 cleared SDE
+≥ 7.0**. They failed the tier quality gates (depth 148,
+max_event_snr 81, MES_pink 78, n_strong_events 6 — table
+below), not the SDE bar. Only 6 recorded trials sat below SDE
+7.0 (SDE 6.07–6.88, above the 6.0 record floor); below_floor
+trials are all < 6.0 (range 3.80–5.90). **Correct
+characterisation: the 313 are tier-limited, not
+SDE-limited.** The old label also appears in the 2026-11-16
+vote records (`phase4-inputs/campaign-evidence.md:18`,
+`consultation-bundle.md:39`, `claude_brief.md:19`) and is
+withdrawn there too (Phase 4 vote comparison, Appendix B
+erratum B-1; verified against the frozen v2 campaign record,
+2026-11-17). The old accounting (313 + 154 + 26 = 493) left
+55 unclassified; the split below reconciles them as 53
+demoted-without-DEPTH_EB + 2 true gate losses
+(154 + 53 + 2 = 209 = 207 + 2).
+
+**First-failing-gate table — the 548 unrecovered planet trials
+(PB-5, committed 2026-11-17; source:
+`phase3-vote/p3-10-results-v2/first-failing-gate.md`, derived
+from the frozen v2 campaign record
+`p3-10-results-v2/injections.jsonl`; the tier-aware derivation
+is reproduced in the Phase 4 oracle-manifest builder).
+Decomposition: recorded 313 + lock-on 207 + below_floor 26 +
+true gate losses 2 = 548. Lock-on 207 = 97 DEPTH_EB + 57
+wrong-period survivors + 53 demoted-without-DEPTH_EB. The 2
+true gate losses (period-matched, demoted, not DEPTH_EB):
+ODD_EVEN_EB (SDE 13.09, depth 0.35%, n_ev 3, MES 9.65) and
+DURATION_EB (SDE 90.95, depth 1.55%, n_ev 30, MES 24.96).
+First-failing gate for the 313 recorded trials (tier-aware,
+in code order):
+
+| First failing gate | n | % of 313 |
+|---|---|---|
+| tier B: depth > 1.0% | 148 | 47% |
+| tier B: max_event_snr < 8.0 | 81 | 26% |
+| tier A: MES_pink < 9.0 | 78 | 25% |
+| tier A: n_strong_events < 2 | 6 | 2% |
+
+148 + 81 + 78 + 6 = 313. All 148 depth failures are
+wrong-period at the ~1% match definition (at 2%: 143 wrong +
+4 harmonic + 1 exact — the exact/harmonic cases have found
+depths 1.26–2.55% vs 0.2–0.8% injected, i.e. different
+signals). The depth filter rejects the wrong signal, not
+planets. The tier-B path (n_events_found < 3) holds 229/313;
+tier A holds 84/313. Rescore failure is ruled out: 0/313
+lack rs fields — every recorded trial got a rescore; the tier
+gates are the binding constraint, not a machinery failure.
+
+**The 165-split (Phase 4 vote, Appendix A3):** of the 165
+non-depth recorded trials, **69 are right-period** (57 exact +
+12 harmonic; depth ratios median 0.90x — the injected planet,
+failing only tier gates) and 96 are wrong-period. Per-gate
+(right / wrong): max_event_snr 23 / 58; MES_pink 40 / 38;
+n_strong_events 6 / 0. The 69 belong to P4-3 (stacking) —
+P4-1 mask-and-re-search cannot rescue them (masking Pass 1
+masks the planet). True gate losses are 71 (69 + 2), not 2.
+The wrong-period population is 451 (207 + 148 + 96), not 355.
+
+**Alts test (PB-5, committed 2026-11-17):** is the injected
+period in the alternate BLS peaks? Lock-on family (154,
+survivor-or-DEPTH_EB definition): P_inj in alts **4/154
+(2.6%)**; 138/154 have ≥1 alt. Full lock-on family (207):
+P_inj in alts **7/207 (3.4%)**. Verdict: parallel evaluation
+of top-N peaks would recover almost nothing — the planet peak
+is not in the top-2 alternate peaks (SDE ≥ 3.0) for 97% of
+lock-on trials. Mask-and-re-search is the mechanism to build.
+Caveat: alts are capped at 2 peaks with SDE ≥ 3.0 and
+harmonic aliases (1/3, 1/2, 2/3, 3/2, 2, 3×) are deleted, so
+7/207 says nothing about rank ≥3, aliases, or
+mask-and-re-search itself — the P_found/P_inj tabulation
+(PB-1 oracle run) is the measurement that answers it.
+
 **Two flags for P3-11:** (1) the 1–2-event planet n is **113**,
 below the adoption rule's n ≥ 200 floor (mixed-kind bin is 260) —
 whether the rule's n counts planet-only or all trials needs
@@ -2051,6 +2126,45 @@ Gemini (Argon, web) + ChatGPT (Think, max reasoning) legs
 dispatched to a coordinator; Claude leg is Dev's paste. This is a
 scoping consultation, not the Phase 4 vote (that still happens
 after Phase 3 merges).
+
+**PB-2 finding — the recorded S97 screens are bulk_v1 screens,
+not bulk_v4 (PROVEN 2026-11-17, Phase 4 pre-build):** the S97
+rescore (2026-11-16, run_id bulk-20261116T045947Z-bffc,
+labelled bulk_v4) screened with bulk_v1 preprocessing —
+quality mask 17087 (lightkurve default) + symmetric clip —
+while stamping records bulk_v4. Proof: (1) the recorded
+`bls_input_hash` for TIC 11613680 (`74f0298d…`) is reproduced
+EXACTLY by one fingerprint combo (17087 + symmetric +
+SYS_RM_FLUX) and not by the bulk_v4 combo; (2) re-screening
+under bulk_v1 reproduces the recorded P/SDE/mes/n_ev exactly
+on 3/3 sampled stars, and the full S97 rescore under bulk_v1
+validates 13,990/13,990 with 0 mismatches; (3) mechanism in
+source — `bulk_screen.py` `main()` sets the calibration in
+the PARENT only (line 1661) and stamps records with it (line
+1675), but the screen workers run in a `ProcessPoolExecutor`
+(line 1774) with NO initializer, and on macOS (spawn) they
+re-import the module and fall back to bulk_v1
+(`EXHUNT_BULK_CALIBRATION` never set; `bulk_v1.yaml` declares
+neither `quality_mask` nor `clip_option`, so `_apply_profile`
+falls back to the 17087 + symmetric defaults). The campaign
+is unaffected — `inject_campaign.py` HAS a pool initializer
+(`_init_worker`) that propagates the calibration, which is
+why the campaign screens reproduced 960/960 under bulk_v4.
+Eliminated: input files (sha256 match), calibration file
+(content hash match), committed code (zero screen-path
+commits 40ab9a9..60ea49c), environment (requirements.txt sha
+match); the `working_tree_clean: False` flag on all rows was
+a red herring. Consequence: EVERY `bulk_screen.py` CLI run on
+macOS screens with v1 preprocessing regardless of
+`--calibration`. The merge's S97 numbers (14,293 post-veto,
+13,983 in clusters, ranker 4/26 TOIs top decile) rest on v1
+preprocessing; the S96 bulk_v4 screen (4,692 → 734) is
+affected the same way IF it ran via this CLI path (not
+verified). P4-8's out-of-process runner MUST propagate the
+calibration to workers (the `inject_campaign.py` pattern) —
+this bug is a P4-8 acceptance input. Full record:
+Phase 4 pre-build `PB2_RESCORE.md` (S97 root-cause section);
+diagnostics `prebuild/diag_s97*.py`.
 
 ## P3-20 — Decision record: proceed with the 3A experiment (parent, 2026-11-16 ~07:05 IST)
 
@@ -2201,7 +2315,7 @@ Until all five are met, the ranker stays an offline experiment:
 it may order a queue for a human, it may never filter, veto, or
 promote a candidate on its own.
 
-## P3-21 — S97 validation: PREPPED, pending on the Mac (2026-11-16)
+## P3-21 — S97 validation — RESCORE COMPLETE 2026-11-16 (prepped 2026-11-16)
 
 **Status: preparation complete; the run waits for a free Mac
 slot.** The panel retry (P3-9) launched 2026-11-16 08:31 IST via
@@ -2212,6 +2326,44 @@ commands doc is
 `phase3-vote/p3-21-mac-commands.md` (exact commands, md5 gate,
 pre-flight, smoke, launch, resume, copy-back, scoring, S98
 verification). Nothing has been run on the Mac.
+
+**RUN COMPLETE 2026-11-16 (Mac; run_id
+bulk-20261116T045947Z-bffc, pipeline 40ab9a9, 35,400 stars).**
+bulk_v4 rescore: 14,800 pre-veto survivors (v1: 14,732
+post-filter — v4 found 68 MORE pre-veto survivors); post-veto
+**14,293 (14,286 tier A + 7 tier B)** — a 3.0% cut, vs S96's
+84.4% (4,692 → 734). Screen-count conservation holds:
+14,800 survivor + 10,552 demoted + 10,029 recorded + 18
+below_floor + 1 search_invalid = 35,400; 14,800 − 500 veto −
+7 zooniverse = 14,293. Source:
+`mac-run-data/rescore-v4-s97/summary.json` (conservation.ok
+true) + `run_s0097-v4.log`.
+
+**Mega-cluster counts (PB-5, committed 2026-11-17 — these are
+S97's, not S96's; S96's epoch-cluster record is counts-only
+(EPOCH-CLUSTER removed 3,934 tier-B / flagged 147 tier-A in
+the P3-11 replay) and carries no cluster sizes).** The
+EPOCH-CLUSTER veto found 4 mega-clusters on S97:
+
+| Cluster | Size |
+|---|---|
+| 1 | 9,565 |
+| 2 | 4,796 |
+| 3 | 77 |
+| 4 | 45 |
+| **Total clustered** | **14,483** |
+
+500 tier-B rows demoted, 13,983 tier-A rows flagged and kept
+(500 + 13,983 = 14,483). 13,983/14,286 = 97.9% of S97's
+Tier-A survivors sit in the 4 mega-clusters; only 310
+survivors are unclustered (303 tier A + 7 tier B). Mechanism
+(adopted diagnosis, CB-7): Tier A is defined by raw event
+count (≥3), so a ~13.2 d or ~27 d systematic in S97's ~55-day
+baseline produces ≥3 events, lands in Tier A, and bypasses
+both demotions — Tier A is flagged, never demoted, under
+bulk_v4. Claim language: bulk_v4 is "S96-effective,
+S97-inert". The fix is BP-1 / P4-2 (before Phase 4
+multi-sector production screens and before unlocking S98).
 
 **Design decisions (recorded — the doc carries the reasoning):**
 - The rescore uses `bulk/run_chunked.py --sector 97

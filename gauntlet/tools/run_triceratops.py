@@ -92,11 +92,21 @@ TRICERATOPS specifics, verified against the 1.1.0 source:
   50 min of wall) until the runner's cap killed it. The
   wrapper therefore bounds every socket read
   (socket.setdefaulttimeout, 300 s) and the target build
-  (a SIGALRM phase budget, 600 s, retried once), and
+  (a SIGALRM phase budget, 2,400 s re-derived P4-8 from
+  the measured healthy-init tail, retried once), and
   records per-phase seconds in metrics.phase_seconds
   plus a timestamped phase_log.txt in the workdir — so
   the next stall fails fast and names its phase instead
-  of burning the whole cap in silence.
+  of burning the whole cap in silence. P4-8 (proven from
+  the tool's source): the SIGALRM budget does NOT enforce
+  on a stall inside the per-sector TessCut loop
+  (triceratops.py ~242 swallows it and drops the sector),
+  so the wrapper also fails loudly whenever the tool
+  builds fewer sectors than requested (len(TESS_images)
+  vs len(sectors), recorded in metrics as
+  sectors_built / sectors_requested) — a swallowed stall
+  is a loud failure, never a partial FPP. The
+  out-of-process runner cap is the ultimate bound.
 * PROVENANCE LIMIT (P-4): inside target construction
   the tool fetches neighbour-star data from MAST and a
   background-star population from Gaia DR3 (the 1.1.0
@@ -138,15 +148,34 @@ SEARCH_RADIUS_PX = 10
 # window around mid-transit.
 N_FOLD_BINS = 200
 FOLD_WINDOW_DURATIONS = 3.0
-# Network resilience (2026-11-16): the tool's remote calls
-# carry no timeout of their own — a stalled call waits
-# forever and only the runner's cap ends it. The wrapper
-# bounds every socket read AND the target build, and
-# retries a stalled build once. Budgets are generous
-# against healthy runs (a normal target init is a few
-# minutes) and overridable by environment for tests.
+# Network resilience (2026-11-16, re-derived 2026-11-17,
+# P4-8): the tool's remote calls carry no timeout of their
+# own — a stalled call waits forever and only the runner's
+# cap ends it. The wrapper bounds every socket read AND
+# the target build, and retries a stalled build once.
+# P4-8 FINDING (proven from the tool's source,
+# triceratops.py ~242): the SIGALRM budget does NOT
+# enforce on a stall inside the per-sector TessCut loop —
+# the tool catches every exception there, prints "Sector N
+# raised exception. Ignoring for validation." and drops
+# the sector, so the alarm is swallowed and the run
+# proceeds on a partial sector set (inits ran 697.8 s /
+# 1714.3 s / 2700 s+ against the old 600 s budget). The
+# alarm still bounds hangs OUTSIDE that loop (the MAST
+# cone / Gaia queries) and slow-flowing fetches, but the
+# fail-loud mechanism for a swallowed stall is the
+# dropped-sector check in run(): a shortfall in
+# len(TESS_images) vs the requested sectors fails the run.
+# The budget below is re-derived from the measured
+# healthy-init tail — max 1,714.3 s (TIC 399571743),
+# 1,611.4 s (TOI-700c), 1,190.9 s (TIC 12999193) — and
+# must exceed it with margin: 2,400 s is ~1.4x the max.
+# The old 600 s default is BELOW the tail and would trip
+# on a healthy 20-sector init. Budgets are overridable by
+# environment for tests. The out-of-process runner cap
+# (policy timeout_s) is the ultimate bound.
 SOCKET_TIMEOUT_S = 300
-TARGET_INIT_TIMEOUT_S = 600
+TARGET_INIT_TIMEOUT_S = 2400
 TARGET_INIT_ATTEMPTS = 2
 # The repo root, for finding a cached Gaia population CSV
 # the tool itself wrote on an earlier run.
@@ -347,7 +376,8 @@ def _output(tool_version, seed, config_hash, status, value,
 
 
 def _null_metrics(dilution_corrected, contrast_curve_used,
-                  n_fold_points=None, phase_seconds=None):
+                  n_fold_points=None, phase_seconds=None,
+                  sectors_requested=None, sectors_built=None):
     return {
         "fpp": None, "nfpp": None, "prob_planet": None,
         "prob_eb_target": None, "prob_eb_neighbour": None,
@@ -358,6 +388,12 @@ def _null_metrics(dilution_corrected, contrast_curve_used,
         "contrast_curve_used": contrast_curve_used,
         "n_fold_points": n_fold_points,
         "phase_seconds": phase_seconds,
+        # P4-8: the sector-completeness record — how many
+        # of the requested sectors the tool actually built
+        # (len(TESS_images) vs len(sectors)). None when the
+        # run failed before target construction.
+        "sectors_requested": sectors_requested,
+        "sectors_built": sectors_built,
         # PM-1: the background-scenario check did not pass
         # (it never ran, or it failed the run).
         "background_scenarios_checked": False,
@@ -414,6 +450,12 @@ def run(input_path, output_path):
     # runner kills this process mid-run.
     phase_seconds = {}
     phase_log_path = os.path.join(workdir, "phase_log.txt")
+    # P4-8: the sector-completeness record (see the
+    # dropped-sector check after target construction).
+    # Initialised here so _failed can report them even when
+    # the run dies before construction.
+    sectors_requested = None
+    sectors_built = None
 
     def _log_phase(msg):
         line = (f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} "
@@ -434,7 +476,9 @@ def run(input_path, output_path):
             _null_metrics(dilution_corrected,
                           contrast_curve_used,
                           n_fold_points,
-                          phase_seconds or None),
+                          phase_seconds or None,
+                          sectors_requested,
+                          sectors_built),
             input_hashes, artifacts, warnings,
             time.monotonic() - start, n_transits)
 
@@ -468,6 +512,7 @@ def run(input_path, output_path):
                        "±3 durations of mid-transit")
     cadence_s = float(inp["lightcurve"]["cadence_s"])
     sectors = [int(s) for s in inp["lightcurve"]["sectors"]]
+    sectors_requested = len(sectors)
 
     # ---- run the tool ------------------------------------------
     try:
@@ -500,6 +545,25 @@ def run(input_path, output_path):
     # sector) and the phase that hung on 2026-11-16, so it
     # gets the alarm and the retry; a non-network error
     # still fails fast with no retry.
+    # P4-8: run the tool phases from the workdir, so the
+    # Gaia background CSV the tool writes on a live query
+    # (<tic>_gaia_background.csv — funcs.py:840, a relative
+    # path, i.e. the process cwd) lands in the run workdir
+    # instead of the repo root (clean worktree). The light
+    # curve is already loaded; the contrast-curve path is
+    # absolutised first so calc_probs still finds it after
+    # the chdir. A failed chdir is non-fatal (the run
+    # proceeds; the CSV may land in the repo root as
+    # before) and is recorded as a warning.
+    if cc_path:
+        cc_path = os.path.abspath(cc_path)
+    try:
+        os.chdir(workdir)
+    except OSError as exc:
+        warnings.append(f"could not chdir to the run workdir "
+                        f"({exc}); the Gaia CSV may land in "
+                        f"the repo root")
+        _log_phase(f"chdir to workdir failed: {exc}")
     trilegal_fname = _cached_gaia_population(tic)
     if trilegal_fname:
         _log_phase("reusing cached Gaia population "
@@ -540,6 +604,30 @@ def run(input_path, output_path):
         return _failed(f"target construction failed after "
                        f"{init_attempts} attempt(s): "
                        f"{last_error}")
+    # P4-8: fail loudly on dropped sectors. The tool's
+    # per-sector TessCut loop (triceratops.py ~242) catches
+    # every exception, prints "Sector N raised exception.
+    # Ignoring for validation." and continues — a stalled
+    # fetch (or a swallowed phase timeout) silently drops
+    # the sector and the tool returns with fewer images
+    # than requested sectors. self.sectors is never
+    # mutated, so the only honest record of what was built
+    # is len(TESS_images). A shortfall fails the run: an
+    # FPP computed on a subset of the requested sectors is
+    # a partial result, never a completion. A missing
+    # TESS_images attribute is the same failure (the
+    # completeness is unverifiable).
+    sectors_built = len(getattr(tgt, "TESS_images", None)
+                        or [])
+    if sectors_built != sectors_requested:
+        _log_phase(f"SECTOR DROP: built {sectors_built} of "
+                   f"{sectors_requested} requested sectors")
+        return _failed(f"dropped sectors during target "
+                       f"construction: built {sectors_built} "
+                       f"of {sectors_requested} requested "
+                       f"sectors (the tool silently skipped "
+                       f"the rest); the FPP would be computed "
+                       f"on a partial sector set")
     # PM-1: fail closed on a silently skipped background
     # population. If the Gaia query failed, the tool sets
     # trilegal_missing and omits the background scenarios
@@ -631,6 +719,10 @@ def run(input_path, output_path):
         "contrast_curve_used": contrast_curve_used,
         "n_fold_points": n_fold_points,
         "phase_seconds": phase_seconds,
+        # P4-8: the sector-completeness record — equal here
+        # (the run fails loudly above on any shortfall).
+        "sectors_requested": sectors_requested,
+        "sectors_built": sectors_built,
         "background_scenarios_checked":
             background_scenarios_checked,
     }
@@ -647,6 +739,13 @@ def main(argv=None):
     ap.add_argument("--output", required=True,
                     help="C-10 output JSON to write")
     args = ap.parse_args(argv)
+    # P4-8: run() chdirs to the workdir, so relative argv
+    # paths must be resolved against the CALLER's cwd
+    # BEFORE the run — resolving them after run() would
+    # nest them under the workdir (the first Mac fast smoke
+    # failed all three targets this way).
+    args.input = os.path.abspath(args.input)
+    args.output = os.path.abspath(args.output)
     out = run(args.input, args.output)
     with open(args.output, "w") as fh:
         json.dump(out, fh, indent=2)

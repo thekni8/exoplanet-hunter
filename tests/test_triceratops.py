@@ -5,7 +5,7 @@ Two layers, both driven without the real tool:
 * The ADAPTER (gauntlet/stage_result.py:triceratops_result)
   maps canned TRICERATOPS output JSONs onto StageResults
   using the POLICY bars (a small test policy here; one test
-  proves the default policy loads from external_tools_v2).
+  proves the default policy loads from external_tools_v3).
   PASS needs FPP and NFPP both under the validation bars;
   FAIL needs FPP over the refute bar; the grey zone (and a
   low FPP blocked by a high NFPP) is INCONCLUSIVE. A
@@ -29,12 +29,14 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gauntlet.external_tool import build_tool_input  # noqa: E402
+from gauntlet.external_tool import (  # noqa: E402
+    ToolConfig, build_tool_input, run_external_tool)
 from gauntlet.stage_result import (  # noqa: E402
     triceratops_disposition, triceratops_result)
 from validation import (  # noqa: E402
@@ -198,10 +200,11 @@ class TestTriceratopsResult(unittest.TestCase):
             validate_triceratops_output(bad)
 
     def test_default_policy_loads(self):
-        # policy=None loads the real external_tools_v2
+        # policy=None loads the real external_tools_v3
         # profile (registry-verified): the planet output
         # passes under the ratified bars (P3-9: the default
-        # policy moved v1 -> v2; the bars are unchanged).
+        # policy moved v1 -> v2; P4-8: v2 -> v3, timeout only;
+        # the bars are unchanged).
         res = triceratops_result(_output())
         self.assertEqual(res.status, "pass")
         self.assertEqual(res.threshold, 0.015)
@@ -212,9 +215,9 @@ class TestTriceratopsResult(unittest.TestCase):
         # policy-only edit re-derives the disposition without
         # re-running the tool.
         res = triceratops_result(_output())
-        self.assertEqual(res.policy_version, "external_tools_v2")
+        self.assertEqual(res.policy_version, "external_tools_v3")
         self.assertEqual(res.to_dict()["policy_version"],
-                         "external_tools_v2")
+                         "external_tools_v3")
         # The new field passes the stage-result schema
         # (additionalProperties: false would reject an
         # undeclared field).
@@ -305,6 +308,39 @@ FAKE_TRI = textwrap.dedent("""\
                 if count <= failures:
                     raise ConnectionError(
                         "simulated MAST stall")
+            # P4-8: the fake "builds" one image per requested
+            # sector by default; the drop behaviours model
+            # the real tool silently dropping sectors
+            # (triceratops.py ~242: per-sector try/except
+            # prints and continues, so a stalled fetch
+            # returns fewer images than requested sectors).
+            self.TESS_images = [None] * len(sectors)
+            if behaviour == "drop_one":
+                # A silent sector drop with no hang and no
+                # timeout: the completeness check alone must
+                # catch it.
+                self.TESS_images = self.TESS_images[:-1]
+            if behaviour == "swallow_drop":
+                # The P4-8 swallowing fake: a slow fetch
+                # inside the tool's per-sector try/except —
+                # the phase alarm (or any exception) is
+                # swallowed, the sector is dropped, and the
+                # tool returns with fewer images than
+                # requested sectors.
+                try:
+                    time.sleep(float(os.environ.get(
+                        "FAKE_TRI_SLOW_FETCH_S", "120")))
+                except Exception:
+                    pass
+                self.TESS_images = self.TESS_images[:-1]
+            if behaviour == "write_gaia_csv":
+                # The tool writes <tic>_gaia_background.csv
+                # to its cwd on a live Gaia query
+                # (funcs.py:840) — P4-8 expects it in the
+                # run workdir, never the repo root.
+                with open(f"{ID}_gaia_background.csv",
+                          "w") as fh:
+                    fh.write("ID,Tmag\\n%d,13.45\\n" % ID)
             self.ID = ID
             self.sectors = sectors
             self.FPP_degenerate = False
@@ -397,7 +433,7 @@ FAKE_TRI = textwrap.dedent("""\
     """)
 
 
-def _input_dict(tmp, dilution_corrected=False):
+def _input_dict(tmp, dilution_corrected=False, sectors=None):
     rng = np.random.default_rng(7)
     t = 1500.0 + np.arange(0, 27.0, 10.0 / 1440.0)
     ph = ((t - 1500.5 + 0.5 * 3.9227) % 3.9227) - 0.5 * 3.9227
@@ -419,7 +455,8 @@ def _input_dict(tmp, dilution_corrected=False):
          "duration_h": 2.52, "depth_frac": 0.01,
          "n_transits": 7},
         {"path": lc_path, "input_hash": lc_hash,
-         "sectors": [96], "cadence_s": 600.0},
+         "sectors": sectors if sectors is not None else [96],
+         "cadence_s": 600.0},
         {"path": "/tmp/census.json", "input_hash": "b" * 64,
          "radius_arcsec": 180.0})
     inp["dilution_corrected"] = dilution_corrected
@@ -643,10 +680,17 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
     def test_cached_gaia_population_passed(self):
         # A Gaia CSV the tool itself wrote for this target
         # is passed as trilegal_fname, so a retry skips the
-        # live Gaia query with identical data.
+        # live Gaia query with identical data. P4-8 (TEST
+        # CHANGE, stated): the cache lives in the run
+        # workdir — the wrapper runs the tool phases there,
+        # so a CSV in the workdir is found. The old
+        # placement (a CSV in the caller's cwd) no longer
+        # models anything the wrapper does.
         with tempfile.TemporaryDirectory() as tmp:
             fakevenv = self._fake_tri(tmp)
-            csv_path = (Path(tmp)
+            work = Path(tmp) / "work"
+            work.mkdir(exist_ok=True)
+            csv_path = (work
                         / "423498314_gaia_background.csv")
             csv_path.write_text("ID,Tmag\n423498314,13.45\n")
             _w, out, obs = self._run_wrapper(
@@ -709,6 +753,172 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
             self.assertFalse(
                 out["metrics"]["background_scenarios_checked"])
             validate_triceratops_output(out)
+
+    def test_drop_one_fails_loud_without_timeout(self):
+        # P4-8: a silent sector drop with no hang and no
+        # timeout — the completeness check alone must catch
+        # it. The run fails and names the shortfall; no FPP
+        # is reported on the partial sector set.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            _w, out, _obs = self._run_wrapper(
+                tmp, fakevenv, _input_dict(tmp, sectors=[96, 97]),
+                behaviour="drop_one")
+            self.assertEqual(out["status"], "failed")
+            self.assertIsNone(out["value"])
+            self.assertTrue(any("dropped sectors" in w
+                                for w in out["warnings"]))
+            self.assertEqual(
+                out["metrics"]["sectors_requested"], 2)
+            self.assertEqual(
+                out["metrics"]["sectors_built"], 1)
+            self.assertFalse(
+                out["metrics"]["background_scenarios_checked"])
+            validate_triceratops_output(out)
+            log = Path(tmp) / "work" / "phase_log.txt"
+            self.assertIn("SECTOR DROP", log.read_text())
+
+    def test_swallow_drop_fails_loud_at_init_budget(self):
+        # P4-8: the swallowing fake — a 120 s fetch inside
+        # the tool's per-sector try/except, with the init
+        # budget at 30 s. The alarm fires at 30 s, the fake
+        # swallows it and drops the sector, and the wrapper
+        # fails loudly on the shortfall — at ~30 s, not at
+        # the runner cap and never as a silent completion.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            _w, out, _obs = self._run_wrapper(
+                tmp, fakevenv, _input_dict(tmp, sectors=[96, 97]),
+                behaviour="swallow_drop",
+                extra_env={"TRICERATOPS_INIT_TIMEOUT_S": "30",
+                           "FAKE_TRI_SLOW_FETCH_S": "120"})
+            self.assertEqual(out["status"], "failed")
+            self.assertIsNone(out["value"])
+            self.assertTrue(any("dropped sectors" in w
+                                for w in out["warnings"]))
+            self.assertEqual(
+                out["metrics"]["sectors_requested"], 2)
+            self.assertEqual(
+                out["metrics"]["sectors_built"], 1)
+            self.assertLess(out["wall_time_s"], 90)
+            self.assertGreaterEqual(out["wall_time_s"], 25)
+            validate_triceratops_output(out)
+
+    def test_gaia_csv_lands_in_workdir(self):
+        # P4-8: the Gaia CSV the tool writes on a live query
+        # lands in the run workdir, never the caller's cwd
+        # (clean worktree — no new files at the repo root).
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            work, out, _obs = self._run_wrapper(
+                tmp, fakevenv, _input_dict(tmp),
+                behaviour="write_gaia_csv", cwd=tmp)
+            self.assertEqual(out["status"], "completed")
+            csv_name = "423498314_gaia_background.csv"
+            self.assertTrue((work / csv_name).exists())
+            self.assertFalse((Path(tmp) / csv_name).exists())
+
+    def test_relative_argv_paths_survive_workdir_chdir(self):
+        # P4-8 regression: the wrapper chdirs to the run
+        # workdir before target construction; a relative
+        # --output resolved against the workdir used to
+        # crash the write (FileNotFoundError) after a full
+        # run — the first Mac fast smoke failed all three
+        # targets this way. Both argv paths are absolutised
+        # before the run.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            work = Path(tmp) / "work"
+            work.mkdir()
+            (work / "input.json").write_text(
+                json.dumps(_input_dict(tmp, sectors=(2, 29))))
+            env = dict(os.environ)
+            env["PYTHONPATH"] = fakevenv + os.pathsep + env.get(
+                "PYTHONPATH", "")
+            env["FAKE_TRI_OBS"] = str(Path(tmp) / "obs.json")
+            env["FAKE_TRI_BEHAVIOUR"] = "planet"
+            proc = subprocess.run(
+                [sys.executable, WRAPPER, "--input",
+                 "work/input.json", "--output", "work/output.json"],
+                capture_output=True, text=True, env=env, timeout=120,
+                cwd=tmp)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            out = json.loads((work / "output.json").read_text())
+            self.assertEqual(out["status"], "completed")
+            self.assertEqual(out["metrics"]["sectors_built"], 2)
+
+    def test_spawn_context_propagates_config(self):
+        # P4-8 (PB-2 acceptance input): the out-of-process
+        # runner must propagate the requested config to the
+        # worker — a worker silently running under defaults
+        # while the record claims the requested config is
+        # the PB-2 calibration-drop bug in another form. A
+        # non-default seed + config_hash must be echoed
+        # verbatim in the output.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            inp = _input_dict(tmp)
+            inp["seed"] = 777
+            inp["config_hash"] = "d" * 64
+            env = dict(os.environ)
+            env["PYTHONPATH"] = (fakevenv + os.pathsep
+                                 + env.get("PYTHONPATH", ""))
+            env["FAKE_TRI_OBS"] = str(Path(tmp) / "obs.json")
+            env["FAKE_TRI_BEHAVIOUR"] = "planet"
+            with mock.patch.dict(os.environ, env):
+                res = run_external_tool(
+                    ToolConfig(tool="triceratops",
+                               python=sys.executable,
+                               wrapper=WRAPPER, timeout_s=120,
+                               memory_mb=0, seed=777,
+                               tool_version="1.1.0",
+                               config_hash="d" * 64),
+                    inp, str(Path(tmp) / "work"))
+            self.assertEqual(res.status, "completed")
+            self.assertEqual(res.output["seed"], 777)
+            self.assertEqual(res.output["config_hash"],
+                             "d" * 64)
+            self.assertEqual(
+                res.output["metrics"]["sectors_requested"], 1)
+            self.assertEqual(
+                res.output["metrics"]["sectors_built"], 1)
+
+    def test_init_timeout_30_aborts_swallowing_fake(self):
+        # P4-8 acceptance (brief): TRICERATOPS_INIT_TIMEOUT_S
+        # =30 aborts at 30 s against a swallowing fake. The
+        # abort is the wrapper's, not the runner's kill: the
+        # runner timeout is a generous 300 s, and the output
+        # is a failed run (written by the wrapper at ~30 s),
+        # not a runner timeout.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            inp = _input_dict(tmp, sectors=[96, 97])
+            env = dict(os.environ)
+            env["PYTHONPATH"] = (fakevenv + os.pathsep
+                                 + env.get("PYTHONPATH", ""))
+            env["FAKE_TRI_OBS"] = str(Path(tmp) / "obs.json")
+            env["FAKE_TRI_BEHAVIOUR"] = "swallow_drop"
+            env["FAKE_TRI_SLOW_FETCH_S"] = "120"
+            env["TRICERATOPS_INIT_TIMEOUT_S"] = "30"
+            with mock.patch.dict(os.environ, env):
+                res = run_external_tool(
+                    ToolConfig(tool="triceratops",
+                               python=sys.executable,
+                               wrapper=WRAPPER, timeout_s=300,
+                               memory_mb=0, seed=20261114,
+                               tool_version="1.1.0",
+                               config_hash="c" * 64),
+                    inp, str(Path(tmp) / "work"))
+            self.assertEqual(res.status, "completed")
+            self.assertEqual(res.output["status"], "failed")
+            self.assertTrue(any("dropped sectors" in w
+                                for w in res.output["warnings"]))
+            self.assertEqual(
+                res.output["metrics"]["sectors_requested"], 2)
+            self.assertEqual(
+                res.output["metrics"]["sectors_built"], 1)
+            self.assertLess(res.wall_time_s, 90)
+            self.assertGreaterEqual(res.wall_time_s, 25)
 
 
 class TestBinFold(unittest.TestCase):
@@ -785,11 +995,41 @@ class TestExternalToolsV2Policy(unittest.TestCase):
         self.assertIn("not adopted",
                       disp["stp_excluded_disposition"])
 
-    def test_v2_is_the_default_policy(self):
+    def test_v3_is_the_default_policy(self):
         from gauntlet.stage_result import (
             EXTERNAL_TOOLS_POLICY_VERSION)
         self.assertEqual(EXTERNAL_TOOLS_POLICY_VERSION,
-                         "external_tools_v2")
+                         "external_tools_v3")
+
+    def test_v3_bars_unchanged_from_v2(self):
+        # P4-8: v3 changes ONLY the runner timeout
+        # (1800 -> 3600 s); the bars, tool versions,
+        # venvs, seed, memory cap and disposition (A)
+        # carry over unchanged from v2.
+        from calibration import load_profile
+        v2 = load_profile("external_tools_v2")
+        v3 = load_profile("external_tools_v3")
+        for key in ("fpp_validate_max", "nfpp_validate_max",
+                    "fpp_refute_min"):
+            self.assertEqual(v3["triceratops"][key],
+                             v2["triceratops"][key], key)
+        for key in ("tool_version", "venv_python", "wrapper"):
+            self.assertEqual(v3["triceratops"][key],
+                             v2["triceratops"][key], key)
+        for key in ("seed", "memory_mb"):
+            self.assertEqual(v3[key], v2[key], key)
+        self.assertEqual(v3["triceratops"]["disposition"],
+                         v2["triceratops"]["disposition"])
+
+    def test_v3_timeout_is_3600(self):
+        # P4-8: the one functional v3 change — the
+        # runner cap re-derived from the healthy-run
+        # tail (a healthy run can exceed 1800 s).
+        from calibration import load_profile
+        v3 = load_profile("external_tools_v3")
+        self.assertEqual(v3["timeout_s"], 3600)
+        self.assertEqual(
+            load_profile("external_tools_v2")["timeout_s"], 1800)
 
 
 if __name__ == "__main__":

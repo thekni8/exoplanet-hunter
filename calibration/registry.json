@@ -70,6 +70,13 @@
       "status": "active",
       "rationale": "Bulk calibration v4 (2026-11-16, Phase 3 P3-15 gate landing — ACTIVE; pre-merge update of the 2026-11-15 provisional scaffold under the F-1 exception: the profile never stamped a run and never reached main): all bulk_v3 gates carried over verbatim + the P3-14 grid-edge floor constants + the two tier-B gates adopted by the P3-11 decision (parent 2026-11-16, Amendment A approved): EPOCH-CLUSTER veto (P3-13 criterion: (P, T0) within 1% / 3 h, clusters >20 stars; tier-B members demoted, tier-A flagged) and TWO-COMBINED (2-event rows need both events strong AND mes_pink >= 9.0). Combined measured loss 0/16 in-regime, 1/412 overall; real survivors 4,692 -> 734, null floor 0.1085 -> 0.0196. PHASE-DEPTH held (degenerate oe=0.000); DEMOTE-SYS/DEMOTE-ALL rejected (6/7 pricing). SDE bars unchanged (bulk 7.0). Supersedes bulk_v3 for new screens.",
       "supersedes": "bulk_v3"
+    },
+    {
+      "calibration_id": "external_tools_v3",
+      "sha256": "3cb8dd58de8851a0ac4dffedffb77c456ad6c27ba91dce9f457e9c8a776bfb7f",
+      "status": "active",
+      "rationale": "External-tool configuration v3 (2026-11-17, Phase 4 P4-8): v2's venv paths, tool versions, seed, memory cap, TRICERATOPS bars and disposition policy (A) carried over UNCHANGED; the only change is timeout_s 1800 -> 3600. Evidence: the P4-8 full nightly (Mac, 2026-11-17) measured healthy walls 164.9-549.8 s and healthy inits up to 467.9 s (warm cache), but the outage-era healthy init tail reached 1714.3 s (TIC 399571743) — a healthy run can exceed the 1800 s cap (init 1714 s + calc ~300 s = ~2014 s), so the v2 cap sits below the healthy tail. The 3600 s cap is 2x the old cap with headroom over the worst observed healthy run; the wrapper's init budget is 2400 s (P4-8). The runner cap remains the ultimate bound (the in-process SIGALRM budget does not enforce — the tool's per-sector try/except swallows it). Supersedes external_tools_v2 for all new tool runs.",
+      "supersedes": "external_tools_v2"
     }
   ]
 }

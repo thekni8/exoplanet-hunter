@@ -18,6 +18,7 @@ immutable once used in a run.
 | `gauntlet_v1.yaml` | vetting gauntlet | drift-tested against `gauntlet/` + `persistence.py` constants |
 | `external_tools_v1.yaml` | external tools (LATTE/TRICERATOPS) | `gauntlet/external_tool.py:load_external_tool_configs` + `gauntlet/stage_result.py:load_external_tools_policy`; shared run settings (seed 20261114, timeout 1800 s, memory 2048 MB) + per-tool venv paths/versions + the Giacalone et al. 2021 TRICERATOPS bars (FPP < 0.015, NFPP < 0.001 validate; FPP ≥ 0.5 refutes) — PROVISIONAL until the Phase 3 vote ratified them |
 | `external_tools_v2.yaml` | external tools (LATTE/TRICERATOPS) | same loaders, now the default; v1's settings, paths, versions and bars carried over UNCHANGED + the disposition policy (A) ratified by the unanimous Phase 3 vote (2026-11-15, TB-2) recorded explicitly — FPP ≤ 0.015 and NFPP ≤ 0.001 validate, FPP ≥ 0.5 refutes, the grey zone reads INCONCLUSIVE (never "validated", never "likely planet"), and without a contrast curve intermediate results read INCONCLUSIVE |
+| `external_tools_v3.yaml` | external tools (LATTE/TRICERATOPS) | same loaders, now the default (P4-8, 2026-11-17); v2's settings, paths, versions, bars and disposition (A) carried over UNCHANGED, only `timeout_s` 1800 → 3600 — re-derived from the healthy-run tail (a healthy run can exceed 1800 s: outage-era init 1714.3 s + calc ~300 s) |
 
 ## Rules
 

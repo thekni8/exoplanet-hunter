@@ -276,6 +276,41 @@ class TestNightlyRun(NightlyTestCase):
         self.assertTrue(marker.exists())
         self.assertIn("gh unavailable", marker.read_text())
 
+    def test_success_clears_stale_failure_marker(self):
+        # BM-2 (Phase 4 completion vote): the P4-8 driver wrote
+        # a FAILURE marker on failure but never cleared it on
+        # a later success. A green run clears a stale marker
+        # and leaves the green receipt untouched.
+        marker = self.tmp / "FAILURE"
+        marker.write_text("2026-11-17T03:00:00+00:00: golden run "
+                          "failed; issue not opened: gh "
+                          "unavailable\n")
+        passed, receipt = self._run()
+        self.assertTrue(passed)
+        self.assertEqual(receipt["overall"], "pass")
+        self.assertFalse(marker.exists())
+        # The green receipt on disk is intact.
+        on_disk = json.loads(self.receipt.read_text())
+        self.assertEqual(on_disk["overall"], "pass")
+
+    def test_failure_keeps_stale_failure_marker(self):
+        # The mirror guard: a red run must NOT clear the
+        # marker — the failure is real and the marker still
+        # describes the state.
+        eb = _load_fixture_output("308851365")
+        eb["value"] = 0.001
+        eb["metrics"]["fpp"] = 0.001
+        (self.outputs_dir / "308851365.json").write_text(
+            json.dumps(eb))
+        marker = self.tmp / "FAILURE"
+        marker.write_text("2026-11-17T03:00:00+00:00: golden run "
+                          "failed; issue not opened: gh "
+                          "unavailable\n")
+        passed, receipt = self._run()
+        self.assertFalse(passed)
+        self.assertEqual(receipt["overall"], "fail")
+        self.assertTrue(marker.exists())
+
 
 class TestReceiptGate(unittest.TestCase):
     def _write(self, receipt):

@@ -24,14 +24,17 @@ What is asserted (TB-4):
     alone is too simplistic for a Monte Carlo tool.
 
 What is NOT asserted yet (visible skips, Mac work pending):
-  * The >= 5-seed FPP / STP-split bands (fixtures carry one
-    seed each; band width comes from the seed spread, never
-    invented).
+  * The >= 5-seed FPP / STP-split bands for the EB and
+    TOI-700c fixtures (one seed each; band width comes from
+    the seed spread, never invented). WASP-29b HAS 5 seeds
+    (P4-8) and its band FAILS stability (TB-4) — the seed
+    test carries a STRICT xfail (BM-3 / CC-4), not a skip.
 
 All bands are TOLERANCE BANDS, never exact floats:
 TRICERATOPS fetches neighbours and TRILEGAL remotely, so
 identical inputs do not guarantee bitwise-identical output.
 """
+import copy
 import json
 import sys
 import unittest
@@ -56,7 +59,7 @@ class TestGoldenFixtures(unittest.TestCase):
         validate_triceratops_output(fx["tool_output"])
         # The shared check (gauntlet/triceratops_golden.py) —
         # the same definition of "passes" the nightly uses.
-        policy = load_profile("external_tools_v2")
+        policy = load_profile("external_tools_v3")
         failures = check_fixture_output(
             fx, fx["tool_output"], policy)
         self.assertEqual(failures, [], f"TIC {tic}")
@@ -66,16 +69,49 @@ class TestGoldenFixtures(unittest.TestCase):
     def test_eb_refutes(self):
         # TB-4: the EB must read FAIL/refute (FPP >= 0.5).
         fx, res = self._assert_fixture("308851365")
-        self.assertEqual(res.policy_version, "external_tools_v2")
+        self.assertEqual(res.policy_version, "external_tools_v3")
         self.assertGreaterEqual(
             fx["tool_output"]["metrics"]["fpp"], 0.5)
+
+    def test_eb_fpp_one_is_a_legitimate_refute(self):
+        # P4-8: the full nightly measured FPP = 1.0 exactly
+        # for the EB (prob_planet underflowed to 0.0,
+        # degenerate False, NEBx2P on TIC 308851379). A
+        # non-degenerate FPP of 1.0 is a legitimate
+        # strong-EB outcome and must read FAIL — the old
+        # fpp_max 1.0 bound (with a >= check) rejected it.
+        fx = load_fixture("308851365")
+        out = copy.deepcopy(fx["tool_output"])
+        out["metrics"]["fpp"] = 1.0
+        out["metrics"]["nfpp"] = 0.99999998
+        out["metrics"]["prob_planet"] = 0.0
+        out["metrics"]["fpp_degenerate"] = False
+        out["value"] = 1.0
+        policy = load_profile("external_tools_v3")
+        failures = check_fixture_output(fx, out, policy)
+        self.assertEqual(failures, [])
+
+    def test_eb_degenerate_never_reads_fail(self):
+        # P4-8: the guard that replaces the removed fpp_max
+        # bound is the disposition itself — a degenerate
+        # computation reads UNMEASURED, never FAIL, so it
+        # cannot pass the EB fixture check.
+        fx = load_fixture("308851365")
+        out = copy.deepcopy(fx["tool_output"])
+        out["metrics"]["fpp"] = 1.0
+        out["metrics"]["fpp_degenerate"] = True
+        policy = load_profile("external_tools_v3")
+        failures = check_fixture_output(fx, out, policy)
+        self.assertNotEqual(failures, [])
+        res = triceratops_result(out, policy=policy)
+        self.assertEqual(res.status, "unmeasured")
 
     def test_wasp29b_inconclusive(self):
         # TB-4: INCONCLUSIVE; FPP < 0.5 (not a FAIL);
         # NFPP < 0.01. No FPP > 0.015 assertion, no
         # FPP-STP assertion.
         fx, res = self._assert_fixture("183537452")
-        self.assertEqual(res.policy_version, "external_tools_v2")
+        self.assertEqual(res.policy_version, "external_tools_v3")
         metrics = fx["tool_output"]["metrics"]
         self.assertLess(metrics["fpp"], 0.5)
         self.assertLess(metrics["nfpp"], 0.01)
@@ -113,12 +149,25 @@ class TestGoldenFixtures(unittest.TestCase):
             self.assertEqual(
                 s1, s2, f"TIC {tic}: v1 reads {s1}, v2 {s2}")
 
+    @unittest.expectedFailure
     def test_seed_band_pending(self):
+        # STRICT xfail (BM-3 / CC-4, Phase 4 completion vote):
+        # TB-4 — the 5-seed WASP-29b band [0.001776, 0.379185]
+        # FAILS stability (one seed reads PASS, the other four
+        # INCONCLUSIVE), so this assertion fails on the
+        # committed fixtures. The assertion stays VERBATIM —
+        # it is not weakened to get green; the xfail marks
+        # the pinned limitation, and XPASS-strict is the
+        # tripwire: if the band ever collapses (seeds
+        # stabilise), this test passes and the suite goes red
+        # until the policy is revisited. The >= 5-seed median
+        # rule (CC-4) is the reporting policy; the stability
+        # assertion itself is never silently replaced.
         # The >= 5-seed bands are unmeasured until the Mac
         # runs them. This test skips visibly (not silently)
         # while any fixture has < 5 seeds, and asserts the
         # stability check once the seeds land.
-        policy = load_profile("external_tools_v2")
+        policy = load_profile("external_tools_v3")
         pending = []
         for tic in ("308851365", "183537452", "150428135"):
             fx = load_fixture(tic)
@@ -139,7 +188,7 @@ class TestGoldenFixtures(unittest.TestCase):
         # converted into a real assertion test on the
         # measured panel run, row 27 retry5.)
         fx, res = self._assert_fixture("150428135")
-        self.assertEqual(res.policy_version, "external_tools_v2")
+        self.assertEqual(res.policy_version, "external_tools_v3")
         metrics = fx["tool_output"]["metrics"]
         self.assertLess(metrics["fpp"], 0.5)
         self.assertLess(metrics["nfpp"], 0.01)
