@@ -201,6 +201,7 @@ def _apply_profile(prof):
     global QUALITY_MASK
     global GRID_EDGE_MIN_IN_TRANSIT, GRID_EDGE_MAX_UNMASKED_FRACTION
     global TWO_COMBINED_ENABLED, EPOCH_CLUSTER_VETO_ENABLED
+    global EPOCH_CLUSTER_VETO_TIER_A
     global EPOCH_CLUSTER_TOL_P, EPOCH_CLUSTER_TOL_T0_D
     global EPOCH_CLUSTER_MIN_SIZE
     global EVENT_GUARD_D, EVENT_GAP_D, EVENT_MIN_COVERAGE
@@ -282,6 +283,11 @@ def _apply_profile(prof):
                                          False))
     EPOCH_CLUSTER_VETO_ENABLED = bool(prof.get(
         "epoch_cluster_veto_enabled", False))
+    # Tier-A veto extension (bulk_v5, fixes round 1): profiles
+    # that predate the key mean False (tier-A flagged, never
+    # demoted) — a frozen profile's behaviour must not change.
+    EPOCH_CLUSTER_VETO_TIER_A = bool(prof.get(
+        "epoch_cluster_veto_tier_a", False))
     EPOCH_CLUSTER_TOL_P = float(prof.get(
         "epoch_cluster_tol_p", _RM_CLUSTER_TOL_P))
     EPOCH_CLUSTER_TOL_T0_D = float(prof.get(
@@ -1616,7 +1622,8 @@ def _append_flag(rec, flag):
 
 
 def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
-                             tol_t0_d=None, min_size=None):
+                             tol_t0_d=None, min_size=None,
+                             demote_tier_a=None):
     """Apply the SECTOR_EPOCH_CLUSTER veto (P3-15, bulk_v4) to
     a sector's survivor set. Returns (kept_survivors, summary).
 
@@ -1627,7 +1634,9 @@ def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
     there; flagged tier-A rows carry the flag there), so the
     merged screen_hits.jsonl stays consistent with the merged
     survivors.jsonl. Tolerances default to the profile-derived
-    module globals (the P3-13 criterion).
+    module globals (the P3-13 criterion). `demote_tier_a`
+    defaults to the profile-derived EPOCH_CLUSTER_VETO_TIER_A
+    (bulk_v5 True, earlier profiles False).
 
     Criterion (P3-13, implemented by replay_matrix's
     sector_epoch_cluster_tics — called here, not
@@ -1635,8 +1644,11 @@ def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
     3 h (union-find); clusters of >20 stars are
     SECTOR_EPOCH_CLUSTER. Tier-B members are DEMOTED (status
     "demoted", disposition DEMOTED_SECTOR_EPOCH_CLUSTER, flag
-    SECTOR_EPOCH_CLUSTER) and removed from the kept survivors;
-    tier-A members are FLAGGED (flag only) and stay survivors.
+    SECTOR_EPOCH_CLUSTER) and removed from the kept survivors.
+    Tier-A members are DEMOTED too when demote_tier_a is true
+    (bulk_v5, fixes round 1 — the S98 one-shot showed v4's
+    flag-only treatment leaves 42.2% of the queue in the 13.7 d
+    band) and FLAGGED (flag only) and kept otherwise (v4).
     Rows with no tier are neither (matches the replay).
 
     Clustering input: the v3-tier survivor set — the current
@@ -1686,6 +1698,8 @@ def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
         tol_t0_d = EPOCH_CLUSTER_TOL_T0_D
     if min_size is None:
         min_size = EPOCH_CLUSTER_MIN_SIZE
+    if demote_tier_a is None:
+        demote_tier_a = EPOCH_CLUSTER_VETO_TIER_A
     cluster_rows = list(survivors)
     if hits is not None:
         survivor_tics = {r["tic"] for r in survivors}
@@ -1707,27 +1721,35 @@ def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
         for r in hits:
             hits_by_tic.setdefault(r["tic"], r)
     kept = []
-    demoted_tics = []
+    demoted_tier_b_tics = []
+    demoted_tier_a_tics = []
     flagged_tics = []
+
+    def _demote(r):
+        hit = hits_by_tic.get(r["tic"])
+        target = hit if hit is not None else r
+        target["status"] = "demoted"
+        target["disposition"] = (
+            _search_health.DEMOTED_SECTOR_EPOCH_CLUSTER)
+        _append_flag(target, SECTOR_EPOCH_CLUSTER_FLAG)
+
     for r in survivors:
         if r["tic"] not in clustered:
             kept.append(r)
             continue
-        if r.get("tier") == "A":
+        if r.get("tier") == "A" and not demote_tier_a:
             _append_flag(r, SECTOR_EPOCH_CLUSTER_FLAG)
             hit = hits_by_tic.get(r["tic"])
             if hit is not None and hit is not r:
                 _append_flag(hit, SECTOR_EPOCH_CLUSTER_FLAG)
             flagged_tics.append(r["tic"])
             kept.append(r)
+        elif r.get("tier") == "A":
+            _demote(r)
+            demoted_tier_a_tics.append(r["tic"])
         elif r.get("tier") == "B":
-            hit = hits_by_tic.get(r["tic"])
-            target = hit if hit is not None else r
-            target["status"] = "demoted"
-            target["disposition"] = (
-                _search_health.DEMOTED_SECTOR_EPOCH_CLUSTER)
-            _append_flag(target, SECTOR_EPOCH_CLUSTER_FLAG)
-            demoted_tics.append(r["tic"])
+            _demote(r)
+            demoted_tier_b_tics.append(r["tic"])
         else:
             # No tier: not a veto target (matches the replay).
             kept.append(r)
@@ -1744,9 +1766,11 @@ def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
                       "members": sorted(c)}
                      for i, c in enumerate(clusters)],
         "n_clustered": len(clustered),
-        "demoted_tier_b": len(demoted_tics),
+        "demoted_tier_b": len(demoted_tier_b_tics),
+        "demoted_tier_a": len(demoted_tier_a_tics),
         "flagged_tier_a": len(flagged_tics),
-        "demoted_tics": sorted(demoted_tics),
+        "demoted_tics": sorted(demoted_tier_b_tics
+                               + demoted_tier_a_tics),
         "flagged_tics": sorted(flagged_tics),
     }
     return kept, summary

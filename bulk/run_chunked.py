@@ -787,8 +787,11 @@ def main():
     if bs.EPOCH_CLUSTER_VETO_ENABLED:
         survivors, veto_summary = bs.apply_epoch_cluster_veto(
             survivors, hits)
-        n_veto = veto_summary["demoted_tier_b"]
-        log(f"epoch-cluster veto: {n_veto} tier-B demoted, "
+        n_veto = (veto_summary["demoted_tier_b"]
+                  + veto_summary.get("demoted_tier_a", 0))
+        log(f"epoch-cluster veto: "
+            f"{veto_summary['demoted_tier_b']} tier-B demoted, "
+            f"{veto_summary.get('demoted_tier_a', 0)} tier-A demoted, "
             f"{veto_summary['flagged_tier_a']} tier-A flagged "
             f"({veto_summary['n_clusters']} clusters, sizes "
             f"{veto_summary['cluster_sizes']})")
