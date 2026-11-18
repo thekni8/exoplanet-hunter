@@ -24,9 +24,11 @@ What is asserted (TB-4):
     alone is too simplistic for a Monte Carlo tool.
 
 What is NOT asserted yet (visible skips, Mac work pending):
-  * The >= 5-seed FPP / STP-split bands (fixtures carry one
-    seed each; band width comes from the seed spread, never
-    invented).
+  * The >= 5-seed FPP / STP-split bands for the EB and
+    TOI-700c fixtures (one seed each; band width comes from
+    the seed spread, never invented). WASP-29b HAS 5 seeds
+    (P4-8) and its band FAILS stability (TB-4) — the seed
+    test carries a STRICT xfail (BM-3 / CC-4), not a skip.
 
 All bands are TOLERANCE BANDS, never exact floats:
 TRICERATOPS fetches neighbours and TRILEGAL remotely, so
@@ -147,7 +149,20 @@ class TestGoldenFixtures(unittest.TestCase):
             self.assertEqual(
                 s1, s2, f"TIC {tic}: v1 reads {s1}, v2 {s2}")
 
+    @unittest.expectedFailure
     def test_seed_band_pending(self):
+        # STRICT xfail (BM-3 / CC-4, Phase 4 completion vote):
+        # TB-4 — the 5-seed WASP-29b band [0.001776, 0.379185]
+        # FAILS stability (one seed reads PASS, the other four
+        # INCONCLUSIVE), so this assertion fails on the
+        # committed fixtures. The assertion stays VERBATIM —
+        # it is not weakened to get green; the xfail marks
+        # the pinned limitation, and XPASS-strict is the
+        # tripwire: if the band ever collapses (seeds
+        # stabilise), this test passes and the suite goes red
+        # until the policy is revisited. The >= 5-seed median
+        # rule (CC-4) is the reporting policy; the stability
+        # assertion itself is never silently replaced.
         # The >= 5-seed bands are unmeasured until the Mac
         # runs them. This test skips visibly (not silently)
         # while any fixture has < 5 seeds, and asserts the

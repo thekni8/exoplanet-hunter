@@ -38,11 +38,27 @@ completes the reconstructed fixtures; until then they
 assert only what the records measure (dispositions +
 hard bounds), and the seed-band checks skip visibly.
 
+## Seed reporting (CC-4, Phase 4 completion vote)
+
+TB-4: five WASP-29b seeds (N=1M, Gaia path, no contrast
+curve) span FPP [0.001776, 0.379185] — a ~210x spread, one
+seed reading PASS while the other four read INCONCLUSIVE.
+No single seed is the measurement. Every FPP report runs
+>= 5 fixed seeds and quotes the **median FPP with the full
+[min, max] band, the per-seed values, N, and convergence
+status**. PASS requires **every** seed to pass (max FPP <=
+0.015); a median that passes while one seed fails is not a
+PASS. A target passing in only some seeds cannot validate
+here and stays supporting-evidence-only.
+
 ## Pending (Mac work)
 
-- **≥5-seed bands** (FPP bands, STP-split bands): the
-  fixtures carry one seed each (20261114). The band checks skip
-  until ≥5 seeds are committed. Band width comes from the seed
+- **≥5-seed bands** (FPP bands, STP-split bands): WASP-29b
+  carries 5 seeds (P4-8); the EB and TOI-700c fixtures carry
+  one seed each (20261114). The WASP-29b band FAILS the
+  stability check (TB-4) — `test_seed_band_pending` carries
+  a STRICT xfail (BM-3) until the band collapses or the
+  policy is revisited. Band width comes from the seed
   spread, never invented.
 - **Fast Mac smoke test (N = 10,000 draws, P-16):** for
   iteration alongside the full N = 1,000,000 run. It lives in
