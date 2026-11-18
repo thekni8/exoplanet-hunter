@@ -33,7 +33,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from bulk.p4110_manifest import assert_manifest  # noqa: E402
+from bulk.p4110_manifest import (  # noqa: E402
+    BLOCK_END,
+    BLOCK_START,
+    VOTE_REF,
+    assert_manifest,
+)
 
 
 def _sha(path):
@@ -46,6 +51,14 @@ def finalise(pre_manifest_path, pass1_dir):
     pre_path = Path(pre_manifest_path)
     pre = json.loads(pre_path.read_text())
     pre_sha = _sha(pre_path)
+    # NOTE (4110-7 lock): no hardcoded pre-manifest sha assert
+    # lives here -- the lock is enforced by the per-host-file
+    # pre_manifest_sha linkage below (a wrong pre-manifest
+    # matches zero host files, so the first trial fails "no
+    # pass-1 record") and by the 4110-5 gate, which verifies
+    # the pre-manifest file's sha (27d1a171...) on disk. A
+    # hardcoded assert would also break the synthetic
+    # fixtures in tests/test_p4110.py.
     p1_dir = Path(pass1_dir)
     summary_path = p1_dir / "pass1_summary.json"
     p1_summary = (json.loads(summary_path.read_text())
@@ -98,6 +111,20 @@ def finalise(pre_manifest_path, pass1_dir):
     manifest = dict(pre)
     manifest["item"] = ("4.1-10 deep-sample curve (campaign "
                         "manifest, pass-1 established)")
+    # 4110-6: every manifest header carries the amendment ref,
+    # block bounds, and trial-index span. The pre-manifest's
+    # header records the block at build time (frozen artifact,
+    # stands by 4110-9); the campaign manifest carries the
+    # amended bounds.
+    manifest["amendment_ref"] = VOTE_REF
+    manifest["seed_block"] = f"{BLOCK_START}-{BLOCK_END}"
+    manifest["block_bounds"] = [BLOCK_START, BLOCK_END]
+    manifest["trial_index_span"] = [0, 800]
+    seed_map = dict(pre.get("seed_map", {}))
+    seed_map.pop("reserve_partial_rerun_only", None)
+    seed_map["re_run_reserve"] = [41010802, 41011602]
+    seed_map["spare"] = [41011603, 41011999]
+    manifest["seed_map"] = seed_map
     manifest["pre_manifest_sha256"] = pre_sha
     manifest["pass1_summary"] = p1_summary
     manifest["pass1_host_files"] = n_files

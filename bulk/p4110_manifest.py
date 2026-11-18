@@ -27,8 +27,11 @@ Frozen design (FREEZE section 2):
   (+4/depth). Trial order within a depth: host ascending, then
   periods ascending. Trial index = 200j + position within depth.
 - Seed map: curve indices 0-799 -> 41010001-41010800 (master
-  41010001 + index); demo index 800 -> 41010801; reserve indices
-  801-998 -> 41010802-41010999 (198 seeds, partial re-runs only).
+  41010001 + index); demo index 800 -> 41010801; re-run reserve
+  indices 801-1601 -> 41010802-41011602 (4110-2, amendment
+  4110-SEED-20261118); spare indices 1602-1998 ->
+  41011603-41011999 (397 seeds, "spare seeds are not an
+  allowance" -- re-runs only after a recorded bug fix).
 - Demo trial (section 2.4): host TIC 234333416 (quietest fresh
   host, stitched CDPP 143.3 ppm), depth 0.046%, period
   3.1827878 d (TOI-7930.02's period). Run blind end-to-end
@@ -67,6 +70,7 @@ Usage (Mac):
 import argparse
 import hashlib
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -75,7 +79,20 @@ import numpy as np
 
 MASTER_SEED = 41010001
 BLOCK_START = 41010000
-BLOCK_END = 41010999
+BLOCK_END = 41011999
+# Amendment 4110-SEED-20261118 (ratified 2026-11-18 23:00 IST):
+# the block was enlarged 41010000-41010999 -> 41010000-41011999
+# (1,999 usable seeds) to pre-commit a full re-run under BA-1.
+# The first-run pre-manifest (sha 27d1a171...) stands unchanged
+# (4110-9); this builder's constants govern re-run manifests
+# and any future build.
+VOTE_REF = "4110-SEED-20261118"
+FIRST_RUN_MAX_INDEX = 800
+RE_RUN_MIN_INDEX = 801
+RE_RUN_MAX_INDEX = 1601
+MAX_INDEX = 1998
+PREMANIFEST_SHA256 = ("27d1a17118b6d43171351ef16983ae6cbdfd03f879d7"
+                      "718d6e20d397a3b28407")
 DEPTHS = [0.0003, 0.0005, 0.0008, 0.0012]
 PERIODS = [1.0, 1.7, 3.5, 7.0, 12.0]
 N_TRIALS_PER_DEPTH = 200
@@ -451,9 +468,12 @@ def assemble_manifest(hosts, trials, census_sha, dev_sha,
         "freeze_ref": ("FREEZE_413_4110.md section 2 (adopted as "
                        "written by the Stage 4 parent)"),
         "prereg_ref": "PHASE41_PREREG.md section 2.10",
+        "amendment_ref": VOTE_REF,
         "calibration": "bulk_v5",
         "master_seed": MASTER_SEED,
         "seed_block": f"{BLOCK_START}-{BLOCK_END}",
+        "block_bounds": [BLOCK_START, BLOCK_END],
+        "trial_index_span": [0, DEMO_INDEX],
         "seed_derivation": ("per-trial seed = master + "
                             "trial_index; epoch_offset_d ~ "
                             "Uniform(0, P) from "
@@ -466,7 +486,8 @@ def assemble_manifest(hosts, trials, census_sha, dev_sha,
             "curve_0.08pct": [41010401, 41010600],
             "curve_0.12pct": [41010601, 41010800],
             "demo": [41010801, 41010801],
-            "reserve_partial_rerun_only": [41010802, 41010999],
+            "re_run_reserve": [41010802, 41011602],
+            "spare": [41011603, 41011999],
         },
         "depths_frac": DEPTHS,
         "periods_d": PERIODS,
@@ -494,6 +515,219 @@ def assemble_manifest(hosts, trials, census_sha, dev_sha,
     return manifest
 
 
+# --- Amendment guard (4110-6, vote 4110-SEED-20261118) -----------
+# Follows the 4.1-3 pattern (p413_amendment_guard.py): the
+# builder refuses on any mismatch with the amended pre-reg,
+# and a re-run manifest additionally asserts indices >= 801
+# and no seed already in a prior manifest. The first-run
+# pre-manifest (sha 27d1a171...) stands unchanged (4110-9) --
+# these guards govern re-run manifests and any future build.
+
+ROW_RE = re.compile(
+    r"\| 4\.1-10 deep sample \| (\d+) \| (\d+)\u2013(\d+) \|")
+HOST_POOL = "frozen_census_49"
+
+
+def parse_prereg(prereg_path):
+    """Return (row_dict, row_sha256, log_has_ref) from the
+    pre-reg text. row_dict: master, block_lo, block_hi."""
+    text = Path(prereg_path).read_text()
+    m = ROW_RE.search(text)
+    if not m:
+        raise AssertionError("§1 4.1-10 row not found in pre-reg")
+    row = {"master": int(m.group(1)),
+           "block_lo": int(m.group(2)),
+           "block_hi": int(m.group(3))}
+    row_line = [ln for ln in text.splitlines()
+                if ln.startswith("| 4.1-10 deep sample |")][0]
+    row_sha = hashlib.sha256(row_line.encode()).hexdigest()
+    log_has_ref = "### 4110-SEED-20261118" in text
+    return row, row_sha, log_has_ref
+
+
+def assert_amendment(prereg_path, amendment_ref, block_end):
+    """Fail closed unless the caller's flags match the amended
+    pre-reg. Returns (row, row_sha256)."""
+    if amendment_ref != VOTE_REF:
+        raise AssertionError(
+            f"amendment-ref mismatch: got {amendment_ref!r}, "
+            f"need {VOTE_REF!r}")
+    if block_end != BLOCK_END:
+        raise AssertionError(
+            f"block-end mismatch: got {block_end}, "
+            f"need {BLOCK_END}")
+    row, row_sha, log_has_ref = parse_prereg(prereg_path)
+    if row["master"] != MASTER_SEED:
+        raise AssertionError(
+            f"master mismatch: pre-reg row has {row['master']}, "
+            f"need {MASTER_SEED}")
+    if (row["block_lo"], row["block_hi"]) != (BLOCK_START,
+                                              BLOCK_END):
+        raise AssertionError(
+            f"block mismatch: pre-reg row has "
+            f"{row['block_lo']}-{row['block_hi']}, need "
+            f"{BLOCK_START}-{BLOCK_END}")
+    if not log_has_ref:
+        raise AssertionError(
+            f"amendment log entry {VOTE_REF!r} not found in "
+            f"pre-reg")
+    return row, row_sha
+
+
+def assert_trial_index(index, burn_logged=False):
+    """Refuse out-of-block indices, and refuse any index above
+    the first run (800) without a logged §0.6 burn entry."""
+    if not isinstance(index, int) or isinstance(index, bool):
+        raise AssertionError(f"trial_index must be int, got "
+                             f"{index!r}")
+    if index < 0:
+        raise AssertionError(f"trial_index {index} < 0")
+    if index > MAX_INDEX:
+        raise AssertionError(
+            f"trial_index {index} > {MAX_INDEX} (block end "
+            f"{BLOCK_END}); a third full run needs a new §7 vote "
+            f"(BA-2)")
+    if index > FIRST_RUN_MAX_INDEX and not burn_logged:
+        raise AssertionError(
+            f"trial_index {index} > {FIRST_RUN_MAX_INDEX} "
+            f"without a logged §0.6 burn entry — spare seeds "
+            f"are not an allowance (4110-2)")
+
+
+def assert_rerun_manifest(trials, prior_seeds):
+    """Re-run manifest checks (4110-6): 801 trials, indices
+    801-1601, seeds == master + index, unique, and no seed
+    already in a prior manifest. `prior_seeds` is the set of
+    seeds in the manifest being re-run (e.g. the first run's
+    41010001-41010801)."""
+    if len(trials) != 801:
+        raise AssertionError(
+            f"re-run manifest has {len(trials)} trials != 801")
+    idx = [t["trial_index"] for t in trials]
+    if idx != list(range(RE_RUN_MIN_INDEX, RE_RUN_MAX_INDEX + 1)):
+        raise AssertionError(
+            "re-run trial indices must be 801-1601, got "
+            f"{min(idx)}-{max(idx)}")
+    seeds = [t["seed"] for t in trials]
+    for t in trials:
+        if t["seed"] != MASTER_SEED + t["trial_index"]:
+            raise AssertionError(
+                f"re-run trial {t['trial_index']} seed "
+                f"{t['seed']} != master + index")
+    if len(set(seeds)) != len(seeds):
+        raise AssertionError("re-run seeds not unique")
+    overlap = set(seeds) & set(prior_seeds)
+    if overlap:
+        raise AssertionError(
+            f"re-run reuses {len(overlap)} seed(s) already in a "
+            f"prior manifest (e.g. {sorted(overlap)[:3]})")
+    return True
+
+
+def manifest_header(row_sha, trial_index_span, hosts_sha256):
+    """Header every 4.1-10 manifest must carry (4110-6)."""
+    return {
+        "amendment_ref": VOTE_REF,
+        "master_seed": MASTER_SEED,
+        "block_range": [BLOCK_START, BLOCK_END],
+        "trial_index_span": list(trial_index_span),
+        "host_pool": HOST_POOL,
+        "amended_row_sha256": row_sha,
+        "hosts_sha256": hosts_sha256,
+    }
+
+
+def _selftest(prereg_path):
+    results = []
+
+    def case(name, fn, expect_fail=False):
+        try:
+            fn()
+            ok = not expect_fail
+            detail = "raised" if expect_fail else "passed"
+        except AssertionError as e:
+            ok = expect_fail
+            detail = f"refused: {str(e)[:80]}"
+        results.append((name, ok))
+        print(f"[{'PASS' if ok else 'FAIL'}] {name} -- {detail}")
+
+    prereg = Path(prereg_path) if prereg_path else None
+    if prereg is not None and prereg.exists():
+        case("success: correct ref + block end",
+             lambda: assert_amendment(prereg, VOTE_REF, 41011999))
+        case("refuse: wrong amendment ref",
+             lambda: assert_amendment(prereg, "FAKE-REF", 41011999),
+             expect_fail=True)
+        case("refuse: wrong block end (frozen bound)",
+             lambda: assert_amendment(prereg, VOTE_REF, 41010999),
+             expect_fail=True)
+        case("refuse: block end off by one",
+             lambda: assert_amendment(prereg, VOTE_REF, 41012000),
+             expect_fail=True)
+        case("refuse: missing ref (None)",
+             lambda: assert_amendment(prereg, None, 41011999),
+             expect_fail=True)
+    else:
+        print("NOTE: pre-reg not found at "
+              f"{prereg_path} -- parse cases skipped; pass "
+              "--prereg for the full self-test.")
+    case("index 0 ok", lambda: assert_trial_index(0))
+    case("index 800 ok (last first-run)",
+         lambda: assert_trial_index(800))
+    case("refuse: index 801 without burn entry",
+         lambda: assert_trial_index(801), expect_fail=True)
+    case("index 801 ok WITH burn entry",
+         lambda: assert_trial_index(801, burn_logged=True))
+    case("index 1998 ok WITH burn entry",
+         lambda: assert_trial_index(1998, burn_logged=True))
+    case("refuse: index 1999 (beyond block)",
+         lambda: assert_trial_index(1999, burn_logged=True),
+         expect_fail=True)
+    case("refuse: index -1",
+         lambda: assert_trial_index(-1), expect_fail=True)
+
+    def rerun_ok():
+        trials = [{"trial_index": i, "seed": MASTER_SEED + i}
+                  for i in range(801, 1602)]
+        prior = {MASTER_SEED + i for i in range(801)}
+        assert_rerun_manifest(trials, prior)
+    case("re-run manifest ok (801 trials, 801-1601, fresh "
+         "seeds)", rerun_ok)
+
+    def rerun_bad_index():
+        trials = [{"trial_index": i, "seed": MASTER_SEED + i}
+                  for i in range(800, 1601)]
+        assert_rerun_manifest(trials, set())
+    case("refuse: re-run manifest with an index < 801",
+         rerun_bad_index, expect_fail=True)
+
+    def rerun_reused_seed():
+        trials = [{"trial_index": i, "seed": MASTER_SEED + i}
+                  for i in range(801, 1602)]
+        trials[0] = {"trial_index": 801, "seed": MASTER_SEED + 5}
+        prior = {MASTER_SEED + 5}
+        assert_rerun_manifest(trials, prior)
+    case("refuse: re-run manifest reusing a prior seed",
+         rerun_reused_seed, expect_fail=True)
+
+    def header_case():
+        h = manifest_header("deadbeef", (801, 1601), "cafef00d")
+        assert h["amendment_ref"] == VOTE_REF
+        assert h["master_seed"] == MASTER_SEED
+        assert h["block_range"] == [41010000, 41011999]
+        assert h["trial_index_span"] == [801, 1601]
+        assert h["host_pool"] == HOST_POOL
+        assert h["amended_row_sha256"] == "deadbeef"
+    case("manifest header contents", header_case)
+
+    failed = [n for n, ok in results if not ok]
+    print(f"\n{len(results) - len(failed)}/{len(results)} passed")
+    if failed:
+        print("FAILED:", ", ".join(failed))
+        raise SystemExit(1)
+    print("GUARD SELFTEST: PASS")
+
+
 def build_manifest(census_path, dev_hosts_path, spans,
                    expected_census_sha=None):
     """Build + assert the pre-manifest dict (no I/O besides the
@@ -514,8 +748,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Build the 4.1-10 pre-manifest (800 curve + "
                     "1 demo trials) from the frozen census.")
-    ap.add_argument("--census", required=True)
-    ap.add_argument("--dev-hosts", required=True)
+    ap.add_argument("--census", default=None)
+    ap.add_argument("--dev-hosts", default=None)
     ap.add_argument("--cache", default=None,
                     help="bulk/cache dir (Mac): spans read from "
                          "FITS. Exactly one of --cache/--spans.")
@@ -524,8 +758,24 @@ def main(argv=None):
                          "t_max]}} (VM use / tests). Exactly one "
                          "of --cache/--spans.")
     ap.add_argument("--expected-census-sha", default=None)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--selftest", action="store_true",
+                    help="run the amendment-guard self-test "
+                         "(4110-6) and exit")
+    ap.add_argument("--prereg", default=None,
+                    help="path to PHASE41_PREREG.md for the "
+                         "self-test (default: the VM copy)")
     args = ap.parse_args(argv)
+    if args.selftest:
+        prereg = args.prereg or str(
+            Path.home() / "workspace" / "goals"
+            / "exoplanet-hunter" / "hidden_files" / "science-vet"
+            / "phase41-vote" / "PHASE41_PREREG.md")
+        _selftest(prereg)
+        return 0
+    if not args.census or not args.dev_hosts or not args.out:
+        ap.error("--census, --dev-hosts and --out are required "
+                 "(unless --selftest)")
     if bool(args.cache) == bool(args.spans):
         ap.error("exactly one of --cache / --spans is required")
     hosts, _c, _d = load_fresh_hosts(args.census, args.dev_hosts)
