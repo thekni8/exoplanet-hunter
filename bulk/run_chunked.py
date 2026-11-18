@@ -33,6 +33,16 @@ Recipes: the run is driven by a YAML recipe (bulk/recipes/*.yaml)
 bulk/recipe.py for the schema. CLI flags override the recipe;
 --sector may come from either. The recipe's window is verified
 against the target-list window file before any slice runs.
+
+K=3 (4.1-1a): with `k3: true` in the recipe (or --k3), a
+mask-and-re-search stage (bulk/k3_driver.py — the campaign's
+own K=3 code) runs after each slice's K=1 screen and before
+checkpointing, looking behind pass-1 contaminants for a second
+signal. Its pass-2/pass-3 survivors join the merged queue as
+additional rows (k3_pass 2/3 stamped); the pass-1 rows are
+never modified. Default is K=1. SCAFFOLDING: Stage 5 acceptance
+has not run and BP-1 FAILED, so a K=3 run is NOT
+production-authorised (PHASE41_PREREG §2.1).
 """
 import argparse, csv, json, os, shlex, subprocess, sys, time
 from pathlib import Path
@@ -232,7 +242,7 @@ def _measured_of(summary):
 
 def check_conservation(window_stars, slice_summaries,
                        merged_survivors, toi_removed, vsx_removed,
-                       veto_removed=0):
+                       veto_removed=0, k3_survivors=0):
     """The window must be conserved: every star in the window
     ends up in exactly one bucket, and every screened survivor
     ends up merged or removed with a named reason.
@@ -251,13 +261,18 @@ def check_conservation(window_stars, slice_summaries,
       4. sum(screen_counts) == stars_searched, and every status
          is a known final status (the screen partitions the
          searched stars; "searched" itself never leaks)
-      5. sum(screen_counts["survivor"]) == merged_survivors
-         + toi_removed + vsx_removed + sum(zooniverse_known)
-         + veto_removed
+      5. sum(screen_counts["survivor"]) + k3_survivors ==
+         merged_survivors + toi_removed + vsx_removed
+         + sum(zooniverse_known) + veto_removed
          (every screened survivor is merged or removed with a
          reason; the veto bucket counts the SECTOR_EPOCH_CLUSTER
          demotions at merge, P3-15 — 0 for pre-v4 profiles,
-         whose merge has no veto)
+         whose merge has no veto; k3_survivors counts the K=3
+         stage's pass-2/pass-3 survivor ROWS, 4.1-1a — extra
+         rows for already-searched stars, not extra stars, so
+         they enter only equation 5, never equations 1–4. The
+         TOI/VSX/veto removal counts include K=3 rows removed
+         by those stages, so the equation still balances.)
 
     A missing bucket is a problem, not a skip (fail-closed): a
     summary that cannot be audited is not a summary that
@@ -274,6 +289,7 @@ def check_conservation(window_stars, slice_summaries,
         "searched": 0,
         "screen_counts": {},
         "survivors_screened": 0,
+        "survivors_k3": k3_survivors,
         "survivors_zooniverse": 0,
         "survivors_toi": toi_removed,
         "survivors_vsx": vsx_removed,
@@ -359,10 +375,13 @@ def check_conservation(window_stars, slice_summaries,
                  + buckets["survivors_vsx"]
                  + buckets["survivors_veto"]
                  + buckets["survivors_zooniverse"])
-    if buckets["survivors_screened"] != accounted:
+    screened = (buckets["survivors_screened"]
+                + buckets["survivors_k3"])
+    if screened != accounted:
         problems.append(
             f"survivors do not conserve: "
-            f"{buckets['survivors_screened']} screened != "
+            f"{buckets['survivors_screened']} screened + "
+            f"{buckets['survivors_k3']} K=3 != "
             f"{buckets['survivors_merged']} merged + "
             f"{buckets['survivors_toi']} TOI + "
             f"{buckets['survivors_vsx']} VSX + "
@@ -423,16 +442,30 @@ def _checkpoint_entry(out, summary):
     files the summary describes — a resume must verify the
     outputs before treating a work item as completed, not just
     trust that a summary file exists."""
-    return {"chunk": out.name,
-            "summary_sha256": _prov.file_sha256(
-                out / "summary.json"),
-            "survivors_sha256": _prov.file_sha256(
-                out / "survivors.jsonl"),
-            "hits_sha256": _prov.file_sha256(
-                out / "screen_hits.jsonl"),
-            "stars_searched": summary.get("stars_searched"),
-            "survivors": summary.get("survivors"),
-            "completed_at": _prov.utc_now_iso()}
+    entry = {"chunk": out.name,
+             "summary_sha256": _prov.file_sha256(
+                 out / "summary.json"),
+             "survivors_sha256": _prov.file_sha256(
+                 out / "survivors.jsonl"),
+             "hits_sha256": _prov.file_sha256(
+                 out / "screen_hits.jsonl"),
+             "stars_searched": summary.get("stars_searched"),
+             "survivors": summary.get("survivors"),
+             "completed_at": _prov.utc_now_iso()}
+    # 4.1-1a: the K=3 stage's outputs (k3_*.jsonl), when present —
+    # hashed like the pass-1 outputs, so a resume verifies them
+    # instead of trusting that the files merely exist. The names
+    # are owned by bulk/k3_driver.py; the glob keeps this module
+    # free of a heavy import. Entries without this key (K=1
+    # slices, pre-K=3 checkpoints) verify as "ok".
+    k3_files = {}
+    for p in sorted(out.glob("k3_*.jsonl")):
+        h = _prov.file_sha256(p)
+        if h is not None:
+            k3_files[p.name] = h
+    if k3_files:
+        entry["k3_files"] = k3_files
+    return entry
 
 
 def _checkpoint_entry_status(out, entry):
@@ -468,6 +501,12 @@ def _checkpoint_entry_status(out, entry):
                       ("hits_sha256", "screen_hits.jsonl")):
         if key in entry and _prov.file_sha256(out / name) != \
                 entry[key]:
+            return "outputs-changed"
+    # 4.1-1a: the K=3 stage's outputs, when the entry records
+    # them — a changed k3 file with a matching summary is the
+    # same tampering/corruption signal as a changed pass-1 file.
+    for name, h in (entry.get("k3_files") or {}).items():
+        if _prov.file_sha256(out / name) != h:
             return "outputs-changed"
     return "ok"
 
@@ -533,6 +572,15 @@ def main():
     ap.add_argument("--slice-size", type=int, default=None)
     ap.add_argument("--dl-workers", type=int, default=None)
     ap.add_argument("--workers", type=int, default=None)
+    ap.add_argument("--k3",
+                    action=argparse.BooleanOptionalAction, default=None,
+                    help="run the K=3 mask-and-re-search stage after "
+                         "each slice's K=1 screen (4.1-1a; overrides "
+                         "the recipe's k3 key, default false). "
+                         "SCAFFOLDING: Stage 5 acceptance has not "
+                         "run and BP-1 FAILED, so a K=3 run is NOT "
+                         "production-authorised (PHASE41_PREREG "
+                         "§2.1).")
     args = ap.parse_args()
     try:
         recipe = load_recipe(args.recipe)
@@ -544,6 +592,7 @@ def main():
             "limit_ids": args.limit_ids, "tag": args.tag,
             "slice_size": args.slice_size,
             "dl_workers": args.dl_workers, "workers": args.workers,
+            "k3": args.k3,
         })
     except RecipeError as exc:
         ap.error(str(exc))
@@ -600,8 +649,28 @@ def main():
     RUN_FINGERPRINT = MANIFEST["fingerprint"]
     MIXED_PIPELINE = False
     _prov.write_manifest(RUN, MANIFEST)
+    # 4.1-1a: the run's provenance header, shared by the K=3
+    # stage (its emitted rows) and the merged summary — one
+    # header, so K=1 and K=3 rows from this run agree.
+    PROV = _prov.provenance_header(
+        RUN_ID, MANIFEST["calibration"]["versions"],
+        recipe_hash=R_HASH,
+        sha=MANIFEST["pipeline"]["git_sha"],
+        timestamp_utc=MANIFEST["execution"]["started_at"])
+    # 4.1-1a: the K=3 stage module, imported only when enabled
+    # (it pulls in bulk_screen + the campaign drivers — heavy
+    # for a K=1 run). The recipe key (not a bare flag) carries
+    # the setting, so the resume fingerprint covers it: a K=1
+    # run resumed with K=3 refuses, like any other
+    # result-affecting change.
+    k3d = None
+    if recipe["k3"]:
+        from bulk import k3_driver as k3d
     log(f"run_id: {RUN_ID} (recipe hash {R_HASH[:12]}…, "
         f"calibration {args.calibration})")
+    if recipe["k3"]:
+        log("K=3 stage ENABLED (4.1-1a scaffolding — NOT "
+            "production-authorised; BP-1 FAILED, §2.1)")
     log(f"recipe: {recipe['_file']} (sector {SECTOR}, "
         f"window Tmag {recipe['window']['min_mag']}-"
         f"{recipe['window']['max_mag']}, R "
@@ -706,12 +775,43 @@ def main():
     # and rewrite it, so even a killed run's manifest is honest.
     MANIFEST["mixed_pipeline"] = MIXED_PIPELINE
     _prov.write_manifest(RUN, MANIFEST)
+
+    def _run_k3_stage(i, out, sl):
+        """Run the K=3 stage for one screened slice. Returns the
+        stage's counts block, or None when the stage failed (the
+        caller stops the run — a failed stage is a loud failure,
+        like a failed slice screen; per-star failures inside the
+        stage are counted there, not raised here)."""
+        try:
+            return k3d.run_k3_slice(
+                out, slice_csv=sl, cache_dir=BULK / "cache",
+                sector=SECTOR, calibration=args.calibration,
+                prov=PROV, workers=recipe["workers"] or 1,
+                log=log)
+        except (Exception, SystemExit) as exc:  # noqa: BLE001
+            log(f"slice {i}: K=3 stage FAILED: {exc}")
+            return None
+
     t_start = time.time()
     for i, sl in enumerate(slices):
         out = RUN / f"chunk_{i:02d}"
         if chunk_ok(out) and i not in rescreen:
             log(f"slice {i}: valid checkpoint exists, skipping")
-            if i not in completed:
+            staged = False
+            if k3d is not None and not k3d.slice_k3_done(out):
+                # Screened K=1-only (killed mid-stage, or resumed
+                # under --accept-code-change from a K=1 run) —
+                # run the stage now; the screen itself is not
+                # repeated. The stage overwrites its own files,
+                # so a torn earlier attempt is harmless.
+                log(f"slice {i}: K=3 stage missing, running it now")
+                if _run_k3_stage(i, out, sl) is None:
+                    return 1
+                staged = True
+            if i not in completed or staged:
+                # A stage run changes the slice's outputs, so
+                # its checkpoint entry is refreshed (new k3 file
+                # hashes); otherwise the entry is untouched.
                 s = json.loads((out / "summary.json").read_text())
                 completed[i] = _checkpoint_entry(out, s)
                 write_checkpoint(completed)
@@ -741,13 +841,27 @@ def main():
             log(f"slice {i}: FAILED — summary written but screen "
                 f"mostly errors (see chunk run.log); not checkpointing")
             return 1
+        # 4.1-1a: the K=3 stage runs BEFORE checkpointing, so the
+        # checkpoint entry's hashes cover the stage's outputs
+        # (and the summary's k3 block) like the pass-1 outputs.
+        k3_block = None
+        if k3d is not None:
+            k3_block = _run_k3_stage(i, out, sl)
+            if k3_block is None:
+                return 1
         s = json.loads((out / "summary.json").read_text())
         completed[i] = _checkpoint_entry(out, s)
         write_checkpoint(completed)
-        log(f"slice {i}: done — searched {s.get('stars_searched')}, "
-            f"measured {_measured_of(s)}, "
-            f"survivors {s.get('survivors')}, "
-            f"tiers {s.get('survivor_tiers')}")
+        done_msg = (f"slice {i}: done — searched "
+                    f"{s.get('stars_searched')}, "
+                    f"measured {_measured_of(s)}, "
+                    f"survivors {s.get('survivors')}, "
+                    f"tiers {s.get('survivor_tiers')}")
+        if k3_block is not None:
+            done_msg += (f", K=3: {k3_block['n_k3_survivors']} "
+                         f"survivors / {k3_block['n_k3_hits']} hits "
+                         f"from {k3_block['n_entered']} entered")
+        log(done_msg)
     # ---- merge ------------------------------------------------------------
     log("all slices done — merging")
     import bulk_screen as bs
@@ -756,6 +870,14 @@ def main():
     agg = {"stars_searched": 0, "stars_measured": 0,
            "hits_recorded": 0,
            "zooniverse_known": 0, "screen_counts": {}}
+    # 4.1-1a: the K=3 stage's merged totals (zeros on a K=1 run).
+    k3_agg = {"slices_with_k3": 0, "n_candidates": 0, "n_entered": 0,
+              "n_missing_fits": 0, "n_pass2_screened": 0,
+              "n_pass3_screened": 0, "n_pass2_survivors": 0,
+              "n_pass3_survivors": 0, "n_k3_survivors": 0,
+              "n_k3_hits": 0, "n_stopped_pass2": 0,
+              "n_stopped_pass3": 0, "n_errors": 0, "seconds": 0.0}
+    n_k3_survivors = 0
     for i in range(len(slices)):
         out = RUN / f"chunk_{i:02d}"
         s = json.loads((out / "summary.json").read_text())
@@ -770,7 +892,36 @@ def main():
         survivors += [json.loads(l)
                       for l in open(out / "survivors.jsonl")]
         hits += [json.loads(l) for l in open(out / "screen_hits.jsonl")]
-    log(f"merged: {len(survivors)} slice survivors, "
+        # 4.1-1a: K=3 rows join the queue BEFORE the veto and the
+        # known-source joins — they are queue rows, and the veto
+        # must see the full survivor set (P3-11 clustered the
+        # full set including TOIs). Read only when the run
+        # enabled K=3: a stale k3 file from an earlier run is
+        # not part of this run.
+        if k3d is not None:
+            kb = s.get("k3") or {}
+            if not kb.get("enabled"):
+                # The slice loop runs the stage for every slice
+                # in a K=3 run — a slice without its block at
+                # merge time was hand-edited or the stage was
+                # skipped by a bug. Fail loud, never silently
+                # merge a K=1 slice into a K=3 run.
+                log(f"FAILED: slice {i} has no K=3 block in a "
+                    f"K=3 run — refusing to merge a partial run")
+                return 1
+            k3_agg["slices_with_k3"] += 1
+            for k in k3_agg:
+                if k in kb and k != "slices_with_k3":
+                    k3_agg[k] += kb[k]
+            k3_surv = [json.loads(l) for l in open(
+                out / k3d.K3_SURVIVORS_FILE)]
+            k3_hit = [json.loads(l) for l in open(
+                out / k3d.K3_HITS_FILE)]
+            n_k3_survivors += len(k3_surv)
+            survivors += k3_surv
+            hits += k3_hit
+    log(f"merged: {len(survivors)} slice survivors "
+        f"({n_k3_survivors} K=3), "
         f"{agg['zooniverse_known']} zooniverse-known already removed")
     # P3-15 (bulk_v4): SECTOR_EPOCH_CLUSTER veto — merge-only
     # (clusters span slices, so a per-slice veto would
@@ -850,7 +1001,7 @@ def main():
     # them as a completed run.
     cons_ok, cons_buckets, cons_problems = check_conservation(
         N_STARS, slice_summaries, len(survivors), n_toi, n_vsx,
-        veto_removed=n_veto)
+        veto_removed=n_veto, k3_survivors=n_k3_survivors)
     conservation = {"ok": cons_ok, "buckets": cons_buckets,
                     "problems": cons_problems}
     if not cons_ok:
@@ -882,11 +1033,9 @@ def main():
         # {"bulk": "v1"} here, so every chunked run's summary
         # mis-stamped its calibration (the manifest was right;
         # P3-21's summary shows the v1 stamp on a v4 run).
-        "provenance": _prov.provenance_header(
-            RUN_ID, MANIFEST["calibration"]["versions"],
-            recipe_hash=R_HASH,
-            sha=MANIFEST["pipeline"]["git_sha"],
-            timestamp_utc=MANIFEST["execution"]["started_at"]),
+        # 4.1-1a: PROV is the same header the K=3 stage stamped
+        # on its rows, built once in main().
+        "provenance": PROV,
         "recipe": {"file": RECIPE["_file"],
                    "resolved_hash": R_HASH,
                    "params": {k: v for k, v in RECIPE.items()
@@ -901,6 +1050,15 @@ def main():
         # gate_reason FAILED_TWO_COMBINED there; together they
         # are the manual-review ("unsure") queue.
         "epoch_cluster_veto": veto_summary,
+        # 4.1-1a: the K=3 stage's merged totals (enabled False
+        # on a K=1 run). The per-slice blocks live in the slice
+        # summaries; the per-star audit lives in each slice's
+        # k3_detail.jsonl.
+        "k3": (dict({"enabled": True,
+                     "arm": k3d.K3_PRODUCTION_ARM},
+                    **{k: (round(v, 1) if k == "seconds" else v)
+                       for k, v in k3_agg.items()})
+               if k3d is not None else {"enabled": False}),
         "stars_searched": agg["stars_searched"],
         "stars_measured": agg["stars_measured"],
         "hits_recorded": agg["hits_recorded"],
@@ -922,6 +1080,8 @@ def main():
         "stars_measured": agg["stars_measured"],
         "hits_recorded": agg["hits_recorded"],
         "survivors": len(survivors),
+        "k3_survivors": n_k3_survivors,
+        "k3_hits": k3_agg["n_k3_hits"],
         "screen_counts": agg["screen_counts"],
         "conservation": conservation,
         "unmeasured": unmeasured,
@@ -936,7 +1096,8 @@ def main():
             f"exceeds the {MAX_UNMEASURED_FRACTION:.0%} threshold "
             f"— see summary.json")
         return 1
-    log(f"DONE: {len(survivors)} survivors {tiers} from "
+    log(f"DONE: {len(survivors)} survivors {tiers} "
+        f"({n_k3_survivors} K=3) from "
         f"{agg['stars_measured']} measured "
         f"({agg['stars_searched']} searched)")
     return 0
