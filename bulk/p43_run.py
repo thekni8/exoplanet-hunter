@@ -683,6 +683,13 @@ def run_host_campaign_p43(job):
     agreement_only = bool(job.get("agreement_only", False))
     seed_mode = job.get("seed_mode", "frozen")
     seed_fix = _seed_fix_for(seed_mode, agreement_only)
+    # PIPE50-9c (4.1-3): record the stitched pass-1 screen per
+    # trial (the unmasked stitch screen). Flag-gated (the
+    # P4-3c precedent): flag-off records stay byte-identical to
+    # P4-3b's. The flag is part of the resume check below, so a
+    # host file written without pass-1 is never resumed by a
+    # run that needs it (and vice versa).
+    record_pass1 = bool(job.get("record_pass1_stitched", False))
     out_path = out_dir / "hosts-p43" / f"{tic}_p43.json"
     if out_path.exists():
         try:
@@ -695,6 +702,8 @@ def run_host_campaign_p43(job):
                 and prev.get("calibration") == calibration
                 and prev.get("seed_fix") == seed_fix
                 and prev.get("mes_gate") == job.get("mes_gate")
+                and prev.get("pass1_stitched", False)
+                == record_pass1
                 and not any("error" in tr
                             for tr in prev.get("trials", []))):
             return {"status": "skipped", "tic": tic}
@@ -783,6 +792,47 @@ def run_host_campaign_p43(job):
             r["inj_check_ok"] = all(
                 v.get("inj_check_ok") is True
                 for v in per_sector.values())
+            # Stitched pass-1 screen (PIPE50-9c, flag-gated):
+            # screen the UNMASKED stitch -- all sectors, full
+            # arrays, no keep mask applied -- and record it per
+            # trial. Mirrors the null leg's A2-style pass-1
+            # baseline (run_host_null_p43 builds `unmasked`
+            # the same way). A DIAGNOSTIC: it does not feed
+            # pass 2/3 (which use the masked stitch) and does
+            # not change any pipeline decision. It runs BEFORE
+            # the all-sectors-stopped early-continue, so even
+            # stopped trials get a pass-1 screen (the unmasked
+            # data exists regardless of the masking). A distinct
+            # base so the FITS does not collide with the masked
+            # pass-2 file (_stitched.fits) when keep_fits is on.
+            if record_pass1:
+                t_p1s = time.time()
+                unmasked = []
+                for sec in sectors:
+                    t_u, f_u, q_u, _k = sector_inj[sec]
+                    unmasked.append(
+                        {"sector": sec, "t": t_u, "f": f_u,
+                         "q": q_u,
+                         "fcol": sector_data[sec]["fcol"],
+                         "crowdsap": sector_data[sec][
+                             "crowdsap"]})
+                t_u, f_u, q_u, _tr_u = p43.stitch_weighted(
+                    unmasked, sigmas)
+                base_u = (workdir
+                          / f"{tic}_{tr['trial_id']}_unmasked")
+                p1s, _p1s_raw = _stitched_pass2(
+                    t_u, f_u, q_u, unmasked[0]["fcol"], base_u,
+                    tic, tr["sector"], keep_fits)
+                r["pass1"] = p1s
+                delta1 = k2.epoch_delta(
+                    p1s.get("t0_btjd"), tr["epoch_btjd"],
+                    tr["period_d"])
+                r["epoch_delta_over_d_pass1"] = (
+                    abs(delta1) / tr["duration_d"]
+                    if delta1 is not None else None)
+                r["pass1_sectors"] = list(sectors)
+                r["seconds_pass1_stitched"] = round(
+                    time.time() - t_p1s, 2)
             # Mask-seed diagnostic (original sector only):
             # reuses the already-injected arrays + fresh keep mask
             # (no recomputation -- the mask is deterministic).
@@ -911,6 +961,10 @@ def run_host_campaign_p43(job):
            "n_trials": len(results),
            "seconds": round(time.time() - t_start, 1),
            "trials": results}
+    if record_pass1:
+        # Flag-on runs only, so flag-off records stay
+        # byte-identical to P4-3b's (the P4-3c precedent).
+        rec["pass1_stitched"] = True
     tmp = out_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(_json_safe(rec)))
     tmp.replace(out_path)
