@@ -27,13 +27,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import bulk_screen as bs  # noqa: E402
 from bulk import k2_prototype as k2  # noqa: E402
+from bulk import k3_run as k3run  # noqa: E402
 from bulk import oracle_run as orc  # noqa: E402
+from bulk import p43_run as p43run  # noqa: E402
 from bulk import p4110_score as s4110  # noqa: E402
 from bulk import p413_score as s413  # noqa: E402
 from bulk import replay_matrix as _rm  # noqa: E402
 from bulk.p4110_score import GateBars  # noqa: E402
 from calibration import (CalibrationError, load_profile,  # noqa: E402
                          load_registry, profile_sha256)
+from synth_fits import make_qlp_fits  # noqa: E402
 
 # Every gate field that must be identical between bulk_v5 and
 # bulk_v6 (any difference besides the 8 new keys is a threshold
@@ -955,6 +958,99 @@ class TestAnystagePromotion(unittest.TestCase):
         stratum = st["by_stratum"]["3_sector"]
         self.assertEqual(stratum["k"], 0)
         self.assertEqual(stratum["k_anystage"], 1)
+
+
+class TestM4GateOffCrashes(unittest.TestCase):
+    """M4-p43 (2026-11-20): the mask gate's gated-off branch
+    crashed two campaign paths -- k3_run's veto["vetoed"]
+    subscript on a None veto (138/272 single-leg trials) and
+    p43_run's _contaminant_dict on a gated-off sector
+    (187/272 stitched trials). Both crashes fire only when
+    the gated-off trial/sector is otherwise fine (a
+    recovering carry-forward / an eligible sector), which is
+    why the k3 parity set (whose gated-off trials were all
+    non-recoveries, so `m6 and ...` short-circuited) never
+    hit them. Synthetic-FITS end-to-end tests: a planet-like
+    recorded row (shallow, unflagged, P < 13.7 d) gates the
+    mask off; the trial must complete with no error."""
+
+    def setUp(self):
+        self.previous = bs.CALIBRATION_VERSION
+        bs.set_calibration("bulk_v6")
+
+    def tearDown(self):
+        bs.set_calibration(self.previous)
+
+    def _trial(self, sector=95):
+        return {"trial_id": "planet01", "tic": "424242",
+                "sector": sector, "group": "recovered_412",
+                "period_d": 5.0, "epoch_btjd": 1505.0,
+                "epoch_offset_d": 5.0, "duration_d": 0.1422,
+                "depth_frac": 0.008,
+                "recorded": {"status": "survivor", "tier": "A",
+                             "period_days": 5.0,
+                             "depth_percent": 0.8, "sde": 15.0,
+                             "mes_pink": 12.0, "flags": [],
+                             "n_events_found": 5,
+                             "n_strong_events": 5,
+                             "max_event_snr": 8.0}}
+
+    def test_k3_gated_off_recovery_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "hosts").mkdir()
+            (tmp / "w").mkdir()
+            fits = make_qlp_fits(tmp / "424242.fits",
+                                 period_d=None)
+            job = {"tic": "424242", "sector": 95,
+                   "arm": "prototype", "spans": None,
+                   "path": str(fits), "trials": [self._trial()],
+                   "out_dir": str(tmp), "workdir": str(tmp / "w"),
+                   "manifest_sha": "test",
+                   "calibration": "bulk_v6", "keep_fits": False}
+            res = k3run.run_host_campaign_k3(job)
+            self.assertEqual(res["status"], "done")
+            rec = json.loads(
+                (tmp / "hosts" / "424242_s0095.json").read_text())
+            tr = rec["trials"][0]
+            self.assertNotIn("error", tr)
+            # The gate denied the mask: pass 2 carries pass 1.
+            self.assertEqual(tr["pass2"].get("carried_from"),
+                             "pass1")
+            # No mask, no veto: the carried recovery stands.
+            self.assertTrue(tr["k2_recovered"])
+            self.assertTrue(tr["final_recovered"])
+
+    def test_p43_gated_off_sector_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "hosts-p43").mkdir()
+            (tmp / "w").mkdir()
+            paths = {}
+            for sec, t0 in ((95, 1500.0), (96, 1527.0),
+                            (97, 1554.0)):
+                # String keys: the driver looks paths up by the
+                # JSON-manifest key (str(sector)).
+                paths[str(sec)] = str(make_qlp_fits(
+                    tmp / f"424242_s{sec:04d}.fits",
+                    period_d=None, t_start=t0))
+            job = {"tic": "424242", "sectors": [95, 96, 97],
+                   "paths": paths, "trials": [self._trial()],
+                   "out_dir": str(tmp), "workdir": str(tmp / "w"),
+                   "manifest_sha": "test",
+                   "calibration": "bulk_v6", "keep_fits": False,
+                   "seed_mode": "frozen", "agreement_only": False}
+            res = p43run.run_host_campaign_p43(job)
+            self.assertEqual(res["status"], "done")
+            rec = json.loads(
+                (tmp / "hosts-p43" / "424242_p43.json").read_text())
+            tr = rec["trials"][0]
+            self.assertNotIn("error", tr)
+            # At least one sector took the gated-off path
+            # (otherwise the test never exercises the fix).
+            gated = [s for s in tr["sectors"].values()
+                     if s.get("mask_gated_off")]
+            self.assertGreaterEqual(len(gated), 1)
 
 
 if __name__ == "__main__":

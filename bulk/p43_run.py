@@ -824,7 +824,15 @@ def run_host_campaign_p43(job):
                                "f": f_i[keep], "q": q_s_[keep],
                                "fcol": sd["fcol"],
                                "crowdsap": sd["crowdsap"]})
-                if rec.get("eligible") and rec.get("ephemeris"):
+                if rec.get("eligible") and rec.get("ephemeris") \
+                        and rec.get("k2_mask") is not None:
+                    # A gated-off sector (k2_mask None) has no
+                    # mask, hence no masked contaminant to veto
+                    # against -- it must not contribute a
+                    # contaminant entry. (M4-p43, 2026-11-20:
+                    # the unguarded append crashed with KeyError
+                    # 'mask_half_width_d' on gated-off sectors
+                    # -- 187/272 stitched trials in the M4 run.)
                     contaminants.append(_contaminant_dict(
                         rec["ephemeris"], mstats))
             r["sectors"] = {str(k): _sector_record(v)

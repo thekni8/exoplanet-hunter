@@ -467,7 +467,14 @@ def run_host_campaign_k3(job):
                 r["alias_veto"] = veto
                 m6 = bool(check_recovery(p2, spec["period_d"]))
                 r["m6_before_veto"] = m6
-                r["k2_recovered"] = bool(m6 and not veto["vetoed"])
+                # No mask in the carry branch (veto is None), so
+                # there is no veto to fail -- the carried
+                # recovery stands. (M4-p43, 2026-11-20: the
+                # bare veto["vetoed"] subscript crashed with
+                # TypeError on gated-off recovering trials --
+                # 138/272 single-leg trials in the M4 run.)
+                r["k2_recovered"] = bool(
+                    m6 and (veto is None or not veto["vetoed"]))
                 delta = k2.epoch_delta(p2.get("t0_btjd"),
                                        tr["epoch_btjd"],
                                        tr["period_d"])
