@@ -456,5 +456,101 @@ class TestS97F1GoldenFixture(unittest.TestCase):
             bs.set_calibration(previous)
 
 
+class TestB1JoinOrder(unittest.TestCase):
+    """B-1 (bulk_v6): the K=3 join moves to AFTER the (P, T0)
+    veto. These tests replicate the two merge orders with the
+    REAL veto functions on synthetic rows — the K=3 stage has
+    no stub seam, so there is no e2e driver test (see the
+    build record). The S97 reconstruction
+    (s97_reconstruct.py, in the bulkv6 record dir) verifies
+    the same orders on real data: 32 tier-B pass-1
+    restorations, 293 K=3 rows escaping the veto."""
+
+    def setUp(self):
+        self._previous = bs.CALIBRATION_VERSION
+        bs.set_calibration("bulk_v6")
+
+    def tearDown(self):
+        bs.set_calibration(self._previous)
+
+    def _merge_orders(self, p1, k3):
+        """Run the (P, T0) veto + K=3 join + F-1 in the v5
+        order (join first) and the v6 order (join after the
+        veto). Returns (v5_kept, v6_kept, v5_veto, v6_veto,
+        v5_t0, v6_t0). Rows are deep-copied per order (the
+        vetoes mutate)."""
+        surv5 = copy.deepcopy(p1) + copy.deepcopy(k3)
+        kept5, vsum5 = bs.apply_epoch_cluster_veto(surv5)
+        kept5, t0sum5 = bs.apply_t0_cluster_veto(kept5)
+        kept6, vsum6 = bs.apply_epoch_cluster_veto(
+            copy.deepcopy(p1))
+        kept6 = kept6 + copy.deepcopy(k3)
+        kept6, t0sum6 = bs.apply_t0_cluster_veto(kept6)
+        return kept5, kept6, vsum5, vsum6, t0sum5, t0sum6
+
+    def test_k3_inflation_demotes_pass1_in_v5_order_only(self):
+        # 19 pass-1 tier-B rows at one (P, T0) — below the
+        # >20 bar alone — plus 5 K=3 rows at the same
+        # (P, T0). The v5 order demotes all 24 (the K=3 rows
+        # inflate the cluster over the bar); the v6 order
+        # keeps all 24 (the pass-1-only cluster never
+        # qualifies, and F-1's pass-1-only count stays 19).
+        # This is the Stage 5 B-1 mechanism in miniature.
+        p1 = _vcluster(19, tic0=50000)
+        k3 = _vcluster(5, tic0=51000, k3_pass=2)
+        kept5, kept6, vsum5, vsum6, t0sum5, t0sum6 = (
+            self._merge_orders(p1, k3))
+        self.assertEqual(vsum5["demoted_tier_b"], 24)
+        self.assertEqual(len(kept5), 0)
+        self.assertEqual(vsum6["demoted_tier_b"], 0)
+        self.assertEqual(vsum6["n_clusters"], 0)
+        self.assertEqual(t0sum6["demoted"], 0)
+        self.assertEqual(len(kept6), 24)
+        p1_tics = {r["tic"] for r in p1}
+        self.assertEqual(p1_tics,
+                         {r["tic"] for r in kept6
+                          if r.get("k3_pass") is None})
+
+    def test_k3_rows_escape_epoch_veto_in_v6_order(self):
+        # 25 pass-1 tier-B rows at one (P, T0) — the cluster
+        # qualifies on pass-1 alone — plus 5 K=3 rows at the
+        # same (P, T0). The v5 order demotes all 30; the v6
+        # order demotes the 25 pass-1 rows and the 5 K=3 rows
+        # survive (they never see the (P, T0) veto, and F-1
+        # counts pass-1 rows only — 0 here — so it cannot
+        # fire on a K=3-only input).
+        p1 = _vcluster(25, tic0=52000)
+        k3 = _vcluster(5, tic0=53000, k3_pass=3)
+        kept5, kept6, vsum5, vsum6, t0sum5, t0sum6 = (
+            self._merge_orders(p1, k3))
+        self.assertEqual(vsum5["demoted_tier_b"], 30)
+        self.assertEqual(len(kept5), 0)
+        self.assertEqual(vsum6["demoted_tier_b"], 25)
+        self.assertEqual(t0sum6["demoted"], 0)
+        self.assertEqual(len(kept6), 5)
+        self.assertTrue(all(r.get("k3_pass") == 3
+                            for r in kept6))
+
+    def test_unclustered_tier_a_kept_in_both_orders(self):
+        # Tier-A pass-1 rows at a (P, T0) with no cluster are
+        # kept under both orders — the reorder changes only
+        # what the veto SEES, not tier-A treatment (under
+        # bulk_v6 a tier-A row IN a qualifying cluster is
+        # demoted in both orders; these rows are not in one).
+        p1 = (_vcluster(19, tic0=54000)
+              + _vcluster(3, t0=3950.0, tic0=55000, period=5.0,
+                          n_events=5, tier="A"))
+        k3 = _vcluster(5, tic0=56000, k3_pass=2)
+        kept5, kept6, vsum5, vsum6, _t0sum5, _t0sum6 = (
+            self._merge_orders(p1, k3))
+        self.assertEqual(vsum5["demoted_tier_b"], 24)
+        self.assertEqual(vsum5["demoted_tier_a"], 0)
+        self.assertEqual(vsum6["demoted_tier_b"], 0)
+        tier_a_kept5 = [r for r in kept5 if r.get("tier") == "A"]
+        tier_a_kept6 = [r for r in kept6 if r.get("tier") == "A"]
+        self.assertEqual(len(tier_a_kept5), 3)
+        self.assertEqual(len(tier_a_kept6), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -873,7 +873,21 @@ def main():
     # ---- merge ------------------------------------------------------------
     log("all slices done — merging")
     import bulk_screen as bs
+    # set_calibration here is merge-local — the slice screens
+    # ran as separate processes with --calibration, and the
+    # merge only uses bs for the TOI join
+    # (calibration-independent) and the vetoes. It runs BEFORE
+    # the slice loop (not at the veto, as before): the K=3 join
+    # position depends on the profile (B-1, bulk_v6), and the
+    # loop itself uses no bs globals, so the move is
+    # behaviour-preserving for the veto/TOI join.
+    bs.set_calibration(args.calibration)
     survivors, hits = [], []
+    # B-1 (bulk_v6): under k3_join_after_veto the K=3 rows are
+    # collected here during the loop and joined AFTER the
+    # (P, T0) veto (below). Under earlier profiles they join
+    # in-loop, as before.
+    k3_surv_deferred, k3_hits_deferred = [], []
     slice_summaries = []
     agg = {"stars_searched": 0, "stars_measured": 0,
            "hits_recorded": 0,
@@ -900,12 +914,20 @@ def main():
         survivors += [json.loads(l)
                       for l in open(out / "survivors.jsonl")]
         hits += [json.loads(l) for l in open(out / "screen_hits.jsonl")]
-        # 4.1-1a: K=3 rows join the queue BEFORE the veto and the
-        # known-source joins — they are queue rows, and the veto
-        # must see the full survivor set (P3-11 clustered the
-        # full set including TOIs). Read only when the run
-        # enabled K=3: a stale k3 file from an earlier run is
-        # not part of this run.
+        # 4.1-1a: K=3 rows are queue rows. Read only when the
+        # run enabled K=3: a stale k3 file from an earlier run
+        # is not part of this run. WHERE they join depends on
+        # the profile (B-1, bulk_v6): under earlier profiles
+        # they join here, BEFORE the veto and the known-source
+        # joins (the veto must see the full survivor set —
+        # P3-11 clustered the full set including TOIs); under
+        # bulk_v6 they are collected and joined AFTER the
+        # (P, T0) veto (below), so K=3 rows can no longer
+        # inflate veto clusters and demote pass-1 rows
+        # (Stage 5 finding B-1: 32 tier-B pass-1 survivors
+        # on S97). The fail-loud rule is identical in both
+        # orders: a slice without its k3 block at merge time
+        # refuses the merge.
         if k3d is not None:
             kb = s.get("k3") or {}
             if not kb.get("enabled"):
@@ -926,21 +948,27 @@ def main():
             k3_hit = [json.loads(l) for l in open(
                 out / k3d.K3_HITS_FILE)]
             n_k3_survivors += len(k3_surv)
-            survivors += k3_surv
-            hits += k3_hit
-    log(f"merged: {len(survivors)} slice survivors "
-        f"({n_k3_survivors} K=3), "
+            if bs.K3_JOIN_AFTER_VETO:
+                k3_surv_deferred += k3_surv
+                k3_hits_deferred += k3_hit
+            else:
+                survivors += k3_surv
+                hits += k3_hit
+    log(f"merged: {len(survivors)} pass-1 survivors "
+        f"({n_k3_survivors} K=3 "
+        f"{'deferred to after the veto'
+          if (k3d is not None and bs.K3_JOIN_AFTER_VETO)
+          else 'joined'}), "
         f"{agg['zooniverse_known']} zooniverse-known already removed")
     # P3-15 (bulk_v4): SECTOR_EPOCH_CLUSTER veto — merge-only
     # (clusters span slices, so a per-slice veto would
-    # under-demote), BEFORE the TOI/VSX joins (the P3-11
-    # replay clustered the full survivor set including TOIs).
-    # Gated on the run's calibration: the veto runs only when
-    # the profile enables it. set_calibration here is
-    # merge-local — the slice screens ran as separate processes
-    # with --calibration, and the merge only uses bs for the
-    # TOI join (calibration-independent) and the veto.
-    bs.set_calibration(args.calibration)
+    # under-demote), BEFORE the TOI/VSX joins. Under earlier
+    # profiles the veto sees the full survivor set including
+    # K=3 rows (the P3-11 replay population); under bulk_v6
+    # (B-1) it sees the pass-1 set only — the K=3 rows join
+    # after it, below. Gated on the run's calibration: the
+    # veto runs only when the profile enables it.
+    # (set_calibration ran before the slice loop — see above.)
     veto_summary = None
     n_veto = 0
     if bs.EPOCH_CLUSTER_VETO_ENABLED:
@@ -954,12 +982,24 @@ def main():
             f"{veto_summary['flagged_tier_a']} tier-A flagged "
             f"({veto_summary['n_clusters']} clusters, sizes "
             f"{veto_summary['cluster_sizes']})")
+    # B-1 (bulk_v6): the deferred K=3 join — AFTER the
+    # (P, T0) veto, BEFORE the F-1 T0 veto (the §6 order).
+    # K=3 rows skip the (P, T0) veto but ARE subject to F-1
+    # (whose >20 bar counts pass-1 rows only, D-F1K3) and to
+    # the TOI/VSX joins below. Under earlier profiles this
+    # list is empty (the rows joined in-loop) and the join
+    # is a no-op. Row order: pass-1 kept rows first, then
+    # K=3 rows in chunk order — the merge's final sort
+    # (tier, -MES) makes the queue order deterministic
+    # regardless.
+    if k3_surv_deferred:
+        survivors += k3_surv_deferred
+        hits += k3_hits_deferred
+        log(f"K=3 join after veto: {len(k3_surv_deferred)} rows")
     # F-1 (bulk_v6 / PIPE50-1): T0-cluster veto — merge-only,
-    # AFTER the (P, T0) veto (the §6 order; the K=3 join moves
-    # to between the two vetoes in the B-1 step — until then
-    # the K=3 rows joined with the slices, and F-1's
-    # pass-1-only counting rule keeps them from pushing a
-    # cluster over the bar either way). Gated on the run's
+    # AFTER the (P, T0) veto and the K=3 join (the §6 order).
+    # F-1's pass-1-only counting rule (D-F1K3) keeps K=3 rows
+    # from pushing a cluster over the bar. Gated on the run's
     # calibration: the veto runs only when the profile
     # enables it.
     t0_summary = None
