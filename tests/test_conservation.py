@@ -67,6 +67,38 @@ class TestCheckConservation(unittest.TestCase):
         self.assertTrue(any("do not conserve" in p
                             for p in problems))
 
+    def test_t0_veto_bucket_balances(self):
+        # F-1 (bulk_v6): a T0-cluster demotion is its own named
+        # removal reason in equation 5 — the run conserves
+        # only when the T0-veto count is passed in, and the
+        # two veto buckets stay distinct (the veto bucket is
+        # the SECTOR_EPOCH_CLUSTER count, P3-15).
+        slices = [_slice(), _slice(counts={"survivor": 2,
+                                           "recorded": 1,
+                                           "below_floor": 1})]
+        # 8 window stars, 3 screened survivors, 1 merged + 1
+        # (P, T0)-veto-demoted + 1 T0-veto-demoted.
+        ok, buckets, problems = check_conservation(
+            8, slices, merged_survivors=1, toi_removed=0,
+            vsx_removed=0, veto_removed=1, t0_veto_removed=1)
+        self.assertTrue(ok, msg=problems)
+        self.assertEqual(buckets["survivors_veto"], 1)
+        self.assertEqual(buckets["survivors_t0_veto"], 1)
+        # Without the T0-veto count the same run fails.
+        ok, _b, problems = check_conservation(
+            8, slices, merged_survivors=1, toi_removed=0,
+            vsx_removed=0, veto_removed=1)
+        self.assertFalse(ok)
+        self.assertTrue(any("do not conserve" in p
+                            for p in problems))
+        # The bucket defaults to 0 (pre-v6 merges have no
+        # F-1 veto) and does not disturb a balanced run.
+        ok, buckets, problems = check_conservation(
+            8, slices, merged_survivors=2, toi_removed=1,
+            vsx_removed=0)
+        self.assertTrue(ok, msg=problems)
+        self.assertEqual(buckets["survivors_t0_veto"], 0)
+
     def test_balanced_run_passes(self):
         slices = [_slice(), _slice(counts={"survivor": 2,
                                            "recorded": 1,

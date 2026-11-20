@@ -28,6 +28,36 @@ change to the fetch/clean path:
 
     .venv/bin/python tests/make_fixtures.py
 
+## golden/s97_f1_queue.jsonl — S97 F-1 golden fixture (bulk_v6)
+
+A COMPACT DERIVED fixture for the F-1 T0-cluster veto golden
+test (`tests/test_bulk_v6.py`, TestS97F1GoldenFixture): the
+749-row S97 re-screened queue (Stage 5 (b), bulk_v5 order,
+filter-off) reduced to the fields F-1 reads (tic, t0_btjd,
+n_events, k3_pass) plus tier. The raw 1.23 MB run output stays
+out of git (repo AGENTS.md: keep run data out of git); this
+65 KB derivation is test data, not a run dump.
+
+Source: `stage5-run/bulk/run_s0097/survivors.jsonl`, sha256
+`2b2bc1745dff5bf036769b621f862ca84044660044ab8654b802535075c0ef4a`.
+Derived by `/tmp/extract_s97_fixture.py` (one-off; the script
+is not committed — the derivation is: keep tic/t0_btjd/
+n_events/k3_pass/tier, drop nulls, one JSON object per line,
+keys sorted). The source file is the v5-order run (K=3 joined
+before the veto), so its K=3 population is smaller than the v6
+F-1 input — the pinned counts below are a regression guard on
+this fixed input, not the v6 production count.
+
+Pinned expectations (measured 2026-11-20 with the implemented
+veto; a change means F-1's behaviour on real data moved):
+25 demoted (23 pass-1 + 2 K=3), 1 cluster of 25 (T0 span
+3946.6134–3946.7616, the 3946.5–3947.0 artifact epoch from
+NULL_DIAGNOSIS §2), 724 kept, 0 known-planet TICs demoted.
+All 25 demoted rows are tier B (24 single-event, 1 two-event).
+The file carries no known_toi/known_vsx flags (the re-screen
+ran --skip-known-filter), so the full 0-TOIs-lost check stays
+a frozen-replay validation item (Mac), not a fixture assertion.
+
 ## injection/ — injection-recovery substrate (Phase 1.1, item 6)
 
 `substrate_238620464.npz` — the stitched light curve of the

@@ -75,11 +75,22 @@ GRID_EDGE_REJECT = "GRID_EDGE_REJECT"
 # verdict); the P3-14 finding survives in the row's grid_edge
 # hand-off record.
 DEMOTED_SECTOR_EPOCH_CLUSTER = "DEMOTED_SECTOR_EPOCH_CLUSTER"
+# Demoted by the T0-cluster veto (F-1, bulk_v6 / PIPE50-1):
+# the row is a few-event (n_events <= 2) member of a >20-star
+# T0-only cluster — a sector-wide common-mode artifact epoch,
+# not a planet. Same demote-not-delete reversibility as the
+# (P, T0) veto: the row keeps this disposition and stays
+# queryable in screen_hits.jsonl (the manual-review queue
+# covers both veto dispositions). A row is demoted by at most
+# one veto in the §6 merge order (the (P, T0) veto runs first
+# on the pass-1 set; F-1 runs on the post-veto kept set plus
+# the K=3 join), so no precedence rule is needed between them.
+DEMOTED_T0_CLUSTER = "DEMOTED_T0_CLUSTER"
 
 DISPOSITION_VALUES = frozenset({
     PERIODIC_CANDIDATE, SINGLE_EVENT, BELOW_THRESHOLD,
     SINGLE_TRANSIT_POOL, GRID_EDGE_REJECT,
-    DEMOTED_SECTOR_EPOCH_CLUSTER,
+    DEMOTED_SECTOR_EPOCH_CLUSTER, DEMOTED_T0_CLUSTER,
 })
 
 

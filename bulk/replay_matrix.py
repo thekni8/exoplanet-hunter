@@ -162,6 +162,39 @@ def demote_systematic(row):
 
 # --- epoch clustering (P3-13 criterion, whole survivor set) ------
 
+def _union_find_clusters(n, adjacent):
+    """Union-find (LINKAGE) over n items; adjacent(i, j) says
+    whether items i and j link. Returns clusters (lists of
+    indices), size > 1 only, largest first. The pairwise loop
+    order is fixed (i < j), so the grouping is deterministic.
+    Shared by epoch_clusters (P, T0) and t0_clusters (T0 only)
+    — the F-1 veto reuses the P3-13 union-find with a T0-only
+    distance (BULKV6_DESIGN §2), not a second copy of it.
+    """
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if adjacent(i, j):
+                union(i, j)
+    groups = defaultdict(list)
+    for i in range(n):
+        groups[find(i)].append(i)
+    return sorted((g for g in groups.values() if len(g) > 1),
+                  key=len, reverse=True)
+
+
 def epoch_clusters(rows, tol_p=CLUSTER_TOL_P,
                    tol_t0_d=CLUSTER_TOL_T0_D):
     """Union-find clusters of rows sharing (P, T0) within 1% / 3 h.
@@ -176,34 +209,15 @@ def epoch_clusters(rows, tol_p=CLUSTER_TOL_P,
     the replay always uses the defaults, so the recorded
     P3-11 numbers are unchanged.
     """
-    n = len(rows)
-    parent = list(range(n))
-
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(a, b):
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-
     periods = [r["period_days"] for r in rows]
     t0s = [r["t0_btjd"] for r in rows]
-    for i in range(n):
-        pi, ti = periods[i], t0s[i]
-        for j in range(i + 1, n):
-            pj = periods[j]
-            if abs(pi - pj) <= tol_p * max(pi, pj) and \
-                    abs(ti - t0s[j]) <= tol_t0_d:
-                union(i, j)
-    groups = defaultdict(list)
-    for i in range(n):
-        groups[find(i)].append(i)
-    return sorted((g for g in groups.values() if len(g) > 1),
-                  key=len, reverse=True)
+
+    def adjacent(i, j):
+        return (abs(periods[i] - periods[j])
+                <= tol_p * max(periods[i], periods[j])
+                and abs(t0s[i] - t0s[j]) <= tol_t0_d)
+
+    return _union_find_clusters(len(rows), adjacent)
 
 
 def sector_epoch_cluster_tics(rows, tol_p=CLUSTER_TOL_P,
@@ -219,6 +233,71 @@ def sector_epoch_cluster_tics(rows, tol_p=CLUSTER_TOL_P,
     big = [c for c in epoch_clusters(rows, tol_p=tol_p,
                                     tol_t0_d=tol_t0_d)
            if len(c) >= min_size]
+    clusters = [[rows[i]["tic"] for i in c] for c in big]
+    clustered = {t for c in clusters for t in c}
+    return clustered, clusters
+
+
+# --- T0 clustering (F-1 criterion, bulk_v6 / PIPE50-1) -----------
+
+def t0_clusters(rows, tol_t0_d=T0_CLUSTER_TOL_T0_D):
+    """Union-find clusters of rows sharing T0 within 3 h (F-1).
+
+    Period-agnostic: the (P, T0) veto cannot catch few-event
+    rows because their periods are meaningless (one dip), so
+    the event time is the discriminator (NULL_DIAGNOSIS_BP1
+    §7 — max (P, T0) cluster 16 vs max T0-only cluster 30 in
+    the same data). LINKAGE (transitive chaining, not fixed
+    bins): a chain of rows each within 3 h of the next is one
+    cluster however far it spans (A1). Returns a list of
+    clusters (each a list of row indices), size > 1 only,
+    largest first. Same union-find as epoch_clusters.
+    """
+    t0s = [r["t0_btjd"] for r in rows]
+
+    def adjacent(i, j):
+        return abs(t0s[i] - t0s[j]) <= tol_t0_d
+
+    return _union_find_clusters(len(rows), adjacent)
+
+
+def t0_cluster_rows(rows, tol_t0_d=T0_CLUSTER_TOL_T0_D,
+                    min_size=T0_CLUSTER_MIN_SIZE, count_rows=None):
+    """Qualifying T0 clusters as row-index lists (F-1).
+
+    A cluster qualifies when its counted size reaches
+    min_size. `count_rows` is an optional predicate: when
+    given, only rows satisfying it count toward the bar, but
+    ALL members of a qualifying cluster are returned
+    (D-F1K3: the bar counts pass-1 rows only — `k3_pass is
+    None` — while K=3 rows inside a qualifying cluster are
+    demoted too). Without a predicate every member counts
+    (the sector_epoch_cluster_tics form). The veto demotes
+    by ROW (cluster membership), not by TIC: a star's
+    pass-1 row can sit in a cluster while its K=3 row does
+    not, and the non-clustered row must survive.
+    """
+    big = []
+    for c in t0_clusters(rows, tol_t0_d=tol_t0_d):
+        n_counted = (sum(1 for i in c if count_rows(rows[i]))
+                     if count_rows is not None else len(c))
+        if n_counted >= min_size:
+            big.append(c)
+    return big
+
+
+def t0_cluster_tics(rows, tol_t0_d=T0_CLUSTER_TOL_T0_D,
+                    min_size=T0_CLUSTER_MIN_SIZE, count_rows=None):
+    """TICs in T0-CLUSTERs: clusters of >20 stars (F-1).
+
+    Returns (clustered_tics, clusters): the set of TICs in
+    >20-star clusters and the list of those clusters (each a
+    list of TICs, largest first). Same return shape as
+    sector_epoch_cluster_tics. `count_rows` is the D-F1K3
+    counting predicate (see t0_cluster_rows).
+    """
+    big = t0_cluster_rows(rows, tol_t0_d=tol_t0_d,
+                          min_size=min_size, count_rows=count_rows)
     clusters = [[rows[i]["tic"] for i in c] for c in big]
     clustered = {t for c in clusters for t in c}
     return clustered, clusters

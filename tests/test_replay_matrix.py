@@ -180,6 +180,135 @@ class TestEpochClusters(unittest.TestCase):
         self.assertEqual(len(clustered), 0)
 
 
+class TestT0Clusters(unittest.TestCase):
+    """F-1 (bulk_v6 / PIPE50-1): T0-only union-find clustering.
+    The (P, T0) veto cannot catch few-event rows (their periods
+    are meaningless), so F-1 clusters on the event time alone.
+    Same criterion shape as P3-13 (3 h, >20 stars), different
+    distance."""
+
+    def _cluster_rows(self, n, t0=3920.0, tier="B", k3_pass=None):
+        # n rows sharing T0 within the tolerance; periods are
+        # deliberately scattered (T0-only clustering ignores
+        # them). k3_pass stamps K=3 rows; pass-1 rows carry no
+        # k3_pass key (mirrors the production record shape).
+        rows = []
+        for i in range(n):
+            kw = {"tic": str(10000 + i),
+                  "period_days": 1.0 + 0.37 * i,
+                  "t0_btjd": t0 + 0.001 * i, "tier": tier,
+                  "n_events": 1}
+            if k3_pass is not None:
+                kw["k3_pass"] = k3_pass
+            rows.append(_row(**kw))
+        return rows
+
+    def test_cluster_over_20_flagged(self):
+        rows = self._cluster_rows(25)
+        clustered, clusters = rm.t0_cluster_tics(rows)
+        self.assertEqual(len(clustered), 25)
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(len(clusters[0]), 25)
+
+    def test_cluster_of_exactly_20_not_flagged(self):
+        # The rule is >20 stars, not >=20.
+        rows = self._cluster_rows(20)
+        clustered, clusters = rm.t0_cluster_tics(rows)
+        self.assertEqual(len(clustered), 0)
+        self.assertEqual(clusters, [])
+
+    def test_cluster_of_21_flagged(self):
+        rows = self._cluster_rows(21)
+        clustered, _ = rm.t0_cluster_tics(rows)
+        self.assertEqual(len(clustered), 21)
+
+    def test_periods_ignored(self):
+        # The F-1 difference from the (P, T0) veto: same epoch
+        # with wildly different periods IS one cluster here.
+        rows = [_row(tic=str(11000 + i),
+                     period_days=0.8 + 0.9 * i,
+                     t0_btjd=3920.0, tier="B", n_events=1)
+                for i in range(25)]
+        clustered, _ = rm.t0_cluster_tics(rows)
+        self.assertEqual(len(clustered), 25)
+
+    def test_linkage_chaining(self):
+        # 21 rows 0.1 d apart in T0 chain into one cluster at
+        # the 3 h default (total span 2.0 d — LINKAGE, A1),
+        # but a 0.05 d window breaks every link.
+        rows = [_row(tic=str(12000 + i), period_days=3.0,
+                     t0_btjd=3920.0 + 0.1 * i, tier="B",
+                     n_events=1) for i in range(21)]
+        clustered, _ = rm.t0_cluster_tics(rows)
+        self.assertEqual(len(clustered), 21)  # chained at 3 h
+        clustered, _ = rm.t0_cluster_tics(rows, tol_t0_d=0.05)
+        self.assertEqual(len(clustered), 0)  # 0.1 d gaps break it
+
+    def test_scattered_set_not_flagged(self):
+        rows = [_row(tic=str(13000 + i), period_days=3.0,
+                     t0_btjd=3908.0 + i, tier="B", n_events=1)
+                for i in range(25)]
+        clustered, clusters = rm.t0_cluster_tics(rows)
+        self.assertEqual(len(clustered), 0)
+        self.assertEqual(clusters, [])
+
+    def test_tolerance_boundary(self):
+        # t0_clusters (not the >20 filter): two rows exactly
+        # 0.125 d apart link (<=); 0.126 d apart do not.
+        rows = [_row(tic="14000", t0_btjd=3920.0),
+                _row(tic="14001", t0_btjd=3920.0 + 0.125)]
+        self.assertEqual(len(rm.t0_clusters(rows)), 1)
+        rows[1]["t0_btjd"] = 3920.0 + 0.126
+        self.assertEqual(rm.t0_clusters(rows), [])
+
+    def test_count_rows_predicate_d_f1k3(self):
+        # D-F1K3: the >20 bar counts pass-1 rows only. 15
+        # pass-1 + 10 K=3 rows in one T0 cluster do NOT
+        # qualify (15 < 21); without the predicate the same
+        # 25 rows would. And 21 pass-1 + 5 K=3 rows DO
+        # qualify, with the K=3 TICs inside the cluster.
+        p1 = self._cluster_rows(15)
+        k3 = self._cluster_rows(10, k3_pass=3)
+        for i, r in enumerate(k3):
+            r["tic"] = str(20000 + i)
+        rows = p1 + k3
+        is_pass1 = lambda r: r.get("k3_pass") is None
+        clustered, _ = rm.t0_cluster_tics(
+            rows, count_rows=is_pass1)
+        self.assertEqual(len(clustered), 0)
+        clustered, _ = rm.t0_cluster_tics(rows)
+        self.assertEqual(len(clustered), 25)
+        rows = self._cluster_rows(21) + self._cluster_rows(
+            5, k3_pass=2)
+        for i, r in enumerate(rows[21:]):
+            r["tic"] = str(21000 + i)
+        clustered, clusters = rm.t0_cluster_tics(
+            rows, count_rows=is_pass1)
+        self.assertEqual(len(clustered), 26)
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(len(clusters[0]), 26)
+
+    def test_t0_cluster_rows_returns_indices(self):
+        # The veto's workhorse: qualifying clusters as
+        # row-index lists (row-level demotion, not TIC-level).
+        rows = self._cluster_rows(25)
+        rows.append(_row(tic="15000", t0_btjd=3950.0))
+        qualifying = rm.t0_cluster_rows(rows)
+        self.assertEqual(len(qualifying), 1)
+        self.assertEqual(sorted(qualifying[0]), list(range(25)))
+
+    def test_params_default_to_f1_criterion(self):
+        rows = self._cluster_rows(21)
+        clustered, _ = rm.t0_cluster_tics(rows)
+        self.assertEqual(len(clustered), 21)
+        clustered, _ = rm.t0_cluster_tics(
+            rows, tol_t0_d=0.125, min_size=21)
+        self.assertEqual(len(clustered), 21)
+        # Non-default min_size is live.
+        clustered, _ = rm.t0_cluster_tics(rows, min_size=26)
+        self.assertEqual(len(clustered), 0)
+
+
 class TestGateParameters(unittest.TestCase):
     """P3-15: the gate functions take their criterion as
     parameters (defaults the frozen values) so the screen can

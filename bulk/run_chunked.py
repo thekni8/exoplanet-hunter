@@ -242,7 +242,8 @@ def _measured_of(summary):
 
 def check_conservation(window_stars, slice_summaries,
                        merged_survivors, toi_removed, vsx_removed,
-                       veto_removed=0, k3_survivors=0):
+                       veto_removed=0, t0_veto_removed=0,
+                       k3_survivors=0):
     """The window must be conserved: every star in the window
     ends up in exactly one bucket, and every screened survivor
     ends up merged or removed with a named reason.
@@ -264,15 +265,19 @@ def check_conservation(window_stars, slice_summaries,
       5. sum(screen_counts["survivor"]) + k3_survivors ==
          merged_survivors + toi_removed + vsx_removed
          + sum(zooniverse_known) + veto_removed
+         + t0_veto_removed
          (every screened survivor is merged or removed with a
          reason; the veto bucket counts the SECTOR_EPOCH_CLUSTER
          demotions at merge, P3-15 — 0 for pre-v4 profiles,
-         whose merge has no veto; k3_survivors counts the K=3
-         stage's pass-2/pass-3 survivor ROWS, 4.1-1a — extra
-         rows for already-searched stars, not extra stars, so
-         they enter only equation 5, never equations 1–4. The
-         TOI/VSX/veto removal counts include K=3 rows removed
-         by those stages, so the equation still balances.)
+         whose merge has no veto; the t0_veto bucket counts
+         the T0-cluster demotions at merge, F-1 (bulk_v6) —
+         0 for pre-v6 profiles, whose merge has no F-1 veto;
+         k3_survivors counts the K=3 stage's pass-2/pass-3
+         survivor ROWS, 4.1-1a — extra rows for already-searched
+         stars, not extra stars, so they enter only equation 5,
+         never equations 1–4. The TOI/VSX/veto removal counts
+         include K=3 rows removed by those stages, so the
+         equation still balances.)
 
     A missing bucket is a problem, not a skip (fail-closed): a
     summary that cannot be audited is not a summary that
@@ -294,6 +299,7 @@ def check_conservation(window_stars, slice_summaries,
         "survivors_toi": toi_removed,
         "survivors_vsx": vsx_removed,
         "survivors_veto": veto_removed,
+        "survivors_t0_veto": t0_veto_removed,
         "survivors_merged": merged_survivors,
     }
 
@@ -374,6 +380,7 @@ def check_conservation(window_stars, slice_summaries,
                  + buckets["survivors_toi"]
                  + buckets["survivors_vsx"]
                  + buckets["survivors_veto"]
+                 + buckets["survivors_t0_veto"]
                  + buckets["survivors_zooniverse"])
     screened = (buckets["survivors_screened"]
                 + buckets["survivors_k3"])
@@ -386,6 +393,7 @@ def check_conservation(window_stars, slice_summaries,
             f"{buckets['survivors_toi']} TOI + "
             f"{buckets['survivors_vsx']} VSX + "
             f"{buckets['survivors_veto']} veto + "
+            f"{buckets['survivors_t0_veto']} T0-veto + "
             f"{buckets['survivors_zooniverse']} Zooniverse")
     return (not problems, buckets, problems)
 
@@ -946,6 +954,25 @@ def main():
             f"{veto_summary['flagged_tier_a']} tier-A flagged "
             f"({veto_summary['n_clusters']} clusters, sizes "
             f"{veto_summary['cluster_sizes']})")
+    # F-1 (bulk_v6 / PIPE50-1): T0-cluster veto — merge-only,
+    # AFTER the (P, T0) veto (the §6 order; the K=3 join moves
+    # to between the two vetoes in the B-1 step — until then
+    # the K=3 rows joined with the slices, and F-1's
+    # pass-1-only counting rule keeps them from pushing a
+    # cluster over the bar either way). Gated on the run's
+    # calibration: the veto runs only when the profile
+    # enables it.
+    t0_summary = None
+    n_t0 = 0
+    if bs.T0_CLUSTER_VETO_ENABLED:
+        survivors, t0_summary = bs.apply_t0_cluster_veto(
+            survivors, hits)
+        n_t0 = t0_summary["demoted"]
+        log(f"t0-cluster veto: {t0_summary['demoted']} demoted "
+            f"({t0_summary['demoted_pass1']} pass-1, "
+            f"{t0_summary['demoted_k3']} K=3; "
+            f"{t0_summary['n_clusters']} clusters, sizes "
+            f"{t0_summary['cluster_sizes']})")
     n_toi = n_vsx = 0
     if args.skip_known_filter:
         log("known-source checks skipped (--skip-known-filter)")
@@ -1001,7 +1028,8 @@ def main():
     # them as a completed run.
     cons_ok, cons_buckets, cons_problems = check_conservation(
         N_STARS, slice_summaries, len(survivors), n_toi, n_vsx,
-        veto_removed=n_veto, k3_survivors=n_k3_survivors)
+        veto_removed=n_veto, t0_veto_removed=n_t0,
+        k3_survivors=n_k3_survivors)
     conservation = {"ok": cons_ok, "buckets": cons_buckets,
                     "problems": cons_problems}
     if not cons_ok:
@@ -1047,9 +1075,13 @@ def main():
         # veto). The demoted rows are NOT deleted — they carry
         # disposition DEMOTED_SECTOR_EPOCH_CLUSTER in the merged
         # screen_hits.jsonl, and the TWO-COMBINED failures carry
-        # gate_reason FAILED_TWO_COMBINED there; together they
-        # are the manual-review ("unsure") queue.
+        # gate_reason FAILED_TWO_COMBINED there; together with
+        # the F-1 demotions (disposition DEMOTED_T0_CLUSTER)
+        # they are the manual-review ("unsure") queue.
         "epoch_cluster_veto": veto_summary,
+        # F-1 (bulk_v6): the T0-cluster veto summary (None
+        # when the profile has no F-1 veto).
+        "t0_cluster_veto": t0_summary,
         # 4.1-1a: the K=3 stage's merged totals (enabled False
         # on a K=1 run). The per-slice blocks live in the slice
         # summaries; the per-star audit lives in each slice's

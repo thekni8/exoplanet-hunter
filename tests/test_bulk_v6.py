@@ -15,6 +15,8 @@ These tests pin the profile shape AND the loader wiring (the
 v6 change is profile + wiring; each gate's behaviour lives in
 its own test module). Offline, no downloads.
 """
+import copy
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -185,6 +187,271 @@ class TestBulkV6Scaffold(unittest.TestCase):
                                        msg=f"mask depth {bad} "
                                        f"must fail loud"):
                     bs._apply_profile(prof)
+        finally:
+            bs.set_calibration(previous)
+
+
+def _vrow(tic, t0, n_events=1, tier="B", k3_pass=None,
+          period=3.0):
+    """A synthetic survivor row for the F-1 veto tests."""
+    row = {"tic": str(tic), "t0_btjd": t0,
+           "period_days": period, "n_events": n_events,
+           "tier": tier, "status": "survivor", "flags": []}
+    if k3_pass is not None:
+        row["k3_pass"] = k3_pass
+    return row
+
+
+def _vcluster(n, t0=3920.0, tic0=30000, **kw):
+    """n few-event rows sharing T0 within the tolerance."""
+    return [_vrow(tic0 + i, t0 + 0.001 * i, **kw)
+            for i in range(n)]
+
+
+class TestT0ClusterVeto(unittest.TestCase):
+    """F-1 (bulk_v6): merge-time T0-cluster veto behaviour."""
+
+    def test_demotes_clustered_few_event_rows(self):
+        rows = _vcluster(25) + _vcluster(5, t0=3950.0,
+                                         tic0=40000)
+        kept, summary = bs.apply_t0_cluster_veto(rows)
+        self.assertEqual(len(kept), 5)
+        self.assertEqual(summary["demoted"], 25)
+        self.assertEqual(summary["n_clusters"], 1)
+        self.assertEqual(summary["cluster_sizes"], [25])
+        self.assertEqual(summary["demoted_pass1"], 25)
+        self.assertEqual(summary["demoted_k3"], 0)
+
+    def test_few_event_only(self):
+        # 20 few-event + 5 multi-event rows at one epoch: the
+        # multi-event rows neither count toward the bar nor
+        # get demoted — 20 < 21, so nothing fires.
+        rows = (_vcluster(20)
+                + _vcluster(5, t0=3920.0, tic0=41000,
+                            n_events=5, tier="A"))
+        kept, summary = bs.apply_t0_cluster_veto(rows)
+        self.assertEqual(len(kept), 25)
+        self.assertEqual(summary["demoted"], 0)
+        # 25 few-event + 5 multi-event at the same epoch: the
+        # 25 fire, the 5 multi-event rows survive.
+        rows = (_vcluster(25)
+                + _vcluster(5, t0=3920.0, tic0=41000,
+                            n_events=5, tier="A"))
+        kept, summary = bs.apply_t0_cluster_veto(rows)
+        self.assertEqual(len(kept), 5)
+        self.assertEqual(summary["demoted"], 25)
+        self.assertTrue(all(r["n_events"] == 5 for r in kept))
+
+    def test_demoted_rows_stay_in_hits(self):
+        # Demote-not-delete: demoted rows leave the kept
+        # survivors but carry the demotion in the hits list.
+        rows = _vcluster(25)
+        hits = [dict(r) for r in rows]
+        kept, summary = bs.apply_t0_cluster_veto(rows, hits)
+        self.assertEqual(len(kept), 0)
+        self.assertEqual(len(hits), 25)
+        for h in hits:
+            self.assertEqual(h["status"], "demoted")
+            self.assertEqual(h["disposition"],
+                             "DEMOTED_T0_CLUSTER")
+            self.assertIn("T0_CLUSTER", h["flags"])
+
+    def test_hits_consistent_k3_keying(self):
+        # A star with a pass-1 row and a K=3 row: when the K=3
+        # row is demoted, the demotion lands on the K=3 hit
+        # record — NOT on the pass-1 hit (the (P, T0) veto's
+        # tic-only keying would misattribute it).
+        p1 = _vcluster(21)
+        k3rows = _vcluster(5, tic0=42000, k3_pass=3)
+        rows = p1 + k3rows
+        hits = [dict(r) for r in rows]
+        kept, summary = bs.apply_t0_cluster_veto(rows, hits)
+        self.assertEqual(summary["demoted"], 26)
+        self.assertEqual(summary["demoted_k3"], 5)
+        k3_hits = [h for h in hits if h.get("k3_pass") == 3]
+        self.assertEqual(len(k3_hits), 5)
+        for h in k3_hits:
+            self.assertEqual(h["disposition"],
+                             "DEMOTED_T0_CLUSTER")
+        p1_hits = [h for h in hits if h.get("k3_pass") is None]
+        self.assertEqual(len(p1_hits), 21)
+        for h in p1_hits:
+            self.assertEqual(h["disposition"],
+                             "DEMOTED_T0_CLUSTER")
+
+    def test_row_level_demotion(self):
+        # A star whose pass-1 row sits in a cluster but whose
+        # K=3 row sits at a different epoch: the pass-1 row is
+        # demoted, the K=3 row survives (row-level, not
+        # TIC-level demotion).
+        rows = _vcluster(21)
+        k3row = _vrow("30000", 3950.0, k3_pass=2)
+        rows.append(k3row)
+        kept, summary = bs.apply_t0_cluster_veto(rows)
+        self.assertEqual(summary["demoted"], 21)
+        self.assertEqual(len(kept), 1)
+        self.assertIs(kept[0], k3row)
+        self.assertNotIn("T0_CLUSTER", k3row["flags"])
+
+    def test_d_f1k3_counting(self):
+        # 15 pass-1 + 10 K=3 rows in one cluster: the bar
+        # counts pass-1 only (15 < 21) — nothing fires, and
+        # the K=3 rows do not push it over.
+        rows = _vcluster(15) + _vcluster(10, tic0=43000,
+                                         k3_pass=3)
+        kept, summary = bs.apply_t0_cluster_veto(rows)
+        self.assertEqual(len(kept), 25)
+        self.assertEqual(summary["demoted"], 0)
+        # 21 pass-1 + 5 K=3: the cluster qualifies on pass-1
+        # alone, and the K=3 rows inside it are demoted too.
+        rows = _vcluster(21) + _vcluster(5, tic0=43000,
+                                         k3_pass=2)
+        kept, summary = bs.apply_t0_cluster_veto(rows)
+        self.assertEqual(len(kept), 0)
+        self.assertEqual(summary["demoted"], 26)
+        self.assertEqual(summary["demoted_pass1"], 21)
+        self.assertEqual(summary["demoted_k3"], 5)
+
+    def test_rows_without_t0_or_events_kept(self):
+        rows = _vcluster(21)
+        no_t0 = _vrow("44000", None)
+        no_events = _vrow("44001", 3920.0)
+        del no_events["n_events"]
+        rows += [no_t0, no_events]
+        kept, summary = bs.apply_t0_cluster_veto(rows)
+        self.assertEqual(summary["demoted"], 21)
+        self.assertEqual(len(kept), 2)
+        self.assertIn(no_t0, kept)
+        self.assertIn(no_events, kept)
+
+    def test_idempotent(self):
+        rows = _vcluster(25)
+        kept, first = bs.apply_t0_cluster_veto(rows)
+        self.assertEqual(first["demoted"], 25)
+        kept2, second = bs.apply_t0_cluster_veto(kept)
+        self.assertEqual(second["demoted"], 0)
+        self.assertEqual(kept2, kept)
+
+    def test_explicit_parameters_live(self):
+        # Non-default min_size is live, not ignored.
+        rows = _vcluster(6)
+        _, summary = bs.apply_t0_cluster_veto(rows, min_size=5)
+        self.assertEqual(summary["demoted"], 6)
+        rows = _vcluster(6)
+        _, summary = bs.apply_t0_cluster_veto(rows, min_size=7)
+        self.assertEqual(summary["demoted"], 0)
+
+    def test_summary_carries_cluster_identity(self):
+        rows = _vcluster(25) + _vcluster(22, t0=3950.0,
+                                         tic0=45000)
+        _, summary = bs.apply_t0_cluster_veto(rows)
+        self.assertEqual(summary["n_clusters"], 2)
+        self.assertEqual(summary["cluster_sizes"], [25, 22])
+        clusters = summary["clusters"]
+        self.assertEqual(clusters[0]["cluster_id"], 0)
+        self.assertEqual(clusters[0]["size"], 25)
+        self.assertEqual(clusters[0]["n_pass1_counted"], 25)
+        self.assertEqual(clusters[0]["members"],
+                         sorted(clusters[0]["members"]))
+        self.assertEqual(len(clusters[0]["members"]), 25)
+        self.assertEqual(clusters[1]["cluster_id"], 1)
+        self.assertEqual(clusters[1]["size"], 22)
+
+
+class TestT0ClusterVocabulary(unittest.TestCase):
+    """DEMOTED_T0_CLUSTER in the search_health vocabulary AND
+    the survivor schema — the two homes of the disposition
+    vocabulary must stay in sync."""
+
+    def test_disposition_in_search_health(self):
+        import search_health as sh
+        self.assertIn("DEMOTED_T0_CLUSTER",
+                      sh.DISPOSITION_VALUES)
+        self.assertEqual(sh.DEMOTED_T0_CLUSTER,
+                         "DEMOTED_T0_CLUSTER")
+
+    def test_disposition_in_schema_enum(self):
+        import json
+        repo = Path(__file__).resolve().parent.parent
+        schema = json.loads(
+            (repo / "schema" / "survivor-schema.json").read_text())
+        enum = set(schema["properties"]["disposition"]["enum"])
+        self.assertIn("DEMOTED_T0_CLUSTER", enum)
+        import search_health as sh
+        self.assertEqual(enum, set(sh.DISPOSITION_VALUES),
+                         "schema disposition enum and "
+                         "search_health.DISPOSITION_VALUES "
+                         "must stay in sync")
+
+    def test_queue_query_docs_mention_t0_cluster(self):
+        repo = Path(__file__).resolve().parent.parent
+        schema = json.loads(
+            (repo / "schema" / "survivor-schema.json").read_text())
+        desc = schema["properties"]["gate_reason"]["description"]
+        self.assertIn("DEMOTED_T0_CLUSTER", desc)
+
+
+class TestS97F1GoldenFixture(unittest.TestCase):
+    """F-1 on the real S97 re-screened queue (golden fixture,
+    tests/fixtures/golden/s97_f1_queue.jsonl). Pins F-1's
+    behaviour on production data: the counts below were
+    measured once with the implemented veto (2026-11-20) and
+    are a regression guard — a change means F-1 moved on real
+    data. The fixture is the v5-order run, so the pinned
+    counts are not the v6 production counts (see the fixtures
+    README)."""
+
+    @classmethod
+    def setUpClass(cls):
+        repo = Path(__file__).resolve().parent.parent
+        path = (repo / "tests" / "fixtures" / "golden"
+                / "s97_f1_queue.jsonl")
+        cls.rows = [json.loads(line)
+                    for line in path.read_text().splitlines()
+                    if line.strip()]
+
+    def test_fixture_shape(self):
+        self.assertEqual(len(self.rows), 749)
+        n_k3 = sum(1 for r in self.rows
+                   if r.get("k3_pass") is not None)
+        self.assertEqual(n_k3, 373)
+        n_few = sum(1 for r in self.rows
+                    if r.get("n_events", 99) <= 2)
+        self.assertEqual(n_few, 236)
+        self.assertTrue(all(r.get("t0_btjd") is not None
+                            for r in self.rows))
+
+    def test_f1_demotes_25_on_s97(self):
+        previous = bs.CALIBRATION_VERSION
+        try:
+            bs.set_calibration("bulk_v6")
+            rows = copy.deepcopy(self.rows)
+            kept, summary = bs.apply_t0_cluster_veto(rows)
+            self.assertEqual(summary["demoted"], 25)
+            self.assertEqual(summary["demoted_pass1"], 23)
+            self.assertEqual(summary["demoted_k3"], 2)
+            self.assertEqual(summary["n_clusters"], 1)
+            self.assertEqual(summary["cluster_sizes"], [25])
+            self.assertEqual(len(kept), 724)
+            # The demoted rows are the T0-cluster members:
+            # few-event, tier B, at the 3946.6 artifact epoch.
+            demoted = [r for r in rows
+                       if r.get("disposition")
+                       == "DEMOTED_T0_CLUSTER"]
+            self.assertEqual(len(demoted), 25)
+            self.assertTrue(all(r["n_events"] <= 2
+                                for r in demoted))
+            self.assertTrue(all(r.get("tier") == "B"
+                                for r in demoted))
+            t0s = [r["t0_btjd"] for r in demoted]
+            self.assertGreaterEqual(min(t0s), 3946.6)
+            self.assertLessEqual(max(t0s), 3946.8)
+            # No known planet demoted (TIC 349410350, the one
+            # known-planet TIC in the fixture, is an 11-event
+            # tier-A row — outside F-1's input by construction).
+            self.assertEqual(
+                {r["tic"] for r in demoted}
+                & set(_rm.KNOWN_PLANET_TICS), set())
         finally:
             bs.set_calibration(previous)
 

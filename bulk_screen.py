@@ -178,6 +178,7 @@ from bulk.replay_matrix import (T0_CLUSTER_TOL_T0_D as
                                 _RM_T0_CLUSTER_TOL_T0_D)
 from bulk.replay_matrix import (sector_epoch_cluster_tics as
                                 _sector_epoch_cluster_tics)
+from bulk.replay_matrix import t0_cluster_rows as _t0_cluster_rows
 from bulk.replay_matrix import two_event_combined as _two_event_combined
 from validation import validate_survivor as _validate_survivor
 
@@ -1913,6 +1914,12 @@ def _collect_screen_results(ex, jobs, worker, timeout_s, logf=None,
 # (tier-B only) names the verdict.
 SECTOR_EPOCH_CLUSTER_FLAG = "SECTOR_EPOCH_CLUSTER"
 
+# Flag appended to every T0-cluster veto demotion (F-1,
+# bulk_v6). Every clustered row is demoted (there is no
+# flag-only tier here — the input is few-event rows only,
+# and tier A requires >= 3 events).
+T0_CLUSTER_FLAG = "T0_CLUSTER"
+
 # gate_reason value for TWO-COMBINED failures (set in
 # _screen_one). Rows carrying it are v3-tier survivors the v4
 # gate demoted — they join the veto's clustering input (see
@@ -1998,7 +2005,8 @@ def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
     bulk_v4 profile header). Demotion is reversible: demoted
     rows keep their disposition and stay queryable in
     screen_hits.jsonl; the manual-review ("unsure") queue is
-    disposition == DEMOTED_SECTOR_EPOCH_CLUSTER OR gate_reason
+    disposition == DEMOTED_SECTOR_EPOCH_CLUSTER OR disposition
+    == DEMOTED_T0_CLUSTER (F-1, bulk_v6) OR gate_reason
     present. Nothing is deleted anywhere.
     """
     if tol_p is None:
@@ -2081,6 +2089,153 @@ def apply_epoch_cluster_veto(survivors, hits=None, tol_p=None,
         "demoted_tics": sorted(demoted_tier_b_tics
                                + demoted_tier_a_tics),
         "flagged_tics": sorted(flagged_tics),
+    }
+    return kept, summary
+
+
+# --- T0-cluster veto (F-1, bulk_v6 / PIPE50-1) ----------------------------
+
+def apply_t0_cluster_veto(survivors, hits=None, tol_t0_d=None,
+                          min_size=None, max_events=None):
+    """Apply the T0-cluster veto (F-1, bulk_v6) to a sector's
+    survivor set. Returns (kept_survivors, summary).
+
+    `survivors`: the sector's survivor records AFTER the
+    (P, T0) veto, with the K=3 join applied (the §6 merge
+    order). `hits`: the sector's full screen-hits records,
+    or None; when given, the veto updates the hit copies in
+    place (demoted rows carry the demotion there), so the
+    merged screen_hits.jsonl stays consistent with the
+    merged survivors.jsonl. Tolerances default to the
+    profile-derived module globals (the F-1 criterion).
+
+    Criterion (PIPE50-1 / NULL_DIAGNOSIS_BP1 §7, implemented
+    by replay_matrix's t0_cluster_rows — called here, not
+    re-implemented): per sector, cluster few-event rows by
+    T0 ALONE within 3 h (union-find LINKAGE — transitive
+    chaining, not fixed bins); clusters of >20 stars are
+    T0-CLUSTER. Members are DEMOTED (status "demoted",
+    disposition DEMOTED_T0_CLUSTER, flag T0_CLUSTER) and
+    removed from the kept survivors. The (P, T0) veto cannot
+    catch these rows — their periods are meaningless for
+    single events — so the event time is the discriminator.
+
+    Clustering input: few-event rows only (n_events <= 2,
+    the tier-B population). Tier-A multi-event rows are
+    never F-1 targets — the stitched tier-A genuine periodic
+    signals must survive — and the exclusion operates
+    through the event-count filter, not a tier check (tier A
+    requires >= 3 events, so no tier-A row can be in the
+    input). Unlike the (P, T0) veto, TWO-COMBINED-demoted
+    rows are NOT in the input: they are not survivors, and
+    the design's "few-event rows" is the survivor
+    population. Rows without a T0 stay unclustered (kept);
+    rows without an event count are not shown to be
+    few-event and stay kept too (defence against malformed
+    input — survivors always carry both).
+
+    D-F1K3 (BULKV6_DESIGN §6): the >20 bar counts pass-1
+    rows only (`k3_pass is None`); K=3 rows inside a
+    qualifying cluster are demoted but never push it over
+    the bar. Demotion is ROW-level, not TIC-level: a star's
+    pass-1 row can sit in a cluster while its K=3 row does
+    not, and the non-clustered row must survive. Hits are
+    keyed by (tic, k3_pass) for the same reason — the
+    (P, T0) veto's tic-only keying would misattribute a K=3
+    demotion to the pass-1 hit record.
+
+    Q8 (disposition precedence) is vacuous under the §6
+    order: the (P, T0) veto runs first on the pass-1 set
+    and removes its demotions from the survivor list, so no
+    row reaches both vetoes — a row demoted by the (P, T0)
+    veto never reaches F-1, and K=3 rows never reach the
+    (P, T0) veto. Each demoted row carries exactly one
+    veto's disposition and flag.
+
+    P3-14 interaction: as with the (P, T0) veto, F-1
+    OVERWRITES a P3-14 disposition on a demoted row — the
+    veto is the later, stronger verdict — and the P3-14
+    finding survives in the row's grid_edge hand-off record.
+
+    Merge-only, never per-slice: clusters span slices, so a
+    per-slice veto would under-demote. The caller is
+    run_chunked's merge (and only the merge), gated on the
+    profile's t0_cluster_veto_enabled. Demotion is
+    reversible: demoted rows keep their disposition and stay
+    queryable in screen_hits.jsonl; the manual-review
+    ("unsure") queue is disposition ==
+    DEMOTED_SECTOR_EPOCH_CLUSTER OR disposition ==
+    DEMOTED_T0_CLUSTER OR gate_reason present. Nothing is
+    deleted anywhere.
+    """
+    if tol_t0_d is None:
+        tol_t0_d = T0_CLUSTER_TOL_T0_D
+    if min_size is None:
+        min_size = T0_CLUSTER_MIN_SIZE
+    if max_events is None:
+        max_events = T0_CLUSTER_MAX_EVENTS
+    clusterable = [r for r in survivors
+                   if r.get("n_events") is not None
+                   and r["n_events"] <= max_events
+                   and r.get("t0_btjd") is not None]
+    qualifying = _t0_cluster_rows(
+        clusterable, tol_t0_d=tol_t0_d, min_size=min_size,
+        count_rows=lambda r: r.get("k3_pass") is None)
+    # Row-level demotion targets: the indices (into
+    # `clusterable`) of every row in a qualifying cluster.
+    demote_idx = {i for c in qualifying for i in c}
+    hits_by_key = {}
+    if hits is not None:
+        for r in hits:
+            hits_by_key.setdefault((r["tic"], r.get("k3_pass")), r)
+    kept = []
+    demoted_tics = []
+    demoted_pass1 = 0
+    demoted_k3 = 0
+
+    def _demote(r):
+        hit = hits_by_key.get((r["tic"], r.get("k3_pass")))
+        target = hit if hit is not None else r
+        target["status"] = "demoted"
+        target["disposition"] = _search_health.DEMOTED_T0_CLUSTER
+        _append_flag(target, T0_CLUSTER_FLAG)
+
+    for i, r in enumerate(clusterable):
+        if i not in demote_idx:
+            continue
+        _demote(r)
+        demoted_tics.append(r["tic"])
+        if r.get("k3_pass") is None:
+            demoted_pass1 += 1
+        else:
+            demoted_k3 += 1
+    demoted_ids = {id(clusterable[i]) for i in demote_idx}
+    for r in survivors:
+        if id(r) not in demoted_ids:
+            kept.append(r)
+    summary = {
+        "n_clusters": len(qualifying),
+        "cluster_sizes": sorted((len(c) for c in qualifying),
+                                reverse=True),
+        # Cluster identity + membership (the P4-2 pattern):
+        # cluster_id is the rank in largest-first order
+        # (0 = largest); members are the cluster's TICs,
+        # sorted; size is in rows; n_pass1_counted is the
+        # D-F1K3 count (pass-1 rows only) the bar judged.
+        "clusters": [{"cluster_id": i, "size": len(c),
+                      "members": sorted(clusterable[j]["tic"]
+                                        for j in c),
+                      "n_pass1_counted": sum(
+                          1 for j in c
+                          if clusterable[j].get("k3_pass") is None)}
+                     for i, c in enumerate(qualifying)],
+        "n_clustered": len(demote_idx),
+        "demoted": len(demoted_tics),
+        "demoted_pass1": demoted_pass1,
+        "demoted_k3": demoted_k3,
+        # A TIC can lose two rows (pass-1 + K=3); the TIC
+        # list is deduplicated, the demoted count is in rows.
+        "demoted_tics": sorted(set(demoted_tics)),
     }
     return kept, summary
 
