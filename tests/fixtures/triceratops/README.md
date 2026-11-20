@@ -60,6 +60,14 @@ here and stays supporting-evidence-only.
   a STRICT xfail (BM-3) until the band collapses or the
   policy is revisited. Band width comes from the seed
   spread, never invented.
+- **Zorro 5-seed band — MEASURED (4.1-6, 2026-11-18):**
+  WASP-29b with the Zorro 832 nm contrast curve, seeds
+  20261114–20261118, N = 1M: median FPP 0.003446, band
+  [0.000115, 0.016801] (146×) — FAIL under the strict CC-4
+  bar (seed 20261115 FPP 0.0168 > 0.015; 4/5 pass). Recorded
+  in the fixture's `zorro` block (measurement only — no test
+  asserts on it); full record `ZORRO_416.md` (phase41-vote).
+  The ESS wide-scatter prediction held.
 - **Fast Mac smoke test (N = 10,000 draws, P-16):** for
   iteration alongside the full N = 1,000,000 run. It lives in
   the nightly (P3-8), not in CI.

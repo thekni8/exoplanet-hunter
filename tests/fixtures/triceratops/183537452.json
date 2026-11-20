@@ -36,7 +36,8 @@
       "Phase 3 BUNDLE.md §1.6 (FPP 0.169, NFPP 0.0, planet probability 0.831 = TP 0.697 + PTP 0.134, STP 0.160, SEB 0.009, on-target EB ~0, wall 1,553 s)",
       "Merged PR #6 body / requirements-triceratops.lock header (FPP 0.169, C-10 bar 0.015 NOT met, STP-dominated)",
       "Mac vetting_results/triceratops-verify/VERIFICATION_REPORT.md — NOT on the VM; full output pending extraction (P3-7)",
-      "P4-8 (2026-11-17): 4 further Gaia-path seeds on the Mac (20261115-20261118, N=1,000,000, no contrast curve) + Zorro 832 nm seed 20261114 (FPP 0.003446, STP 0.000129) — phase4-p48/wasp-seeds-summary.json on the Mac, P48_RECORD.md. The 5-seed Gaia band is [0.001776, 0.379185] and FAILS TB-4 stability (see the expected note)."
+      "P4-8 (2026-11-17): 4 further Gaia-path seeds on the Mac (20261115-20261118, N=1,000,000, no contrast curve) + Zorro 832 nm seed 20261114 (FPP 0.003446, STP 0.000129) — phase4-p48/wasp-seeds-summary.json on the Mac, P48_RECORD.md. The 5-seed Gaia band is [0.001776, 0.379185] and FAILS TB-4 stability (see the expected note).",
+      "4.1-6 (2026-11-18, Stage 3): the 5-seed Zorro 832 nm band (seeds 20261114-20261118, N=1,000,000, contrast curve wasp29_zorro832.csv) — median FPP 0.003446, band [0.000115, 0.016801], FAIL under the strict CC-4 bar (seed 20261115 FPP 0.0168 > 0.015; 4/5 pass). Recorded in the `zorro` block below; full record ZORRO_416.md (phase41-vote). The `zorro` block is a measurement record only — no test asserts on it."
     ]
   },
   "reconstructed": true,
@@ -113,5 +114,55 @@
     "warnings": [
       "no contrast curve: NFPP is an upper bound"
     ]
+  },
+  "zorro": {
+    "band": [
+      0.0001151992967932669,
+      0.016800747229404722
+    ],
+    "band_ratio": 145.8,
+    "contrast_curve": "Zorro 832 nm (wasp29_zorro832.csv, sha256 ed778ef99d803804c26b8f1ab9ebe0fab18e61c4afac796f67cb9b84f8b2d4e5)",
+    "median_fpp": 0.003446366334737605,
+    "n_samples": 1000000,
+    "note": "4.1-6 (2026-11-18, Stage 3): measured 5-seed Zorro-path band, seeds 20261114-20261118 (20261114 from P4-8/ESS exact reproduction; 20261115-20261118 new, Mac phase41-zorro/). FAIL under the strict CC-4 bar: seed 20261115 FPP 0.0168 > 0.015 (4/5 pass); NFPP 0.0 all seeds. The band straddles the 0.015 boundary and check_seed_stability FAILS (dispositions vary: pass/inconclusive) — the Zorro validation is seed-dependent at N=1M, the same TB-4 pattern as the Gaia band. ESS prediction HELD: 146x scatter vs 213x Gaia / 248x chunk. MEASUREMENT RECORD ONLY — no test asserts on this block; the strict xfail on test_seed_band_pending is unchanged. Full record: phase41-vote/ZORRO_416.md.",
+    "record": "phase41-vote/ZORRO_416.md",
+    "seeds": [
+      {
+        "fpp": 0.003446366334737605,
+        "nfpp": 0.0,
+        "seb": 0.003317566608676023,
+        "seed": 20261114,
+        "stp": 0.0001287312270915533
+      },
+      {
+        "fpp": 0.016800747229404722,
+        "nfpp": 0.0,
+        "seb": 0.000147161519988277,
+        "seed": 20261115,
+        "stp": 0.0166535558375854
+      },
+      {
+        "fpp": 0.0001151992967932669,
+        "nfpp": 0.0,
+        "seb": 3.68465837091702e-05,
+        "seed": 20261116,
+        "stp": 7.81484095544659e-05
+      },
+      {
+        "fpp": 0.0060667399337183125,
+        "nfpp": 0.0,
+        "seb": 0.00377856909217939,
+        "seed": 20261117,
+        "stp": 0.00228806045710666
+      },
+      {
+        "fpp": 0.0033087509277864857,
+        "nfpp": 0.0,
+        "seb": 1.13672413514045e-15,
+        "seed": 20261118,
+        "stp": 0.00330875091041714
+      }
+    ],
+    "verdict": "fail"
   }
 }

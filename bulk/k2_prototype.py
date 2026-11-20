@@ -124,6 +124,89 @@ def grid_df():
 # --------------------------------------------------------------------------
 # Fold-based ephemeris estimation
 # --------------------------------------------------------------------------
+# 4.1-8 (class EXACT): the phase scans below evaluate _fold_depth over a
+# grid via bs.fold_depth_grid (one sort per period instead of one full
+# fold per call) and then re-select the winning cell with exact
+# _fold_depth recomputes, so the returned ephemerides are bit-identical
+# to the original per-call loop's. See _select_best.
+
+# Pass-2 candidate window (relative + absolute floor): cells within
+# this of the pass-1 max are recomputed exactly. The grid's SNR error
+# is ~1e-9 absolute (prefix-sum reassociation), so the 1e-6 window
+# carries three orders of margin — the true argmax is always inside.
+_SELECT_WINDOW_REL = 1e-6
+_SELECT_WINDOW_ABS = 1e-6
+# Extra-candidate depth: a cell the grid SKIPS on noise == 0.0 but
+# whose depth is real (|depth| > this) is recomputed exactly too, so
+# a near-noiseless transit can never be lost to the grid's degenerate
+# zero-variance guard (constant data has |depth| ~ 1e-16, so it stays
+# fast there).
+_SELECT_ZERO_NOISE_DEPTH = 1e-9
+
+
+def _select_best(t, f, period, t_ref, durations, phases, grid):
+    """Best (duration, phase) cell of a fold_depth_grid, bit-identical
+    to the original per-call loop's selection.
+
+    Pass 1 scores every cell from the grid (fast, ~1e-9 accurate) and
+    finds the max SNR under the loop's skip rule (n_in < 2, noise <=
+    0, non-finite depth). Pass 2 recomputes every cell within the
+    selection window of that max with bs._fold_depth and applies the
+    original first-max rule in loop order (durations outer, phases
+    inner). Returns (di, pi, snr, depth) with the EXACT recomputed
+    values, or None when no cell passes the skip rule. The window
+    argument: the grid's SNR error is ~1e-9, so the true argmax is
+    always a candidate; cells outside the window cannot be the
+    argmax. If every candidate is skipped on recompute (only
+    possible if a skip decision differs between grid and exact
+    values — never observed), the full exact loop runs instead.
+    """
+    depth_g, n_in_g, noise_g = grid
+    n_d, n_p = depth_g.shape
+    valid = ((n_in_g >= 2) & (noise_g > 0)
+             & np.isfinite(depth_g))
+    safe_noise = np.where(valid, noise_g, 1.0)
+    snr_g = np.where(valid, depth_g / safe_noise, -np.inf)
+    best_snr = float(snr_g.max()) if snr_g.size else -np.inf
+    if not np.isfinite(best_snr):
+        return None
+    thresh = best_snr - max(abs(best_snr) * _SELECT_WINDOW_REL,
+                            _SELECT_WINDOW_ABS)
+    cand = valid & (snr_g >= thresh)
+    # Near-noiseless cells the grid skips on noise == 0.0 but whose
+    # depth is real: recompute exactly (see _SELECT_ZERO_NOISE_DEPTH).
+    cand |= ((n_in_g >= 2) & (noise_g == 0.0)
+             & np.isfinite(depth_g)
+             & (np.abs(depth_g) > _SELECT_ZERO_NOISE_DEPTH))
+    winner = None  # (snr, di, pi, depth), first-max in loop order
+    for di, pi in np.argwhere(cand):
+        dep, nin, noi = bs._fold_depth(
+            t, f, period, t_ref, float(durations[di]),
+            phase_center=float(phases[pi]))
+        if nin < 2 or noi <= 0 or not np.isfinite(dep):
+            continue
+        snr = dep / noi
+        if winner is None or snr > winner[0]:
+            winner = (float(snr), int(di), int(pi), float(dep))
+    if winner is not None:
+        return winner[1], winner[2], winner[0], winner[3]
+    # Fallback (never observed): no candidate survived the exact skip
+    # rule although pass 1 found valid cells — run the original loop.
+    best = None
+    for di in range(n_d):
+        for pi in range(n_p):
+            dep, nin, noi = bs._fold_depth(
+                t, f, period, t_ref, float(durations[di]),
+                phase_center=float(phases[pi]))
+            if nin < 2 or noi <= 0 or not np.isfinite(dep):
+                continue
+            snr = dep / noi
+            if best is None or snr > best[0]:
+                best = (float(snr), di, pi, float(dep))
+    if best is None:
+        return None
+    return best[1], best[2], best[0], best[3]
+
 
 def _best_phase_snr(t, f, period, t_ref, duration, n_phase):
     """Best folded depth SNR over a phase scan at one period/duration.
@@ -133,22 +216,12 @@ def _best_phase_snr(t, f, period, t_ref, duration, n_phase):
     centre relative to t_ref.
     """
     phases = np.linspace(-0.5, 0.5, n_phase, endpoint=False)
-    best_snr = -np.inf
-    best_phase = 0.0
-    best_depth = 0.0
-    for ph in phases:
-        depth, n_in, noise = bs._fold_depth(t, f, period, t_ref, duration,
-                                            phase_center=float(ph))
-        if n_in < 2 or noise <= 0 or not np.isfinite(depth):
-            continue
-        snr = depth / noise
-        if snr > best_snr:
-            best_snr = snr
-            best_phase = float(ph)
-            best_depth = float(depth)
-    if not np.isfinite(best_snr):
+    grid = bs.fold_depth_grid(t, f, period, t_ref, [duration], phases)
+    sel = _select_best(t, f, period, t_ref, [duration], phases, grid)
+    if sel is None:
         return 0.0, 0.0, 0.0
-    return best_phase, best_depth, float(best_snr)
+    _, pi, best_snr, best_depth = sel
+    return float(phases[pi]), best_depth, float(best_snr)
 
 
 def estimate_ephemeris(t, f, period_recorded):
@@ -203,22 +276,17 @@ def estimate_ephemeris(t, f, period_recorded):
     # --- Step 2: (phase x duration) box fit at the refined period.
     durations = list(bs.BLS_DURATIONS_D)
     phases = np.linspace(-0.5, 0.5, N_PHASE_FINE, endpoint=False)
-    best = {"snr": -np.inf, "phase": 0.0, "duration": durations[0],
-            "depth": 0.0}
-    for dur in durations:
-        for ph in phases:
-            depth, n_in, noise = bs._fold_depth(
-                t, f, best_period, t_mid, float(dur),
-                phase_center=float(ph))
-            if n_in < 2 or noise <= 0 or not np.isfinite(depth):
-                continue
-            snr = depth / noise
-            if snr > best["snr"]:
-                best = {"snr": float(snr), "phase": float(ph),
-                        "duration": float(dur), "depth": float(depth)}
-    if not np.isfinite(best["snr"]):
+    grid = bs.fold_depth_grid(t, f, best_period, t_mid, durations,
+                              phases)
+    sel = _select_best(t, f, best_period, t_mid, durations, phases,
+                       grid)
+    if sel is None:
         best = {"snr": 0.0, "phase": 0.0, "duration": durations[0],
                 "depth": 0.0}
+    else:
+        di, pi, snr, dep = sel
+        best = {"snr": float(snr), "phase": float(phases[pi]),
+                "duration": float(durations[di]), "depth": float(dep)}
 
     t0_est = t_mid + best["phase"] * best_period
     return {
@@ -246,23 +314,14 @@ def scan_secondary(t, f, period, t0, duration):
     of the deepest secondary dip. t, f are preprocessed arrays.
     """
     phases = np.linspace(COMASK_PHASE_LO, COMASK_PHASE_HI, N_PHASE_COMASK)
-    best_snr = -np.inf
-    best_phase = 0.5
-    best_depth = 0.0
-    for ph in phases:
-        pc = float(ph) if ph < 0.5 else float(ph) - 1.0
-        depth, n_in, noise = bs._fold_depth(t, f, period, t0, duration,
-                                            phase_center=pc)
-        if n_in < 2 or noise <= 0 or not np.isfinite(depth):
-            continue
-        snr = depth / noise
-        if snr > best_snr:
-            best_snr = snr
-            best_phase = float(ph)
-            best_depth = float(depth)
-    if not np.isfinite(best_snr):
+    pcs = np.array([float(ph) if ph < 0.5 else float(ph) - 1.0
+                    for ph in phases])
+    grid = bs.fold_depth_grid(t, f, period, t0, [duration], pcs)
+    sel = _select_best(t, f, period, t0, [duration], pcs, grid)
+    if sel is None:
         return 0.5, 0.0, 0.0
-    return best_phase, float(best_depth), float(best_snr)
+    _, pi, best_snr, best_depth = sel
+    return float(phases[pi]), float(best_depth), float(best_snr)
 
 
 # --------------------------------------------------------------------------

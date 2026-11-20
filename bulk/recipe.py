@@ -28,6 +28,12 @@ Schema (all keys optional except `sector`, which may also come from
     slice_size: 1250            # stars per chunked slice (checkpoint unit)
     dl_workers: 8               # parallel light-curve downloads
     workers: null               # BLS workers (null = bulk_screen default)
+    k3: false                   # K=3 mask-and-re-search stage (4.1-1a):
+                                # after each slice's K=1 screen, look
+                                # behind pass-1 contaminants for a second
+                                # signal (bulk/k3_driver.py). Default
+                                # false — K=1 is the production screen
+                                # until the driver is accepted (§2.1).
 
 Deliberately NOT in the recipe: the survivor/tier thresholds
 (SURVIVOR_SDE, TIER_A_MES, ...). Those are versioned calibration
@@ -55,6 +61,13 @@ DEFAULTS = {
     "slice_size": 1250,
     "dl_workers": 8,
     "workers": None,
+    # 4.1-1a: the K=3 stage is OFF by default. It is a recipe key
+    # (not a bare CLI flag) so the resolved recipe hash — and
+    # therefore the run/resume fingerprint — covers it: resuming
+    # a K=1 run with K=3 (or vice versa) refuses, like any other
+    # result-affecting change, instead of silently mixing K=1
+    # and K=3 slices in one sector.
+    "k3": False,
 }
 
 _TOP_KEYS = set(DEFAULTS)
@@ -137,6 +150,8 @@ def validate(recipe):
         and recipe["workers"] > 0),
         f"'workers' must be null or a positive integer, "
         f"got {recipe['workers']!r}")
+    _check(isinstance(recipe["k3"], bool),
+           f"'k3' must be true/false, got {recipe['k3']!r}")
     return recipe
 
 

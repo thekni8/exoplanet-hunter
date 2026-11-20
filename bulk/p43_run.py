@@ -47,6 +47,36 @@ seed there); the null leg is unchanged. The seed choice lives in
 _mask_seed_and_eligibility (pure, unit-tested); _process_sector
 takes seed_mode="fresh"/"frozen" per sector.
 
+P4-3c agreement-only rule (Phase 4.1, item 4.1-4;
+PHASE41_PREREG.md section 2.4; behind the --agreement-only
+flag): in NON-ORIGINAL sectors, mask ONLY when the fresh peak
+agrees with the frozen record (P4-3's rule: mask iff fresh depth
+> 1% OR fresh status == survivor); mask NOTHING on disagreement.
+This removes the frozen-seed mask path on disagreement -- the
+P4-3b behavior that cost the 3 right165 trials (the frozen seed
+was the planet there). Agreement is pre-registered: period
+within 1% of the frozen record AND epoch within one transit
+duration (section 0.4). The frozen record carries no epoch, so
+the reference epoch is the original sector's fresh pass-1 t0
+(fresh == frozen there -- P43B_RECORD section 7), threaded
+through run_host_campaign_p43 (which processes the original
+sector first when the flag is on). The original sector is
+unchanged; the null leg is unchanged (the flag does not touch
+run_host_null_p43 -- no trial record, no frozen seed there).
+Host records written under the flag carry seed_fix "p43c"
+(the resume discriminator), so P4-3b and P4-3c host files can
+never resume each other.
+
+P4-3 rule arm (--seed-mode fresh): the non-original sectors seed
+from the FRESH pass-1 peak, as P4-3 did before the frozen-seed
+fix -- no frozen seed anywhere. This arm exists to define the
+P4-3c at-risk class on a fresh set (PHASE41_PREREG.md section
+2.4: the class is the P4-3-rule recoveries with recorded period
+= planet -- 5/272 on the frozen set, verified against the P4-3
+and P4-3b host files). It is incompatible with --agreement-only
+(the agreement test needs a frozen record to agree with). Host
+records carry seed_fix "p43".
+
 Null accounting is per ROW (PB-6 section 4): a host with both a
 pass-2 and a pass-3 survivor contributes 2 rows. The stitched
 null's pass-1 baseline is the stitched UNMASKED screen (the
@@ -106,6 +136,36 @@ FROZEN_SNR_MIN = 7.0
 # as P4-3b's. P4-3's host files lack the marker, so they are
 # never resumed by the fixed driver.
 SEED_FIX = "p43b"
+# P4-3c (PHASE41_PREREG.md section 2.4): host records written
+# under --agreement-only carry this marker instead, so P4-3b and
+# P4-3c host files can never resume each other even if pointed
+# at the same out-dir.
+SEED_FIX_P43C = "p43c"
+# P4-3 rule arm (--seed-mode fresh): host records carry this
+# marker (the original P4-3 run predates the discriminator).
+SEED_FIX_P43 = "p43"
+
+
+def _seed_fix_for(seed_mode, agreement_only):
+    """Resume-discriminator marker for a stitched run, from its
+    rule: "p43" for the P4-3 rule arm (--seed-mode fresh), "p43c"
+    for the P4-3c agreement-only rule, "p43b" for the P4-3b
+    frozen-seed rule. Raises on an unknown seed mode and on the
+    invalid combination (--agreement-only needs the frozen seed
+    mode: the agreement test needs a frozen record to agree
+    with)."""
+    if seed_mode not in ("fresh", "frozen"):
+        raise ValueError(
+            f"unknown seed_mode {seed_mode!r} "
+            "(expected 'fresh' or 'frozen')")
+    if agreement_only and seed_mode != "frozen":
+        raise ValueError(
+            "--agreement-only requires the frozen seed mode "
+            "(the agreement test needs a frozen record to agree "
+            "with); got seed_mode 'fresh'")
+    if seed_mode == "fresh":
+        return SEED_FIX_P43
+    return SEED_FIX_P43C if agreement_only else SEED_FIX
 BOOTSTRAP_SEED = 20261117
 BOOTSTRAP_REPS = 10000
 BULK_PER_STAR_S = 1.175  # bulk-screen per-star wall (P4-1b section 6.3)
@@ -147,7 +207,38 @@ def _inj_check(t, f, f_inj, period, epoch, duration, depth_frac):
     return float(depth), bool(abs(depth - expected) <= tol)
 
 
-def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
+def _epoch_agrees(p1, frozen_epoch_ref, p_rec):
+    """Epoch clause of the P4-3c agreement test (PHASE41_PREREG.md
+    section 2.4): the fresh peak's epoch within ONE transit
+    duration of the frozen record's epoch (tol_frac=1.0 -- the
+    section 0.4 tolerance, NOT the frozen 0.5x epoch rule for
+    recovery). p1 is the fresh pass-1 subset (t0_btjd /
+    duration_hours); frozen_epoch_ref is the frozen record's epoch
+    (BTJD), reconstructed as the original sector's fresh pass-1
+    t0; p_rec is the frozen recorded period (the wrap period).
+
+    Returns (agrees, reason, delta_d): agrees False with reason
+    "unavailable" when any input is missing (fail closed -- an
+    untestable epoch is not an agreement), "disagree" when the
+    wrapped epoch difference exceeds one transit duration, None
+    when they agree. delta_d is the wrapped epoch difference in
+    days (None when unavailable).
+    """
+    t0_fresh = p1.get("t0_btjd")
+    dur_h = p1.get("duration_hours")
+    if frozen_epoch_ref is None or t0_fresh is None or dur_h is None:
+        return False, "unavailable", None
+    delta = k2.epoch_delta(t0_fresh, frozen_epoch_ref, p_rec)
+    if delta is None:
+        return False, "unavailable", None
+    if k2.epoch_match(delta, dur_h / 24.0, tol_frac=1.0):
+        return True, None, float(delta)
+    return False, "disagree", float(delta)
+
+
+def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode,
+                               agreement_only=False,
+                               frozen_epoch_ref=None):
     """Choose the pre-mask seed + eligibility for one sector.
 
     Pure decision logic (no I/O), so it is unit-testable without a
@@ -158,12 +249,14 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
     (non-original sector, P4-3b fix).
 
     Returns a dict with seed_period, seed_source ("fresh" /
-    "frozen" / "frozen-agree" / "fresh-fallback"),
-    seed_agreement ("agree" / "disagree" / "no-fresh-peak" /
-    "n/a"), seed_fallback_reason (or None), ephemeris (or None
-    when no seed exists), secondary (or None), eligible (bool),
-    reason (stable string), and depth_for_mask (the
-    recorded_depth_pct for build_k2_mask).
+    "frozen" / "frozen-agree" / "fresh-fallback" /
+    "agree-only-skip"), seed_agreement ("agree" / "disagree" /
+    "disagree-epoch" / "no-fresh-peak" / "n/a"),
+    seed_fallback_reason (or None), ephemeris (or None when no
+    seed exists), secondary (or None), eligible (bool), reason
+    (stable string), depth_for_mask (the recorded_depth_pct for
+    build_k2_mask), and epoch_delta_d (the wrapped epoch
+    difference, or None unless the P4-3c epoch test ran).
 
     Fresh path (unchanged from P4-3): seed = the fresh pass-1 peak;
     eligible iff fresh depth > 1% OR fresh status == "survivor".
@@ -183,6 +276,21 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
     signal and P4-3's fresh rule applies (seed_source
     "frozen-agree"). If no recorded period exists, fall back to
     the fresh peak (P4-3 behavior) and record it.
+
+    Agreement-only path (P4-3c, PHASE41_PREREG section 2.4;
+    agreement_only=True, non-original sectors only -- the
+    original sector is unchanged): mask ONLY when the fresh peak
+    agrees with the frozen record -- period within 1% AND epoch
+    within one transit duration of the frozen record's epoch
+    (frozen_epoch_ref, the original sector's fresh pass-1 t0);
+    mask NOTHING on disagreement. The frozen-seed mask path is
+    removed entirely: on disagreement (period, epoch, no fresh
+    peak, or no recorded period) the sector is returned unmasked
+    (seed_source "agree-only-skip", eligible False, ephemeris
+    None) so the fresh peak -- the strongest signal, usually the
+    planet -- stays in the stitched curve for pass 2 to find.
+    Where period AND epoch agree, P4-3's fresh rule applies
+    unchanged (seed_source "frozen-agree").
     """
     if seed_mode not in ("fresh", "frozen"):
         raise ValueError(
@@ -201,6 +309,45 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
             agreement = "disagree"
     elif use_frozen:
         agreement = "no-fresh-peak"
+    # P4-3c agreement-only rule (PHASE41_PREREG section 2.4):
+    # mask ONLY on agreement (period within 1% AND epoch within
+    # one transit duration); mask NOTHING on disagreement. The
+    # frozen-seed path is removed entirely -- on any disagreement
+    # the sector is returned unmasked (no ephemeris estimated,
+    # nothing to build a mask from). A period agreement that
+    # fails the epoch clause is a disagreement (seed_agreement
+    # "disagree-epoch"), as is an untestable epoch (fail closed).
+    # With no recorded period there is nothing to agree with, so
+    # nothing is masked either (the literal rule; unreachable in
+    # both P4-3c manifests -- all trials carry a recorded period).
+    epoch_delta_d = None
+    if agreement_only and seed_mode == "frozen":
+        skip_reason = None
+        if p_rec is None:
+            skip_reason = "agree-only-no-record"
+        elif agreement == "agree":
+            epoch_ok, epoch_why, epoch_delta_d = _epoch_agrees(
+                p1, frozen_epoch_ref, float(p_rec))
+            if not epoch_ok:
+                agreement = "disagree-epoch"
+                skip_reason = ("agree-only-epoch-unavailable"
+                               if epoch_why == "unavailable"
+                               else "agree-only-epoch-disagree")
+        elif agreement == "disagree":
+            skip_reason = "agree-only-disagree"
+        else:  # no-fresh-peak
+            skip_reason = "agree-only-no-fresh-peak"
+        if skip_reason is not None:
+            return {"seed_period": p1_p,
+                    "seed_source": "agree-only-skip",
+                    "seed_agreement": agreement,
+                    "seed_fallback_reason": None,
+                    "ephemeris": None, "secondary": None,
+                    "eligible": False, "reason": skip_reason,
+                    "depth_for_mask": p1.get("depth_percent"),
+                    "epoch_delta_d": epoch_delta_d}
+        # Period AND epoch agree: fall through to the frozen-agree
+        # fresh rule below (use_frozen is already False).
     if use_frozen:
         seed_period = float(p_rec)
         seed_source = "frozen"
@@ -226,7 +373,8 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
            "eligible": False,
            "reason": ("no-pass1-period" if seed_source == "fresh"
                       else "no-seed-period"),
-           "depth_for_mask": depth_for_mask}
+           "depth_for_mask": depth_for_mask,
+           "epoch_delta_d": epoch_delta_d}
     if seed_period is None:
         return out
     ephemeris = k2.estimate_ephemeris(t_p, f_p, seed_period)
@@ -257,7 +405,8 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode):
 
 
 def _process_sector(t, f, q, fcol, trial, base, tic, sector,
-                    keep_fits, seed_mode="fresh"):
+                    keep_fits, seed_mode="fresh",
+                    agreement_only=False, frozen_epoch_ref=None):
     """One sector of one trial: inject, fresh pass 1, estimate,
     pre-mask if a confirmed contaminant.
 
@@ -275,6 +424,14 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
     pass 1 still runs in every sector (validation + diagnostics);
     it simply no longer seeds the mask in non-original sectors
     where it disagrees with the frozen record.
+
+    agreement_only (P4-3c, PHASE41_PREREG section 2.4): in a
+    non-original sector, mask ONLY when the fresh peak agrees
+    with the frozen record (period within 1% AND epoch within
+    one transit duration of frozen_epoch_ref -- the original
+    sector's fresh pass-1 t0); mask NOTHING on disagreement. No
+    effect on the original sector (seed_mode "fresh"); the null
+    leg does not call this function.
     """
     period = trial["period_d"]
     epoch = trial["epoch_btjd"]
@@ -300,11 +457,19 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
            "seconds_pass1": sec_p1, "n_cadences": int(len(t))}
     t_e = time.time()
     seed = _mask_seed_and_eligibility(t_p, f_p, trial, p1,
-                                      seed_mode)
+                                      seed_mode,
+                                      agreement_only=agreement_only,
+                                      frozen_epoch_ref=(
+                                          frozen_epoch_ref))
     sec_est = round(time.time() - t_e, 2)
     rec["seed_source"] = seed["seed_source"]
     rec["seed_period_d"] = seed["seed_period"]
     rec["seed_agreement"] = seed["seed_agreement"]
+    if agreement_only:
+        # P4-3c audit fields (flag-on runs only, so flag-off
+        # records stay byte-identical to P4-3b's).
+        rec["seed_epoch_delta_d"] = seed.get("epoch_delta_d")
+        rec["frozen_epoch_ref_btjd"] = frozen_epoch_ref
     if seed.get("seed_fallback_reason"):
         rec["seed_fallback_reason"] = seed["seed_fallback_reason"]
     if seed["ephemeris"] is None:
@@ -494,9 +659,9 @@ def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
 
 
 def run_host_campaign_p43(job):
-    """One TIC: inject each trial into all 3 sectors (absolute
-    epoch), per-sector fresh pass 1 + pre-mask, stitch, pass 2,
-    pass 3 where eligible, verdicts. Mirrors
+    """One TIC: inject each trial into all of the host's sectors
+    (absolute epoch), per-sector fresh pass 1 + pre-mask, stitch,
+    pass 2, pass 3 where eligible, verdicts. Mirrors
     k3_run.run_host_campaign_k3's record shape where the legs
     share a field (final_recovered / final_genuine / pass2_match /
     epoch_delta_d), so the merge can join the legs per trial.
@@ -509,6 +674,22 @@ def run_host_campaign_p43(job):
     manifest_sha = job["manifest_sha"]
     calibration = job["calibration"]
     keep_fits = job.get("keep_fits", False)
+    # P4-3c (PHASE41_PREREG section 2.4): the agreement-only rule
+    # behind the --agreement-only flag. Host records written under
+    # the flag carry seed_fix "p43c", so P4-3b and P4-3c host
+    # files can never resume each other. seed_mode selects the
+    # non-original sector seed: "frozen" (P4-3b, default) or
+    # "fresh" (the P4-3 rule arm -- no frozen seed anywhere).
+    agreement_only = bool(job.get("agreement_only", False))
+    seed_mode = job.get("seed_mode", "frozen")
+    seed_fix = _seed_fix_for(seed_mode, agreement_only)
+    # PIPE50-9c (4.1-3): record the stitched pass-1 screen per
+    # trial (the unmasked stitch screen). Flag-gated (the
+    # P4-3c precedent): flag-off records stay byte-identical to
+    # P4-3b's. The flag is part of the resume check below, so a
+    # host file written without pass-1 is never resumed by a
+    # run that needs it (and vice versa).
+    record_pass1 = bool(job.get("record_pass1_stitched", False))
     out_path = out_dir / "hosts-p43" / f"{tic}_p43.json"
     if out_path.exists():
         try:
@@ -519,7 +700,10 @@ def run_host_campaign_p43(job):
                 and prev.get("manifest_sha") == manifest_sha
                 and prev.get("arm") == ARM
                 and prev.get("calibration") == calibration
-                and prev.get("seed_fix") == SEED_FIX
+                and prev.get("seed_fix") == seed_fix
+                and prev.get("mes_gate") == job.get("mes_gate")
+                and prev.get("pass1_stitched", False)
+                == record_pass1
                 and not any("error" in tr
                             for tr in prev.get("trials", []))):
             return {"status": "skipped", "tic": tic}
@@ -552,7 +736,24 @@ def run_host_campaign_p43(job):
             sigmas = {}
             contaminants = []
             sec_p1 = sec_est = 0.0
-            for sec in sectors:
+            # P4-3c: the agreement test's epoch clause needs the
+            # frozen record's epoch, reconstructed as the
+            # ORIGINAL sector's fresh pass-1 t0 (fresh == frozen
+            # there -- P43B_RECORD section 7). Process the
+            # original sector first when the flag is on, so its
+            # epoch is available when the non-original sectors
+            # decide. (The stitch time-sorts -- p43_stitch
+            # stitch_weighted -- so processing order does not
+            # affect the stitched curve; the per-sector record is
+            # keyed by sector; the flag-off path keeps the
+            # original order, unchanged.) The original sector is
+            # 95 or 96 by manifest construction, never 97.
+            orig_sec = tr["sector"]
+            ordered = ([orig_sec] + [s for s in sectors
+                                     if s != orig_sec]
+                       if agreement_only else list(sectors))
+            frozen_epoch_ref = None
+            for sec in ordered:
                 sd = sector_data[sec]
                 # P4-3b fix (P43B_PREREG section 0.4): the original
                 # sector keeps the fresh-peak seed (proven identical
@@ -563,7 +764,12 @@ def run_host_campaign_p43(job):
                     sd["t"], sd["f"], sd["q"], sd["fcol"], tr, base,
                     tic, sec, keep_fits,
                     seed_mode=("fresh" if sec == tr["sector"]
-                               else "frozen"))
+                               else seed_mode),
+                    agreement_only=agreement_only,
+                    frozen_epoch_ref=frozen_epoch_ref)
+                if sec == orig_sec:
+                    frozen_epoch_ref = (rec.get("pass1") or {}).get(
+                        "t0_btjd")
                 rec["crowdsap"] = sd["crowdsap"]
                 per_sector[sec] = rec
                 sector_inj[sec] = (t_s_, f_i, q_s_, keep)
@@ -586,6 +792,47 @@ def run_host_campaign_p43(job):
             r["inj_check_ok"] = all(
                 v.get("inj_check_ok") is True
                 for v in per_sector.values())
+            # Stitched pass-1 screen (PIPE50-9c, flag-gated):
+            # screen the UNMASKED stitch -- all sectors, full
+            # arrays, no keep mask applied -- and record it per
+            # trial. Mirrors the null leg's A2-style pass-1
+            # baseline (run_host_null_p43 builds `unmasked`
+            # the same way). A DIAGNOSTIC: it does not feed
+            # pass 2/3 (which use the masked stitch) and does
+            # not change any pipeline decision. It runs BEFORE
+            # the all-sectors-stopped early-continue, so even
+            # stopped trials get a pass-1 screen (the unmasked
+            # data exists regardless of the masking). A distinct
+            # base so the FITS does not collide with the masked
+            # pass-2 file (_stitched.fits) when keep_fits is on.
+            if record_pass1:
+                t_p1s = time.time()
+                unmasked = []
+                for sec in sectors:
+                    t_u, f_u, q_u, _k = sector_inj[sec]
+                    unmasked.append(
+                        {"sector": sec, "t": t_u, "f": f_u,
+                         "q": q_u,
+                         "fcol": sector_data[sec]["fcol"],
+                         "crowdsap": sector_data[sec][
+                             "crowdsap"]})
+                t_u, f_u, q_u, _tr_u = p43.stitch_weighted(
+                    unmasked, sigmas)
+                base_u = (workdir
+                          / f"{tic}_{tr['trial_id']}_unmasked")
+                p1s, _p1s_raw = _stitched_pass2(
+                    t_u, f_u, q_u, unmasked[0]["fcol"], base_u,
+                    tic, tr["sector"], keep_fits)
+                r["pass1"] = p1s
+                delta1 = k2.epoch_delta(
+                    p1s.get("t0_btjd"), tr["epoch_btjd"],
+                    tr["period_d"])
+                r["epoch_delta_over_d_pass1"] = (
+                    abs(delta1) / tr["duration_d"]
+                    if delta1 is not None else None)
+                r["pass1_sectors"] = list(sectors)
+                r["seconds_pass1_stitched"] = round(
+                    time.time() - t_p1s, 2)
             # Mask-seed diagnostic (original sector only):
             # reuses the already-injected arrays + fresh keep mask
             # (no recomputation -- the mask is deterministic).
@@ -707,10 +954,17 @@ def run_host_campaign_p43(job):
         results.append(r)
     rec = {"tic": tic, "sectors": list(sectors), "complete": True,
            "manifest_sha": manifest_sha, "calibration": calibration,
-           "arm": ARM, "seed_fix": SEED_FIX,
+           "arm": ARM, "seed_fix": seed_fix,
+           "mes_gate": job.get("mes_gate"),
+           "agreement_only": agreement_only,
+           "seed_mode": seed_mode,
            "n_trials": len(results),
            "seconds": round(time.time() - t_start, 1),
            "trials": results}
+    if record_pass1:
+        # Flag-on runs only, so flag-off records stay
+        # byte-identical to P4-3b's (the P4-3c precedent).
+        rec["pass1_stitched"] = True
     tmp = out_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(_json_safe(rec)))
     tmp.replace(out_path)
@@ -781,10 +1035,12 @@ def run_host_null_p43(job):
                 and prev.get("manifest_sha") == manifest_sha
                 and prev.get("arm") == ARM
                 and prev.get("calibration") == calibration
+                and prev.get("mes_gate") == job.get("mes_gate")
                 and "error" not in prev):
             return {"status": "skipped", "tic": tic}
     t_start = time.time()
-    r = {"tic": tic, "sectors": list(sectors), "arm": ARM}
+    r = {"tic": tic, "sectors": list(sectors), "arm": ARM,
+         "mes_gate": job.get("mes_gate")}
     try:
         base = workdir / f"{tic}_null"
         per_sector = {}
@@ -1351,27 +1607,52 @@ def merge_null_p43(out_dir):
 
 def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
                 workdir_single, keep_fits, calibration, tics=None,
-                limit_hosts=None):
-    """Build the paired job lists (single + stitched) for the 34
-    TICs. Returns (single_jobs, stitched_jobs, missing). A missing
-    sector FITS skips the TIC ENTIRELY (no single job either): a
-    single-only host would silently shrink the paired set, and the
-    completeness check would then block the verdict. calibration is
-    the CLI value (args.calibration), not the manifest's -- the
-    workers are initialized with it, so the records must agree."""
+                limit_hosts=None, agreement_only=False,
+                seed_mode="frozen", mes_gate=None):
+    """Build the paired job lists (single + stitched) for the
+    manifest's TICs. Returns (single_jobs, stitched_jobs,
+    missing). A missing sector FITS skips the TIC ENTIRELY (no
+    single job either): a single-only host would silently
+    shrink the paired set, and the completeness check would
+    then block the verdict. calibration is the CLI value
+    (args.calibration), not the manifest's -- the workers are
+    initialized with it, so the records must agree.
+    agreement_only (P4-3c) and seed_mode (P4-3 rule arm) are
+    carried on the stitched jobs only -- the single leg and the
+    null leg never read them (the null leg is unchanged by the
+    flag: no trial record, no frozen seed).
+    Per-host sectors (4.1-10 / 4.1-3): when the manifest
+    carries sectors_by_host {tic: [sectors]}, each host's
+    stitched stack uses ITS list (the 4.1-10 hosts have 2/3/4
+    sectors in nine combos; the P4-3 default SECTORS would skip
+    every non-3-sector host). Otherwise SECTORS (95/96/97) is
+    used, exactly as before -- P4-3/BP-1 manifests are
+    unaffected. The trial's original sector must be in the
+    host's list. mes_gate (None = profile bar) is carried on
+    every job: the leg functions record it and refuse to resume
+    a host file written at a different gate (tiers differ)."""
     hosts = {}
     for tr in manifest["trials"]:
         hosts.setdefault(tr["tic"], {"sector": tr["sector"],
                                      "trials": []})
         hosts[tr["tic"]]["trials"].append(tr)
+    sectors_by_host = manifest.get("sectors_by_host") or {}
     single_jobs, stitched_jobs, missing = [], [], []
     for tic in sorted(hosts, key=int):
         if tics and tic not in tics:
             continue
         sector = hosts[tic]["sector"]
+        if tic in sectors_by_host:
+            host_sectors = sorted(int(s)
+                                  for s in sectors_by_host[tic])
+            assert sector in host_sectors, (
+                f"TIC {tic}: original sector {sector} not in "
+                f"sectors_by_host {host_sectors}")
+        else:
+            host_sectors = list(SECTORS)
         paths = {}
         ok = True
-        for sec in SECTORS:
+        for sec in host_sectors:
             p = _sector_fits_path(cache_dir, tic, sec)
             if not p.exists():
                 missing.append((tic, sec))
@@ -1387,15 +1668,19 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
              "workdir": str(workdir_single),
              "calibration": calibration,
              "keep_fits": keep_fits, "arm": ARM, "spans": None,
-             "manifest_sha": manifest["_sha256"]})
+             "manifest_sha": manifest["_sha256"],
+             "mes_gate": mes_gate})
         stitched_jobs.append(
-            {"tic": tic, "sectors": list(SECTORS), "paths": paths,
+            {"tic": tic, "sectors": list(host_sectors), "paths": paths,
              "trials": hosts[tic]["trials"],
              "out_dir": str(out_dir),
              "workdir": str(workdir_p43),
              "calibration": calibration,
              "keep_fits": keep_fits,
-             "manifest_sha": manifest["_sha256"]})
+             "agreement_only": agreement_only,
+             "seed_mode": seed_mode,
+             "manifest_sha": manifest["_sha256"],
+             "mes_gate": mes_gate})
     if limit_hosts is not None:
         single_jobs = single_jobs[:limit_hosts]
         stitched_jobs = stitched_jobs[:limit_hosts]
@@ -1429,8 +1714,29 @@ def main(argv=None):
                     default="P43_PREREG.md section 0.7",
                     help="Pre-registration reference cited in the "
                          "summary (P4-3b: 'P43B_PREREG.md section "
-                         "0.7')")
+                         "0.7'; P4-3c: 'PHASE41_PREREG.md section "
+                         "2.4')")
+    ap.add_argument("--agreement-only", action="store_true",
+                    help="P4-3c agreement-only rule (Phase 4.1, "
+                         "item 4.1-4): in non-original sectors, "
+                         "mask ONLY when the fresh peak agrees "
+                         "with the frozen record (period within "
+                         "1%% AND epoch within one transit "
+                         "duration); mask NOTHING on disagreement. "
+                         "The original sector and the null leg "
+                         "are unchanged.")
+    ap.add_argument("--seed-mode", choices=("frozen", "fresh"),
+                    default="frozen",
+                    help="Non-original sector pre-mask seed: "
+                         "'frozen' (P4-3b, default) or 'fresh' "
+                         "(the P4-3 rule -- the fresh pass-1 peak "
+                         "seeds the mask, no frozen seed "
+                         "anywhere; defines the P4-3c at-risk "
+                         "class on a fresh set). Incompatible "
+                         "with --agreement-only.")
     args = ap.parse_args(argv)
+    if args.agreement_only and args.seed_mode != "frozen":
+        ap.error("--agreement-only requires --seed-mode frozen")
     out_dir = Path(args.out_dir)
     cache = Path(args.cache)
     manifest = orc._load_manifest(args.manifest)
@@ -1447,10 +1753,14 @@ def main(argv=None):
         single_jobs, stitched_jobs, missing = _build_jobs(
             manifest, cache, out_dir, out_dir / "injected-p43",
             out_dir / "injected", args.keep_fits,
-            args.calibration, args.tics, args.limit_hosts)
+            args.calibration, args.tics, args.limit_hosts,
+            agreement_only=args.agreement_only,
+            seed_mode=args.seed_mode)
         print(f"[p43] campaign: {len(single_jobs)} single jobs, "
               f"{len(stitched_jobs)} stitched jobs, "
-              f"{len(missing)} missing FITS", flush=True)
+              f"{len(missing)} missing FITS; "
+              f"agreement_only={args.agreement_only} "
+              f"seed_mode={args.seed_mode}", flush=True)
         if args.dry_run:
             return 0
         (out_dir / "hosts").mkdir(parents=True, exist_ok=True)
