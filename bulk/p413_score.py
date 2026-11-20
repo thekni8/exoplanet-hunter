@@ -67,9 +67,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bulk.p4110_score import GateBars  # noqa: E402
 from bulk.p4110_score import leg_recovers  # noqa: E402
+from bulk.p4110_score import null_survivor_anystage  # noqa: E402
+from bulk.p4110_score import null_survivor_finalonly  # noqa: E402
+from bulk.p4110_score import pass1_recovers  # noqa: E402
 from bulk.p4110_score import rate_row  # noqa: E402
 from bulk.p4110_score import tier_a_at_gate  # noqa: E402
 from bulk.p4110_score import trial_recovers  # noqa: E402
+from bulk.p4110_score import trial_recovers_anystage  # noqa: E402
 
 INTERVAL_SECTORS = {2: [95, 96], 3: [95, 96, 97],
                     4: [95, 96, 97, 98]}
@@ -102,40 +106,11 @@ def _sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def pass1_recovers(rec, trial, bars, epoch_tol_dur=1.0):
-    """The stitched pass-1 (unmasked) screen recovers the
-    trial at gate bars.mes_gate. No alias veto is recorded
-    for pass 1, so none is applied (the PIPE50 section 7.3
-    precedent -- the official scorer applies the veto only
-    to pass 2/3; vetoed trials are few)."""
-    return leg_recovers(
-        rec.get("pass1"), trial, False,
-        rec.get("epoch_delta_over_d_pass1"), bars, epoch_tol_dur)
-
-
-def trial_recovers_anystage(rec, trial, bars, epoch_tol_dur=1.0):
-    """A campaign trial record recovers iff ANY pass (1, 2,
-    or 3) recovers it (PIPE50-9b, the section 0.4 rule)."""
-    return bool(
-        pass1_recovers(rec, trial, bars, epoch_tol_dur)
-        or trial_recovers(rec, trial, bars, epoch_tol_dur))
-
-
-def null_survivor_anystage(null_rec, bars):
-    """A null host record is a false survivor at the gate iff
-    its pass-1 OR pass-2 OR pass-3 screen record is tier-A at
-    the gate. (No period/epoch match -- nothing injected.)"""
-    return bool(tier_a_at_gate(null_rec.get("pass1"), bars)
-                or tier_a_at_gate(null_rec.get("pass2"), bars)
-                or tier_a_at_gate(null_rec.get("pass3"), bars))
-
-
-def null_survivor_finalonly(null_rec, bars):
-    """A null host record is a false survivor (final-only)
-    iff its pass-2 OR pass-3 screen record is tier-A at the
-    gate -- the 4.1-10 comparability definition."""
-    return bool(tier_a_at_gate(null_rec.get("pass2"), bars)
-                or tier_a_at_gate(null_rec.get("pass3"), bars))
+# NOTE (bulk_v6): pass1_recovers, trial_recovers_anystage,
+# null_survivor_anystage and null_survivor_finalonly live in
+# bulk/p4110_score.py now (the shared home, PIPE50-9b) and are
+# imported above — this module re-exports them unchanged, so
+# existing callers (and tests) keep working.
 
 
 def _floor_estimate(by_depth, rule_key, epoch_key):

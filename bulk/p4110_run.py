@@ -128,6 +128,12 @@ def main(argv=None):
     ap.add_argument("--tics", nargs="*", default=None)
     ap.add_argument("--limit-hosts", type=int, default=None)
     ap.add_argument("--keep-fits", action="store_true")
+    ap.add_argument("--record-pass1-stitched", action="store_true",
+                    help="campaign only: record the unmasked "
+                         "stitched pass-1 screen per trial "
+                         "(PIPE50-9c). Also ON by default when "
+                         "the calibration profile sets "
+                         "record_pass1_stitched (bulk_v6).")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
     # Fail fast on a bad gate -- before any work starts.
@@ -159,10 +165,25 @@ def main(argv=None):
             j.pop("trials", None)
         for j in stitched_jobs:
             j.pop("trials", None)
+    # PIPE50-9c (bulk_v6, design section 5.4): the effective
+    # pass-1 recording is the flag OR the profile default
+    # (record_pass1_stitched: true under bulk_v6). The flag
+    # sets the job key explicitly (overriding the profile
+    # default in p43_run); when the flag is off, p43_run
+    # falls back to the profile. Campaign only — the null
+    # leg always records its pass-1 baseline.
+    record_pass1 = bool(
+        args.record_pass1_stitched
+        or getattr(bs, "RECORD_PASS1_STITCHED", False))
+    if args.mode == "campaign" and args.record_pass1_stitched:
+        for j in stitched_jobs:
+            j["record_pass1_stitched"] = True
     print(f"[p4110-run] {args.mode}: {len(single_jobs)} single "
           f"jobs, {len(stitched_jobs)} stitched jobs, "
           f"{len(missing)} missing FITS; mes_gate="
-          f"{args.mes_gate} calibration={args.calibration}",
+          f"{args.mes_gate} calibration={args.calibration} "
+          f"record_pass1_stitched="
+          f"{bool(record_pass1 and args.mode == 'campaign')}",
           flush=True)
     if missing:
         for tic, sec in missing[:10]:
@@ -215,6 +236,8 @@ def main(argv=None):
         "mode": args.mode, "leg": args.leg,
         "mes_gate": args.mes_gate,
         "calibration": args.calibration,
+        "record_pass1_stitched": bool(
+            record_pass1 and args.mode == "campaign"),
         "manifest": str(args.manifest),
         "manifest_sha256": manifest["_sha256"],
         "n_single_jobs": len(single_jobs),

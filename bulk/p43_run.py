@@ -489,6 +489,19 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
     if not seed["eligible"]:
         rec["k2_mask"] = None
         return rec, (t, f_inj, q, np.ones(len(t), dtype=bool), sigma)
+    # Mask gate (bulk_v6, design section 5.2): the mask applies
+    # only when the signal being masked is contaminant-like.
+    # The gate record is the FROZEN recorded row on the frozen
+    # path (the mask targets the frozen contaminant) and the
+    # fresh pass-1 record on the fresh path. Gated off: the
+    # sector joins the stitch unmasked, like a not-eligible
+    # sector (k2_mask None), with mask_gated_off recorded.
+    gate_record = (trial.get("recorded")
+                   if seed["seed_source"] == "frozen" else p1)
+    if not k2.mask_gate_allows(gate_record):
+        rec["k2_mask"] = None
+        rec["mask_gated_off"] = True
+        return rec, (t, f_inj, q, np.ones(len(t), dtype=bool), sigma)
     keep, mstats = k2.build_k2_mask(
         t, f_inj, q, ephemeris, seed["depth_for_mask"],
         secondary=secondary, duty_cap=DUTY_CAP, depth_trigger=False)
@@ -703,8 +716,15 @@ def run_host_campaign_p43(job):
     # P4-3c precedent): flag-off records stay byte-identical to
     # P4-3b's. The flag is part of the resume check below, so a
     # host file written without pass-1 is never resumed by a
-    # run that needs it (and vice versa).
-    record_pass1 = bool(job.get("record_pass1_stitched", False))
+    # run that needs it (and vice versa). bulk_v6 default
+    # (PIPE50-9c adoption, design section 5.4): when the job
+    # does not set the key, the PROFILE decides
+    # (record_pass1_stitched: true under bulk_v6, absent/False
+    # under frozen profiles) — the driver flag overrides by
+    # setting the job key.
+    record_pass1 = bool(job.get(
+        "record_pass1_stitched",
+        getattr(bs, "RECORD_PASS1_STITCHED", False)))
     out_path = out_dir / "hosts-p43" / f"{tic}_p43.json"
     if out_path.exists():
         try:
@@ -750,6 +770,7 @@ def run_host_campaign_p43(job):
             masked = []  # (sector, t, f_inj, q, keep) for the stitch
             sigmas = {}
             contaminants = []
+            any_masked = False  # D-MASK-STITCHED (bulk_v6)
             sec_p1 = sec_est = 0.0
             # P4-3c: the agreement test's epoch clause needs the
             # frozen record's epoch, reconstructed as the
@@ -795,6 +816,10 @@ def run_host_campaign_p43(job):
                 if mstats.get("stopped"):
                     # Sector excluded from the stitch (pre-registered).
                     continue
+                if rec.get("k2_mask") is not None:
+                    # A mask was built for this sector (not
+                    # gated off, not ineligible).
+                    any_masked = True
                 masked.append({"sector": sec, "t": t_s_[keep],
                                "f": f_i[keep], "q": q_s_[keep],
                                "fcol": sd["fcol"],
@@ -892,9 +917,30 @@ def run_host_campaign_p43(job):
             # source — per-sector only, same in both legs).
             flagged = orc.flagged_periods(
                 [v.get("pass1") for v in per_sector.values()])
-            p2, _p2_raw = _stitched_pass2(
-                t_s, f_s, q_s, masked[0]["fcol"], base, tic, orig,
-                keep_fits)
+            # D-MASK-STITCHED (bulk_v6, design section 5.2): when
+            # NO sector masked, the masked stitch IS the
+            # unmasked stitch, so the stitched pass-2 screen
+            # would return exactly the recorded stitched
+            # pass-1 screen (same input, deterministic screen).
+            # Carry it forward instead of re-screening; pass 3
+            # does not run (nothing was masked). When the
+            # stitched pass-1 was not recorded (record_pass1
+            # off — frozen profiles), screen the unmasked
+            # stitch as before (the same result, one extra
+            # screen). The copy is shallow + a fresh flags
+            # list, so the F-2 carry below cannot mutate the
+            # stored pass-1 record.
+            if (not any_masked and record_pass1
+                    and r.get("pass1") is not None):
+                p2 = dict(r["pass1"])
+                p2["flags"] = list(p2.get("flags") or [])
+                p2["carried_from"] = "pass1"
+                carried_from_pass1 = True
+            else:
+                p2, _p2_raw = _stitched_pass2(
+                    t_s, f_s, q_s, masked[0]["fcol"], base, tic,
+                    orig, keep_fits)
+                carried_from_pass1 = False
             # The stitched pass-2 record IS the subset
             # (_stitched_pass2 returns it), so the carry
             # lands on it directly — before the recovery
@@ -928,7 +974,19 @@ def run_host_campaign_p43(job):
             keep_stitched = np.ones(len(t_s), dtype=bool)
             # (t_s is the stitched curve; the per-sector keeps are
             # already applied. The union mask is built on it below.)
-            if r["p2_recovered"]:
+            if carried_from_pass1:
+                # No mask (D-MASK-STITCHED): pass 3 does not
+                # run — nothing was masked, so there is
+                # nothing to look behind.
+                r["pass3_eligibility"] = {
+                    "eligible": False,
+                    "reason": "no-mask-carry-forward"}
+                r["pass3"] = None
+                r["p3_recovered"] = False
+                r["p3_genuine"] = False
+                r["sector_consistency"] = _consistency_at(
+                    t_s, f_s, q_s, bounds, p2)
+            elif r["p2_recovered"]:
                 r["pass3_eligibility"] = {
                     "eligible": False, "reason": "pass2-rescued"}
                 r["pass3"] = None
@@ -1079,6 +1137,7 @@ def run_host_null_p43(job):
         unmasked = []
         sigmas = {}
         contaminants = []
+        any_masked = False  # D-MASK-STITCHED (bulk_v6)
         for sec in sectors:
             t, f, q, fcol, _meta = load_real_fits(paths[str(sec)])
             raw_path = str(base) + f"_s{sec:04d}.fits"
@@ -1127,6 +1186,14 @@ def run_host_null_p43(job):
             if not eligible:
                 rec["k2_mask"] = None
                 keep = np.ones(len(t), dtype=bool)
+            elif not k2.mask_gate_allows(p1):
+                # Mask gate (bulk_v6, design section 5.2): the
+                # fresh pass-1 signal is planet-like (shallow,
+                # unflagged) — no mask. The sector joins the
+                # stitch unmasked, like a not-eligible sector.
+                rec["k2_mask"] = None
+                rec["mask_gated_off"] = True
+                keep = np.ones(len(t), dtype=bool)
             else:
                 keep, mstats = k2.build_k2_mask(
                     t, f, q, ephemeris, depth_pct, secondary=secondary,
@@ -1141,6 +1208,8 @@ def run_host_null_p43(job):
                              "crowdsap": rec["crowdsap"]})
             if (rec.get("k2_mask") or {}).get("stopped"):
                 continue  # sector excluded from the stitch
+            if rec.get("k2_mask") is not None:
+                any_masked = True
             masked.append({"sector": sec, "t": t[keep], "f": f[keep],
                            "q": q[keep], "fcol": fcol,
                            "crowdsap": rec["crowdsap"]})
@@ -1175,9 +1244,23 @@ def run_host_null_p43(job):
             # a source — per-sector only, same in both legs.)
             flagged = orc.flagged_periods(
                 [v.get("pass1") for v in per_sector.values()])
-            p2, _ = _stitched_pass2(t_s, f_s, q_s,
-                                    masked[0]["fcol"], base, tic,
-                                    sectors[0], keep_fits)
+            # D-MASK-STITCHED (bulk_v6, design section 5.2): as
+            # in the campaign leg — when no sector masked, the
+            # masked stitch IS the unmasked stitch, so carry
+            # the pass-1 baseline forward instead of
+            # re-screening; pass 3 does not run. The baseline
+            # is always recorded in this leg, so no
+            # record_pass1 guard is needed.
+            if not any_masked:
+                p2 = dict(r["pass1"])
+                p2["flags"] = list(p2.get("flags") or [])
+                p2["carried_from"] = "pass1"
+                carried_from_pass1 = True
+            else:
+                p2, _ = _stitched_pass2(t_s, f_s, q_s,
+                                        masked[0]["fcol"], base, tic,
+                                        sectors[0], keep_fits)
+                carried_from_pass1 = False
             carried = orc.carried_eb_flags(
                 p2.get("period_days"), flagged)
             if carried:
@@ -1189,23 +1272,35 @@ def run_host_null_p43(job):
                                   p2.get("t0_btjd"), contaminants)
             trial_none = {"period_d": None, "epoch_btjd": None,
                           "duration_d": None}
-            # No survivor short-circuit here (unlike the campaign
-            # leg): k3_run's null leg runs pass 3 whenever eligible,
-            # because a pass-2 survivor is a candidate the K=3
-            # search looks behind. Skipping it would undercount
-            # null rows and bias the A2 bound toward PASS.
-            elig, rec3 = _stitched_pass3(
-                t_s, f_s, q_s, masked[0]["fcol"], base, tic,
-                sectors[0], np.ones(len(t_s), dtype=bool), p2,
-                contaminants, trial_none, keep_fits,
-                flagged=flagged)
-            r["pass3_eligibility"] = elig
-            r["k3_mask"] = rec3.get("k3_mask")
-            r["k3_ephemeris"] = rec3.get("k3_ephemeris")
-            r["pass3"] = rec3.get("pass3")
-            r["pass3_survivor"] = bool(
-                (rec3.get("pass3") or {}).get("status")
-                == "survivor")
+            if carried_from_pass1:
+                # No mask: pass 3 does not run (nothing was
+                # masked, so there is nothing to look behind).
+                # The no-short-circuit rule below does not
+                # apply — this is a design-mandated skip, not
+                # a survivor short-circuit.
+                r["pass3_eligibility"] = {
+                    "eligible": False,
+                    "reason": "no-mask-carry-forward"}
+                r["pass3"] = None
+                r["pass3_survivor"] = False
+            else:
+                # No survivor short-circuit here (unlike the campaign
+                # leg): k3_run's null leg runs pass 3 whenever eligible,
+                # because a pass-2 survivor is a candidate the K=3
+                # search looks behind. Skipping it would undercount
+                # null rows and bias the A2 bound toward PASS.
+                elig, rec3 = _stitched_pass3(
+                    t_s, f_s, q_s, masked[0]["fcol"], base, tic,
+                    sectors[0], np.ones(len(t_s), dtype=bool), p2,
+                    contaminants, trial_none, keep_fits,
+                    flagged=flagged)
+                r["pass3_eligibility"] = elig
+                r["k3_mask"] = rec3.get("k3_mask")
+                r["k3_ephemeris"] = rec3.get("k3_ephemeris")
+                r["pass3"] = rec3.get("pass3")
+                r["pass3_survivor"] = bool(
+                    (rec3.get("pass3") or {}).get("status")
+                    == "survivor")
             r["final_rows"] = (int(r["pass2_survivor"])
                                + int(r["pass3_survivor"]))
     except Exception as exc:  # noqa: BLE001

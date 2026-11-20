@@ -244,6 +244,56 @@ def null_survivor_at_gate(null_rec, bars):
 
 
 # ---------------------------------------------------------------------------
+# Any-stage scoring (PIPE50-9b — the PRIMARY rule, bulk_v6)
+# ---------------------------------------------------------------------------
+# The section 0.4 rule is stage-agnostic: a trial is recovered
+# iff ANY pass (1, 2, or 3) finds it. trial_recovers above
+# (final-only: pass 2 OR pass 3) stays for comparability (the
+# 4.1-10 curve is published final-only), but it understates
+# sensitivity 4-8x — the K=2 mask deletes what pass 1 found,
+# so final-only and pass-1 recovery are DISJOINT. Promoted
+# here from p413_score.py (which re-exports them) so every
+# scorer shares the rule.
+
+def pass1_recovers(rec, trial, bars, epoch_tol_dur=1.0):
+    """The pass-1 (unmasked) screen recovers the trial at gate
+    bars.mes_gate. No alias veto is recorded for pass 1, so
+    none is applied (the PIPE50 section 7.3 precedent -- the
+    official scorer applies the veto only to pass 2/3; vetoed
+    trials are few). Returns False when the record carries no
+    pass-1 screen or no pass-1 epoch delta (old runs)."""
+    return leg_recovers(
+        rec.get("pass1"), trial, False,
+        rec.get("epoch_delta_over_d_pass1"), bars, epoch_tol_dur)
+
+
+def trial_recovers_anystage(rec, trial, bars, epoch_tol_dur=1.0):
+    """A campaign trial record recovers iff ANY pass (1, 2,
+    or 3) recovers it (PIPE50-9b, the section 0.4 rule)."""
+    return bool(
+        pass1_recovers(rec, trial, bars, epoch_tol_dur)
+        or trial_recovers(rec, trial, bars, epoch_tol_dur))
+
+
+def null_survivor_anystage(null_rec, bars):
+    """A null host record is a false survivor at the gate iff
+    its pass-1 OR pass-2 OR pass-3 screen record is tier-A at
+    the gate. (No period/epoch match -- nothing injected.)"""
+    return bool(tier_a_at_gate(null_rec.get("pass1"), bars)
+                or tier_a_at_gate(null_rec.get("pass2"), bars)
+                or tier_a_at_gate(null_rec.get("pass3"), bars))
+
+
+def null_survivor_finalonly(null_rec, bars):
+    """A null host record is a false survivor (final-only)
+    iff its pass-2 OR pass-3 screen record is tier-A at the
+    gate -- the 4.1-10 comparability definition (identical to
+    null_survivor_at_gate above)."""
+    return bool(tier_a_at_gate(null_rec.get("pass2"), bars)
+                or tier_a_at_gate(null_rec.get("pass3"), bars))
+
+
+# ---------------------------------------------------------------------------
 # Loading
 # ---------------------------------------------------------------------------
 
@@ -337,6 +387,15 @@ def score_campaign(manifest, run_dir, bars, run_gate, partial=False):
             rec = leg_trials[key]
             recovers = trial_recovers(rec, m_tr, bars, 1.0)
             recovers_half = trial_recovers(rec, m_tr, bars, 0.5)
+            # Any-stage (PIPE50-9b, PRIMARY): pass 1 OR pass 2
+            # OR pass 3 recovers. On runs without a recorded
+            # pass-1 screen this degenerates to final-only
+            # (pass1_recovers is False), so old curves
+            # re-derive unchanged.
+            recovers_any = trial_recovers_anystage(
+                rec, m_tr, bars, 1.0)
+            recovers_any_half = trial_recovers_anystage(
+                rec, m_tr, bars, 0.5)
             if rec.get("final_genuine") is True:
                 runner_genuine += 1
             for leg_key in ("pass2", "pass3"):
@@ -379,7 +438,9 @@ def score_campaign(manifest, run_dir, bars, run_gate, partial=False):
                     cross_mismatch += 1
             rows.append({"key": key, "trial": m_tr,
                          "recovers": recovers,
-                         "recovers_half": recovers_half})
+                         "recovers_half": recovers_half,
+                         "recovers_any": recovers_any,
+                         "recovers_any_half": recovers_any_half})
         if cross_mismatch:
             raise SystemExit(
                 f"[p4110-score] {leg} leg: {cross_mismatch} "
@@ -409,11 +470,33 @@ def score_campaign(manifest, run_dir, bars, run_gate, partial=False):
                 by_host_h[r["trial"]["tic"]][1] += int(
                     r["recovers_half"])
                 kh += int(r["recovers_half"])
+            ka = 0
+            by_host_a = defaultdict(lambda: [0, 0])
+            for r in subset:
+                by_host_a[r["trial"]["tic"]][0] += 1
+                by_host_a[r["trial"]["tic"]][1] += int(
+                    r["recovers_any"])
+                ka += int(r["recovers_any"])
+            kah = 0
+            by_host_ah = defaultdict(lambda: [0, 0])
+            for r in subset:
+                by_host_ah[r["trial"]["tic"]][0] += 1
+                by_host_ah[r["trial"]["tic"]][1] += int(
+                    r["recovers_any_half"])
+                kah += int(r["recovers_any_half"])
             return {
+                # Final-only (pass 2 OR pass 3) — retained for
+                # comparability with the published 4.1-10
+                # curve; the anystage rows below are PRIMARY
+                # (PIPE50-9b).
                 "section_0.4_one_duration": rate_row(
                     k, len(subset), list(by_host.values())),
                 "half_duration_alongside": rate_row(
                     kh, len(subset), list(by_host_h.values())),
+                "anystage_one_duration": rate_row(
+                    ka, len(subset), list(by_host_a.values())),
+                "anystage_half_duration": rate_row(
+                    kah, len(subset), list(by_host_ah.values())),
             }
 
         by_depth = {}
@@ -449,9 +532,12 @@ def score_campaign(manifest, run_dir, bars, run_gate, partial=False):
                     for h in manifest["hosts"]
                     if h["tic"] == demo["trial"]["tic"]),
                 "recovered_at_gate": bool(demo["recovers"]),
+                "recovered_at_gate_anystage": bool(
+                    demo["recovers_any"]),
                 "note": ("n=1 DEMONSTRATION reported alongside "
                          "the curve (pre-reg section 2.10) -- "
                          "candidate (c) alone doesn't count."),
+                "pass1": d_rec.get("pass1"),
                 "pass2": d_rec.get("pass2"),
                 "pass3": d_rec.get("pass3"),
             }
@@ -545,16 +631,35 @@ def score_null(manifest_null, run_dir, bars, partial=False):
             by_host[r["tic"]] = null_survivor_at_gate(r, bars)
         k = sum(by_host.values())
         n = len(by_host)
+        # Any-stage null rule (PIPE50-9b): pass-1 OR pass-2 OR
+        # pass-3 tier-A. Reported ALONGSIDE the final-only
+        # rule — the 8.33/1,000 bound is a final-only-era
+        # number (PIPE50-5 keeps it); the vote judges whether
+        # it needs re-derivation under the any-stage rule. Do
+        # NOT re-baseline the bound here.
+        by_host_any = {}
+        for r in recs:
+            by_host_any[r["tic"]] = null_survivor_anystage(
+                r, bars)
+        k_any = sum(by_host_any.values())
         entry = {"n_null_hosts": n, "n_false_survivors": k,
                  "rate_per_1000": (1000.0 * k / n if n else None),
+                 "n_false_survivors_anystage": k_any,
+                 "rate_per_1000_anystage": (
+                     1000.0 * k_any / n if n else None),
                  "by_stratum": {}}
         for s in (2, 3, 4):
             hosts_s = [t for t in by_host if nsec.get(t) == s]
             ks = sum(by_host[t] for t in hosts_s)
+            ks_any = sum(by_host_any[t] for t in hosts_s)
             entry["by_stratum"][f"{s}_sector"] = {
                 "n": len(hosts_s), "k": ks,
                 "rate_per_1000": (1000.0 * ks / len(hosts_s)
-                                  if hosts_s else None)}
+                                  if hosts_s else None),
+                "k_anystage": ks_any,
+                "rate_per_1000_anystage": (
+                    1000.0 * ks_any / len(hosts_s)
+                    if hosts_s else None)}
         out[leg] = entry
     return out
 
@@ -606,19 +711,27 @@ def main(argv=None):
     out.write_text(json.dumps(curve, indent=1, sort_keys=True))
     st = curve["stitched"]["by_depth"]
     print(f"[p4110-score] gate {bars.mes_gate} (run gate "
-          f"{run_gate}), stitched recovery by depth:")
+          f"{run_gate}), stitched recovery by depth "
+          f"(anystage PRIMARY, final-only alongside):")
     for depth, entry in sorted(st.items()):
-        row = entry["section_0.4_one_duration"]
+        row = entry["anystage_one_duration"]
+        fin = entry["section_0.4_one_duration"]
         print(f"  {depth}: {row['k']}/{row['n']} = "
               f"{row['rate']:.1%} "
               f"host-clustered 95% [{row['host_clustered_95'][0]:.1%}, "
-              f"{row['host_clustered_95'][1]:.1%}]")
+              f"{row['host_clustered_95'][1]:.1%}] "
+              f"(final-only {fin['k']}/{fin['n']} = "
+              f"{fin['rate']:.1%})")
     if "null" in curve and curve["null"]["stitched"].get(
             "n_null_hosts"):
         nl = curve["null"]["stitched"]
         print(f"[p4110-score] null stitched: "
               f"{nl['n_false_survivors']}/{nl['n_null_hosts']} = "
-              f"{nl['rate_per_1000']:.2f}/1,000")
+              f"{nl['rate_per_1000']:.2f}/1,000 final-only; "
+              f"{nl['n_false_survivors_anystage']}/"
+              f"{nl['n_null_hosts']} = "
+              f"{nl['rate_per_1000_anystage']:.2f}/1,000 "
+              f"anystage")
     print(f"wrote {out}")
     return 0
 

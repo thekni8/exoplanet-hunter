@@ -215,12 +215,18 @@ def main(argv=None):
     elif args.record_pass1_stitched:
         for j in stitched_jobs:
             j["record_pass1_stitched"] = True
+    # Effective value: the flag OR the profile default
+    # (record_pass1_stitched: true under bulk_v6 — p43_run
+    # falls back to the profile when the job key is absent).
+    record_pass1 = bool(
+        args.record_pass1_stitched
+        or getattr(bs, "RECORD_PASS1_STITCHED", False))
     print(f"[p413-run] {args.mode} interval {args.interval}: "
           f"{len(stitched_jobs)} stitched jobs, "
           f"{len(missing)} missing FITS; mes_gate="
           f"{args.mes_gate} calibration={args.calibration} "
           f"record_pass1_stitched="
-          f"{bool(args.record_pass1_stitched and args.mode == 'campaign')}",
+          f"{bool(record_pass1 and args.mode == 'campaign')}",
           flush=True)
     if missing:
         for tic, sec in missing[:10]:
@@ -261,7 +267,7 @@ def main(argv=None):
         "mes_gate": args.mes_gate,
         "calibration": args.calibration,
         "record_pass1_stitched": bool(
-            args.record_pass1_stitched
+            record_pass1
             and args.mode == "campaign"),
         "manifest": str(args.manifest),
         "manifest_sha256": manifest["_sha256"],

@@ -69,6 +69,7 @@ from bulk.p4110_score import (  # noqa: E402
     rate_row,
     score_null,
     trial_recovers,
+    trial_recovers_anystage,
 )
 
 
@@ -164,6 +165,14 @@ def score_campaign(manifest, run_dir, bars, run_gate, partial=False):
             rec = leg_trials[key]
             recovers = trial_recovers(rec, m_tr, bars, 1.0)
             recovers_half = trial_recovers(rec, m_tr, bars, 0.5)
+            # Any-stage (PIPE50-9b, PRIMARY — same adoption as
+            # p4110_score.score_campaign). Degenerates to
+            # final-only on runs without a recorded pass-1
+            # screen, so old curves re-derive unchanged.
+            recovers_any = trial_recovers_anystage(
+                rec, m_tr, bars, 1.0)
+            recovers_any_half = trial_recovers_anystage(
+                rec, m_tr, bars, 0.5)
             if rec.get("final_genuine") is True:
                 runner_genuine += 1
             for leg_key in ("pass2", "pass3"):
@@ -206,7 +215,9 @@ def score_campaign(manifest, run_dir, bars, run_gate, partial=False):
                     cross_mismatch += 1
             rows.append({"key": key, "trial": m_tr,
                          "recovers": recovers,
-                         "recovers_half": recovers_half})
+                         "recovers_half": recovers_half,
+                         "recovers_any": recovers_any,
+                         "recovers_any_half": recovers_any_half})
         if cross_mismatch:
             raise SystemExit(
                 f"[brightstar-score] {leg} leg: {cross_mismatch} "
@@ -231,11 +242,31 @@ def score_campaign(manifest, run_dir, bars, run_gate, partial=False):
                 by_host_h[r["trial"]["tic"]][1] += int(
                     r["recovers_half"])
                 kh += int(r["recovers_half"])
+            ka = 0
+            by_host_a = defaultdict(lambda: [0, 0])
+            for r in subset:
+                by_host_a[r["trial"]["tic"]][0] += 1
+                by_host_a[r["trial"]["tic"]][1] += int(
+                    r["recovers_any"])
+                ka += int(r["recovers_any"])
+            kah = 0
+            by_host_ah = defaultdict(lambda: [0, 0])
+            for r in subset:
+                by_host_ah[r["trial"]["tic"]][0] += 1
+                by_host_ah[r["trial"]["tic"]][1] += int(
+                    r["recovers_any_half"])
+                kah += int(r["recovers_any_half"])
             return {
+                # Final-only retained for comparability; the
+                # anystage rows are PRIMARY (PIPE50-9b).
                 "section_0.4_one_duration": rate_row(
                     k, len(subset), list(by_host.values())),
                 "half_duration_alongside": rate_row(
                     kh, len(subset), list(by_host_h.values())),
+                "anystage_one_duration": rate_row(
+                    ka, len(subset), list(by_host_a.values())),
+                "anystage_half_duration": rate_row(
+                    kah, len(subset), list(by_host_ah.values())),
             }
 
         by_depth = {}

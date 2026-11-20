@@ -70,7 +70,7 @@ import numpy as np
 
 import bulk_screen as bs
 
-from bulk.oracle_run import mask_half_width
+from bulk.oracle_run import is_eb_flag, mask_half_width
 
 # --------------------------------------------------------------------------
 # Pre-registered constants (P4-1a). Do not tune on outcomes.
@@ -119,6 +119,59 @@ def grid_df():
     """Live BLS frequency step (1/d), from the loaded calibration."""
     return ((1.0 / bs.MIN_PERIOD_D) - (1.0 / bs.MAX_PERIOD_D)) / (
         bs.BLS_GRID_POINTS - 1)
+
+
+# --------------------------------------------------------------------------
+# Mask gate (bulk_v6, design section 5.2 / PIPE50-9a)
+# --------------------------------------------------------------------------
+# The K=2 mask deletes the signal pass 1 found — when pass 1
+# finds the PLANET, the mask removes its transits and pass 2
+# searches the leftovers (single-leg pass-1 and final recovery
+# are DISJOINT, 0/800 trials recovered by both). The gate
+# applies the mask only when the pass-1 signal is
+# contaminant-like: it carries a demoting EB flag (the F-2
+# family: endswith "_EB" or "HARMONIC" in flag) OR its
+# recorded depth exceeds mask_gate_depth_pct (1.0% — the
+# COMASK_DEPTH_PCT value, consistent with tier B's 1% depth
+# cap). Otherwise (planet-like: shallow, unflagged) there is
+# no mask — pass 2 carries the pass-1 record forward as the
+# leg result and pass 3 does not run.
+#
+# The gate is decided at the CALLER (where the pass-1 record
+# is in scope), not inside build_k2_mask (which takes only a
+# depth, no flags). Gate OFF (mask_gate_enabled False — every
+# frozen profile) = mask unconditional (the old behaviour).
+
+def mask_gate_allows(record):
+    """Whether the K=2/K=3 mask applies for this pass-1 record.
+
+    Gate OFF -> True (mask unconditional). Gate ON -> True iff
+    the record is contaminant-like (an EB-family flag, or
+    depth_percent > MASK_GATE_DEPTH_PCT). A record of None
+    (no pass-1 record to gate on) fails open to the old
+    behaviour (mask); a missing depth simply does not satisfy
+    the depth clause.
+    """
+    if not getattr(bs, "MASK_GATE_ENABLED", False):
+        return True
+    if record is None:
+        return True
+    if any(is_eb_flag(f) for f in (record.get("flags") or [])):
+        return True
+    depth = record.get("depth_percent")
+    gate_depth = getattr(bs, "MASK_GATE_DEPTH_PCT", 1.0)
+    return depth is not None and depth > gate_depth
+
+
+def gated_off_mask_stats():
+    """The k2_mask record for a gated-off trial (no mask was
+    built). Shape-safe for every k2_mask consumer (all read
+    via .get with defaults): stopped is False (this is not a
+    duty-cycle stop), and gated_off / mask_applied record the
+    decision. A fresh dict per call (the caller stores it).
+    """
+    return {"gated_off": True, "mask_applied": False,
+            "stopped": False, "stop_reason": None}
 
 
 # --------------------------------------------------------------------------

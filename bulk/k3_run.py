@@ -344,6 +344,19 @@ def run_host_campaign_k3(job):
             p1 = _screen(inj_path, tic, sector)
             r["seconds_pass1"] = round(time.time() - t_p1, 2)
             r["pass1"] = orc._subset(p1)
+            # PIPE50-9b (bulk_v6): the pass-1 epoch delta the
+            # any-stage scorer reads (pass1_recovers) — the
+            # single-leg analog of the stitched leg's
+            # epoch_delta_over_d_pass1 (p43_run). Without it,
+            # any-stage scoring on the single leg is vacuous
+            # (pass 1 can never recover: leg_recovers needs
+            # the recorded epoch delta).
+            delta1 = k2.epoch_delta(p1.get("t0_btjd"),
+                                    tr["epoch_btjd"],
+                                    tr["period_d"])
+            r["epoch_delta_over_d_pass1"] = (
+                abs(delta1) / tr["duration_d"]
+                if delta1 is not None else None)
             rec = tr["recorded"]
             p_rec = rec.get("period_days")
             s_rec = rec.get("sde")
@@ -376,10 +389,27 @@ def run_host_campaign_k3(job):
                 "phase": secondary[0], "depth_frac": secondary[1],
                 "snr": secondary[2]}
             # --- pass 2 (K=2 mask + artifact spans, combined arm)
-            keep2, mstats, p2, _ = _run_pass2(
-                t, f_inj, q, fcol, base, tic, sector, ephemeris,
-                secondary, rec.get("depth_percent"), arm, spans,
-                keep_fits)
+            # Mask gate (bulk_v6, design section 5.2): the mask
+            # applies only when the signal being masked is
+            # contaminant-like. The gate record is the RECORDED
+            # row (the mask seed; the fresh p1 is validation
+            # only). Gate OFF (frozen profiles) = mask
+            # unconditional. Gated off: no mask — pass 2
+            # carries the fresh pass-1 record forward as the
+            # leg result (no re-search; the record stands) and
+            # pass 3 does not run.
+            gate_allows = k2.mask_gate_allows(rec)
+            if gate_allows:
+                keep2, mstats, p2, _ = _run_pass2(
+                    t, f_inj, q, fcol, base, tic, sector, ephemeris,
+                    secondary, rec.get("depth_percent"), arm, spans,
+                    keep_fits)
+                carried_from_pass1 = False
+            else:
+                keep2 = np.ones(len(t), dtype=bool)
+                mstats = k2.gated_off_mask_stats()
+                p2 = p1
+                carried_from_pass1 = True
             r["k2_mask"] = mstats
             if p2 is None:
                 r["pass2"] = None
@@ -408,19 +438,27 @@ def run_host_campaign_k3(job):
                 # stored record carries the flags + demotion)
                 # and before the recovery verdict and pass-3
                 # eligibility (a carried demotion behaves
-                # exactly as a measured flag would).
+                # exactly as a measured flag would). Skipped
+                # in the no-mask branch: there p2 IS p1, so
+                # its flags are measured, not carried (applying
+                # F-2 would mislabel them as carried).
                 flagged = orc.flagged_periods(p1)
-                carried = orc.carried_eb_flags(
+                carried = (orc.carried_eb_flags(
                     p2.get("period_days"), flagged)
+                    if not carried_from_pass1 else [])
                 if carried:
                     orc.apply_eb_carry(p2, carried)
                 r["pass2"] = orc._subset(p2)
                 if carried:
                     r["pass2"]["flags_carried_from"] = (
                         orc.FLAGS_CARRIED_FROM_PASS1)
+                if carried_from_pass1:
+                    r["pass2"]["carried_from"] = "pass1"
                 r["pass2_match"] = orc.period_match_class(
                     p2.get("period_days"), tr["period_d"])
-                veto = k2.alias_veto(
+                # No mask in the carry branch, so no mask to
+                # veto against (None, like the stopped branch).
+                veto = None if carried_from_pass1 else k2.alias_veto(
                     p2.get("period_days"), p2.get("t0_btjd"),
                     ephemeris["period_ref_d"],
                     ephemeris["t0_est_btjd"],
@@ -445,6 +483,16 @@ def run_host_campaign_k3(job):
                     r["pass3_eligibility"] = {
                         "eligible": False,
                         "reason": "pass2-rescued"}
+                    r["pass3"] = None
+                    r["k3_recovered"] = False
+                    r["k3_genuine"] = False
+                elif carried_from_pass1:
+                    # No mask (design section 5.2): pass 3
+                    # does not run — nothing was masked, so
+                    # there is nothing to look behind.
+                    r["pass3_eligibility"] = {
+                        "eligible": False,
+                        "reason": "no-mask-carry-forward"}
                     r["pass3"] = None
                     r["k3_recovered"] = False
                     r["k3_genuine"] = False
@@ -536,10 +584,23 @@ def run_host_null_k3(job):
             r["secondary_scan"] = {
                 "phase": secondary[0], "depth_frac": secondary[1],
                 "snr": secondary[2]}
-            keep2, mstats, p2, _ = _run_pass2(
-                t, f, q, fcol, base, tic, sector, ephemeris,
-                secondary, p1.get("depth_percent"), arm, spans,
-                keep_fits)
+            # Mask gate (bulk_v6, design section 5.2): as in
+            # the campaign leg — the gate record here is the
+            # FRESH pass-1 screen (no recorded row exists in
+            # the null leg). Gated off: pass 2 carries the
+            # fresh pass-1 record forward; pass 3 does not run.
+            gate_allows = k2.mask_gate_allows(p1)
+            if gate_allows:
+                keep2, mstats, p2, _ = _run_pass2(
+                    t, f, q, fcol, base, tic, sector, ephemeris,
+                    secondary, p1.get("depth_percent"), arm, spans,
+                    keep_fits)
+                carried_from_pass1 = False
+            else:
+                keep2 = np.ones(len(t), dtype=bool)
+                mstats = k2.gated_off_mask_stats()
+                p2 = p1
+                carried_from_pass1 = True
             r["k2_mask"] = mstats
             if p2 is None:
                 r["pass2"] = None
@@ -551,51 +612,64 @@ def run_host_null_k3(job):
                 # fresh pass-1 screen's EB flags travel to the
                 # pass-2 row on a harmonic period match, before
                 # the subset, the survivor flag, and pass-3
-                # eligibility.
+                # eligibility. Skipped in the no-mask branch
+                # (p2 IS p1 there — its flags are measured,
+                # not carried).
                 flagged = orc.flagged_periods(p1)
-                carried = orc.carried_eb_flags(
+                carried = (orc.carried_eb_flags(
                     p2.get("period_days"), flagged)
+                    if not carried_from_pass1 else [])
                 if carried:
                     orc.apply_eb_carry(p2, carried)
                 r["pass2"] = orc._subset(p2)
                 if carried:
                     r["pass2"]["flags_carried_from"] = (
                         orc.FLAGS_CARRIED_FROM_PASS1)
+                if carried_from_pass1:
+                    r["pass2"]["carried_from"] = "pass1"
                 r["pass2_survivor"] = bool(
                     p2.get("status") == "survivor")
-                veto2 = k2.alias_veto(
-                    p2.get("period_days"), p2.get("t0_btjd"),
-                    ephemeris["period_ref_d"],
-                    ephemeris["t0_est_btjd"],
-                    mstats["mask_half_width_d"],
-                    comask_phase=mstats["secondary_phase"])
-                # Null leg: there is no injected planet, so the
-                # "pass 2 rescued" short-circuit does not apply — a
-                # pass-2 survivor is a candidate the K=3 search
-                # looks behind (the eligibility rule's survivor
-                # branch covers it). p2_rescued is always False here.
-                elig, reason = k3.pass3_eligible(
-                    orc._subset(p2), veto2, False)
-                r["pass3_eligibility"] = {"eligible": bool(elig),
-                                          "reason": reason}
-                if not elig:
+                # No mask in the carry branch, so no mask to
+                # veto against — and pass 3 does not run.
+                if carried_from_pass1:
+                    r["pass3_eligibility"] = {
+                        "eligible": False,
+                        "reason": "no-mask-carry-forward"}
                     r["pass3"] = None
                 else:
-                    _e, rec3 = _run_pass3(
-                        t, f, q, fcol, base, tic, sector, keep2, p2,
-                        ephemeris, mstats, arm,
-                        period_inj=None, epoch_inj=None,
-                        duration_inj=None, keep_fits=keep_fits,
-                        flagged=flagged)
-                    # _run_pass3 needs an injected period for the
-                    # recovery verdict — the null leg has none, so
-                    # use the pass-3 record's screen fields only.
-                    r["k3_mask"] = rec3.get("k3_mask")
-                    r["k3_ephemeris"] = rec3.get("k3_ephemeris")
-                    r["pass3"] = rec3.get("pass3")
-                    r["pass3_survivor"] = bool(
-                        (rec3.get("pass3") or {}).get("status")
-                        == "survivor")
+                    veto2 = k2.alias_veto(
+                        p2.get("period_days"), p2.get("t0_btjd"),
+                        ephemeris["period_ref_d"],
+                        ephemeris["t0_est_btjd"],
+                        mstats["mask_half_width_d"],
+                        comask_phase=mstats["secondary_phase"])
+                    # Null leg: there is no injected planet, so the
+                    # "pass 2 rescued" short-circuit does not apply — a
+                    # pass-2 survivor is a candidate the K=3 search
+                    # looks behind (the eligibility rule's survivor
+                    # branch covers it). p2_rescued is always False here.
+                    elig, reason = k3.pass3_eligible(
+                        orc._subset(p2), veto2, False)
+                    r["pass3_eligibility"] = {"eligible": bool(elig),
+                                              "reason": reason}
+                    if not elig:
+                        r["pass3"] = None
+                    else:
+                        _e, rec3 = _run_pass3(
+                            t, f, q, fcol, base, tic, sector, keep2,
+                            p2, ephemeris, mstats, arm,
+                            period_inj=None, epoch_inj=None,
+                            duration_inj=None, keep_fits=keep_fits,
+                            flagged=flagged)
+                        # _run_pass3 needs an injected period for the
+                        # recovery verdict — the null leg has none, so
+                        # use the pass-3 record's screen fields only.
+                        r["k3_mask"] = rec3.get("k3_mask")
+                        r["k3_ephemeris"] = rec3.get("k3_ephemeris")
+                        r["pass3"] = rec3.get("pass3")
+                        r["pass3_survivor"] = bool(
+                            (rec3.get("pass3") or {}).get("status")
+                            == "survivor")
                 r["final_survivor"] = bool(
                     r["pass2_survivor"] or r["pass3_survivor"])
         if not keep_fits:

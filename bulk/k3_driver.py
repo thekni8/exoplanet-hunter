@@ -170,17 +170,40 @@ def run_k3_star(job):
             "phase": secondary[0], "depth_frac": secondary[1],
             "snr": secondary[2]}
         # --- pass 2 (the campaign's _run_pass2, prototype arm)
-        keep2, mstats, p2, _ = k3run._run_pass2(
-            t, f, q, fcol, base, tic, sector, ephemeris,
-            secondary, p1.get("depth_percent"), K3_PRODUCTION_ARM,
-            None, keep_fits)
+        # Mask gate (bulk_v6, design section 5.2): the gate
+        # record is the job's pass-1 row. Gated off: no mask —
+        # pass 2 carries the pass-1 record forward as the leg
+        # result, pass 3 does not run, and the star emits
+        # nothing new (its pass-1 row was recorded/demoted,
+        # so the carried record is not a queue row — p2 is
+        # None, so k3_emit_rows emits nothing for it).
+        gate_allows = k2.mask_gate_allows(p1)
+        if gate_allows:
+            keep2, mstats, p2, _ = k3run._run_pass2(
+                t, f, q, fcol, base, tic, sector, ephemeris,
+                secondary, p1.get("depth_percent"),
+                K3_PRODUCTION_ARM, None, keep_fits)
+            carried_from_pass1 = False
+        else:
+            keep2 = np.ones(len(t), dtype=bool)
+            mstats = k2.gated_off_mask_stats()
+            p2 = None
+            carried_from_pass1 = True
         rec["k2_mask"] = mstats
-        if p2 is None:
+        if p2 is None and not carried_from_pass1:
             rec["pass2"] = None
             rec["stopped_pass"] = 2
             rec["pass3_eligibility"] = {
                 "eligible": False,
                 "reason": "stopped-duty-cycle"}
+            rec["pass3"] = None
+        elif carried_from_pass1:
+            rec["stopped_pass"] = None
+            rec["pass2"] = orc._subset(p1)
+            rec["pass2"]["carried_from"] = "pass1"
+            rec["pass3_eligibility"] = {
+                "eligible": False,
+                "reason": "no-mask-carry-forward"}
             rec["pass3"] = None
         else:
             rec["stopped_pass"] = None

@@ -18,6 +18,7 @@ its own test module). Offline, no downloads.
 import copy
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -25,8 +26,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import bulk_screen as bs  # noqa: E402
+from bulk import k2_prototype as k2  # noqa: E402
 from bulk import oracle_run as orc  # noqa: E402
+from bulk import p4110_score as s4110  # noqa: E402
+from bulk import p413_score as s413  # noqa: E402
 from bulk import replay_matrix as _rm  # noqa: E402
+from bulk.p4110_score import GateBars  # noqa: E402
 from calibration import (CalibrationError, load_profile,  # noqa: E402
                          load_registry, profile_sha256)
 
@@ -691,6 +696,187 @@ class TestF2Regression38516539(unittest.TestCase):
         orc.apply_eb_carry(p2, carried)
         self.assertEqual(p2["status"], "demoted")
         self.assertEqual(p2["flags_carried_from"], "pass1")
+
+
+class TestMaskGate(unittest.TestCase):
+    """The bulk_v6 mask gate (design section 5.2, PIPE50-9a):
+    the mask applies only when the pass-1 record is
+    contaminant-like (EB flag OR depth > 1.0%). Gate OFF =
+    mask unconditional (the frozen-profile behaviour)."""
+
+    def setUp(self):
+        self.previous = bs.CALIBRATION_VERSION
+
+    def tearDown(self):
+        bs.set_calibration(self.previous)
+
+    def test_gate_on_eb_flag_allows(self):
+        bs.set_calibration("bulk_v6")
+        for flag in ("DURATION_EB", "SECONDARY_EB",
+                     "HARMONIC_P2_SUSPECT", "HARMONIC_P3_SUSPECT",
+                     "ODD_EVEN_EB", "DEPTH_EB"):
+            self.assertTrue(
+                k2.mask_gate_allows(
+                    {"flags": [flag], "depth_percent": 0.05}),
+                f"{flag} must allow the mask")
+
+    def test_gate_on_deep_allows(self):
+        bs.set_calibration("bulk_v6")
+        self.assertTrue(k2.mask_gate_allows(
+            {"flags": [], "depth_percent": 1.5}))
+        # Exactly 1.0% does NOT allow (strictly greater).
+        self.assertFalse(k2.mask_gate_allows(
+            {"flags": [], "depth_percent": 1.0}))
+
+    def test_gate_on_planet_like_blocks(self):
+        bs.set_calibration("bulk_v6")
+        # Shallow, unflagged: the planet case — no mask.
+        self.assertFalse(k2.mask_gate_allows(
+            {"flags": [], "depth_percent": 0.05}))
+        # Non-EB flags do not allow.
+        self.assertFalse(k2.mask_gate_allows(
+            {"flags": ["DEPTH_TOO_SHALLOW", "TWO_EVENT_WEAK"],
+             "depth_percent": 0.05}))
+        # Missing depth + no flags: nothing contaminant-like.
+        self.assertFalse(k2.mask_gate_allows(
+            {"flags": [], "depth_percent": None}))
+
+    def test_gate_on_none_record_fails_open(self):
+        bs.set_calibration("bulk_v6")
+        # No record to gate on: preserve the old behaviour
+        # (mask), rather than inventing a decision.
+        self.assertTrue(k2.mask_gate_allows(None))
+
+    def test_gate_off_unconditional(self):
+        bs.set_calibration("bulk_v5")
+        # Frozen profiles predate the gate: even a
+        # planet-like record is masked (old behaviour).
+        self.assertTrue(k2.mask_gate_allows(
+            {"flags": [], "depth_percent": 0.05}))
+        self.assertTrue(k2.mask_gate_allows(None))
+
+    def test_gated_off_mask_stats_shape(self):
+        stats = k2.gated_off_mask_stats()
+        self.assertTrue(stats["gated_off"])
+        self.assertFalse(stats["mask_applied"])
+        # Not a duty-cycle stop: stopped is False.
+        self.assertFalse(stats["stopped"])
+        self.assertIsNone(stats["stop_reason"])
+        # Fresh dict per call (the caller stores it).
+        self.assertIsNot(stats, k2.gated_off_mask_stats())
+
+
+def _tier_a_subset(period=1.7, mes=12.0, sde=9.0, nev=5, nst=3,
+                   status="survivor"):
+    return {"period_days": period, "mes_pink": mes, "sde": sde,
+            "n_events": nev, "n_strong_events": nst,
+            "status": status, "tier": "A", "t0_btjd": 2001.0}
+
+
+def _trial_rec(pass1=None, pass2=None, pass3=None, od1=None,
+               od2=None, od3=None):
+    return {"tic": "100000003", "sector": 95,
+            "trial_id": "d1p1", "pass1": pass1, "pass2": pass2,
+            "pass3": pass3, "epoch_delta_over_d_pass1": od1,
+            "epoch_delta_over_d": od2,
+            "epoch_delta_over_d_pass3": od3,
+            "alias_veto": {"vetoed": False},
+            "alias_veto_pass3": {"vetoed": False}}
+
+
+def _manifest_trial(period=1.7):
+    return {"tic": "100000003", "sector": 95, "trial_id": "d1p1",
+            "period_d": period, "depth_idx": 1, "period_idx": 1,
+            "epoch_btjd": 2001.0,
+            "duration_d": (2.0 * period ** (1.0 / 3.0)) / 24.0,
+            "depth_frac": 0.0005, "is_demo": False}
+
+
+class TestAnystagePromotion(unittest.TestCase):
+    """Any-stage scoring promoted to the shared home
+    (bulk/p4110_score.py, PIPE50-9b) and reported alongside
+    final-only. p413_score re-exports the same functions."""
+
+    def setUp(self):
+        bs.set_calibration("bulk_v5")
+        self.bars = GateBars("bulk_v5", 9.0)
+
+    def test_functions_live_in_p4110_score(self):
+        for name in ("pass1_recovers",
+                     "trial_recovers_anystage",
+                     "null_survivor_anystage",
+                     "null_survivor_finalonly"):
+            self.assertTrue(hasattr(s4110, name), name)
+            # p413_score re-exports the SAME function object.
+            self.assertIs(getattr(s413, name),
+                          getattr(s4110, name), name)
+
+    def test_pass1_only_counts_anystage_not_final(self):
+        # The K=2 mask case: pass 1 finds it, pass 2/3 find
+        # nothing. Any-stage counts it; final-only does not.
+        rec = _trial_rec(
+            pass1=_tier_a_subset(), od1=0.5,
+            pass2=_tier_a_subset(period=3.5), od2=0.1)
+        tr = _manifest_trial()
+        self.assertTrue(s4110.trial_recovers_anystage(
+            rec, tr, self.bars, 1.0))
+        self.assertFalse(s4110.trial_recovers(
+            rec, tr, self.bars, 1.0))
+
+    def test_no_pass1_degenerates_to_final_only(self):
+        # Old runs carry no pass-1 screen: any-stage ==
+        # final-only, so old curves re-derive unchanged.
+        rec = _trial_rec(
+            pass1=None, od1=None,
+            pass2=_tier_a_subset(), od2=0.2)
+        tr = _manifest_trial()
+        self.assertTrue(s4110.trial_recovers_anystage(
+            rec, tr, self.bars, 1.0))
+        self.assertTrue(s4110.trial_recovers(
+            rec, tr, self.bars, 1.0))
+        rec2 = _trial_rec(
+            pass1=None, od1=None,
+            pass2=_tier_a_subset(period=3.5), od2=0.1)
+        self.assertFalse(s4110.trial_recovers_anystage(
+            rec2, tr, self.bars, 1.0))
+
+    def test_null_rules_both_reported(self):
+        # Pass-1-only tier-A null: anystage counts it,
+        # final-only does not.
+        null_rec = {"tic": "111", "pass1": _tier_a_subset(),
+                    "pass2": None, "pass3": None}
+        self.assertTrue(s4110.null_survivor_anystage(
+            null_rec, self.bars))
+        self.assertFalse(s4110.null_survivor_finalonly(
+            null_rec, self.bars))
+        self.assertFalse(s4110.null_survivor_at_gate(
+            null_rec, self.bars))
+
+    def test_score_null_reports_both_rules(self):
+        # Two null hosts: one pass-1-only tier-A survivor,
+        # one clean. Final-only k=0; anystage k=1.
+        man = {"trials": [{"tic": "111", "n_sectors": 3},
+                          {"tic": "222", "n_sectors": 3}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "null-p43"
+            d.mkdir()
+            (d / "111_p43.json").write_text(json.dumps(
+                {"tic": "111", "complete": True,
+                 "pass1": _tier_a_subset(), "pass2": None,
+                 "pass3": None}))
+            (d / "222_p43.json").write_text(json.dumps(
+                {"tic": "222", "complete": True,
+                 "pass1": None, "pass2": None, "pass3": None}))
+            out = s4110.score_null(man, tmp, self.bars)
+        st = out["stitched"]
+        self.assertEqual(st["n_null_hosts"], 2)
+        self.assertEqual(st["n_false_survivors"], 0)
+        self.assertEqual(st["rate_per_1000"], 0.0)
+        self.assertEqual(st["n_false_survivors_anystage"], 1)
+        self.assertEqual(st["rate_per_1000_anystage"], 500.0)
+        stratum = st["by_stratum"]["3_sector"]
+        self.assertEqual(stratum["k"], 0)
+        self.assertEqual(stratum["k_anystage"], 1)
 
 
 if __name__ == "__main__":
