@@ -473,6 +473,52 @@ class TestDeskExternalTools(unittest.TestCase):
             self.assertIsNotNone(
                 pkg["inputs"]["verdict_record"]["sha256"])
 
+    def test_triceratops_runs_five_bp3_seeds(self):
+        # BP-3 (PIPE50-2, bulk_v6 step 6): the desk caller
+        # runs TRICERATOPS once per BP-3 seed (20261114–
+        # 20261118) and aggregates — never a single seed.
+        # The fake wrapper returns the same FPP for every
+        # seed, so the band collapses to a point, but
+        # n_seeds / per_seed still prove the 5-seed default.
+        with tempfile.TemporaryDirectory() as tmp:
+            configs, _latte_marker, tri_marker = (
+                self._both_configs(tmp))
+            result, _n, _v, _files, _h = self._run(
+                FakeDataSource(), configs)
+            self.assertTrue(os.path.exists(tri_marker))
+            tri = result.extra_evidence["external_tools"][
+                "triceratops"]
+            self.assertEqual(tri["status"], "pass")
+            self.assertEqual(tri["value"], 0.0032)
+            metrics = tri["metrics"]
+            self.assertEqual(metrics["n_seeds"], 5)
+            self.assertEqual(
+                [e["seed"] for e in metrics["per_seed"]],
+                [20261114, 20261115, 20261116, 20261117,
+                 20261118])
+            self.assertEqual(metrics["fpp_median"], 0.0032)
+            self.assertEqual(metrics["fpp_band"], [0.0032, 0.0032])
+            self.assertIsNone(metrics["seed_status"])
+            raw = result.extra_evidence["external_tools_raw"]
+            seeds = raw["triceratops_seeds"]
+            # A dict keyed by seed string — the desk-natives
+            # schema requires every external_tools_raw value
+            # to be an object.
+            self.assertEqual(len(seeds), 5)
+            self.assertEqual(
+                sorted(seeds.keys()),
+                ["20261114", "20261115", "20261116", "20261117",
+                 "20261118"])
+            self.assertEqual(seeds["20261115"]["seed"], 20261115)
+            # The headline output keeps the single-output
+            # contract (all seeds equal here — the first).
+            self.assertEqual(raw["triceratops"]["seed"], 20261114)
+            # The evidence package scores carry the band.
+            scores = result.evidence_package["scores"][
+                "triceratops"]
+            self.assertEqual(scores["n_seeds"], 5)
+            self.assertEqual(scores["fpp"], 0.0032)
+
     def test_missing_census_field_skips_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
             configs, marker = self._configs(tmp)

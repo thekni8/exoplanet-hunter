@@ -43,6 +43,7 @@ Known gaps (documented, not hidden):
     < 1 px, P-9) and the pixel-check bars are judgment calls
     recorded in PHASE_2_PROGRESS.md.
 """
+import copy
 import hashlib
 import json
 import math
@@ -64,8 +65,11 @@ from gauntlet.pixel_check import pixel_check_native
 from gauntlet.refine import refine_native
 from gauntlet.runner import (Ephemeris, TargetContext, run_gauntlet)
 from gauntlet.stage_result import (EXEC_ERROR, STATUS_UNMEASURED,
-                                   StageResult, latte_result,
+                                   StageResult,
+                                   aggregate_triceratops_results,
+                                   latte_result,
                                    triceratops_result)
+from gauntlet.triceratops_golden import BP3_SEEDS
 from gauntlet.verdict import build_verdict
 from quality_flags import DEEP_V2_MASK as _DEEP_V2_MASK  # noqa: E402
 
@@ -526,16 +530,89 @@ _TOOL_ADAPTERS = {"latte": latte_result,
 DILUTION_CORRECTED_PRODUCTS = ("spoc", "tspc")
 
 
+def _run_triceratops_seeds(config, inp, workdir, prov, extra):
+    """Run TRICERATOPS once per BP-3 seed and aggregate
+    (BP-3, PIPE50-2, bulk_v6 step 6): candidate validations
+    default to the 5 deterministic seeds (BP3_SEEDS,
+    20261114–20261118), never a single seed. Returns the
+    aggregated StageResult. Records the raw outputs in
+    extra["external_tools_raw"]: "triceratops" is the
+    headline (max-FPP) seed's output — the single-output
+    contract the old path kept — and "triceratops_seeds"
+    is the per-seed outputs, keyed by seed string. (The
+    desk-natives schema requires every external_tools_raw
+    value to be an object, so the per-seed outputs are a
+    dict, not a list.)
+    Fail-fast: the band needs all five seeds, so the first
+    non-completed run (or adapter failure) ends the loop
+    and the result is UNMEASURED — re-running the same
+    environment four more times buys nothing. Whatever
+    completed before the failure is still recorded under
+    "triceratops_seeds".
+    """
+    outputs = []
+    results = []
+    for seed in BP3_SEEDS:
+        seed_inp = copy.deepcopy(inp)
+        seed_inp["seed"] = seed
+        res = run_external_tool(
+            config, seed_inp,
+            os.path.join(workdir, f"tool-triceratops-{seed}"))
+        if res.status != "completed":
+            if outputs:
+                extra.setdefault(
+                    "external_tools_raw", {})[
+                        "triceratops_seeds"] = {
+                            str(out["seed"]): out
+                            for out in outputs}
+            return StageResult(
+                "triceratops", STATUS_UNMEASURED,
+                f"external tool triceratops seed {seed}: "
+                f"{res.status} — {res.stderr_tail}",
+                dict(prov), {},
+                execution_status=EXEC_ERROR)
+        outputs.append(res.output)
+        try:
+            results.append(triceratops_result(res.output, prov))
+        except Exception as exc:  # noqa: BLE001 - the
+            # adapter must not kill the run either.
+            extra.setdefault(
+                "external_tools_raw", {})[
+                    "triceratops_seeds"] = {
+                        str(out["seed"]): out
+                        for out in outputs}
+            return StageResult(
+                "triceratops", STATUS_UNMEASURED,
+                f"adapter raised {type(exc).__name__}: {exc}",
+                dict(prov), {},
+                execution_status=EXEC_ERROR)
+    aggregate = aggregate_triceratops_results(results)
+    raw = extra.setdefault("external_tools_raw", {})
+    raw["triceratops_seeds"] = {str(out["seed"]): out
+                                for out in outputs}
+    # Headline output: the max-FPP seed's output (first max
+    # on ties — the aggregate's headline seed).
+    headline_seed = aggregate.metrics["seed"]
+    for out in outputs:
+        if out["seed"] == headline_seed:
+            raw["triceratops"] = out
+            break
+    return aggregate
+
+
 def _run_external_tools(configs, tic, census, period_d, t0,
                         duration_h, survivor, t, f, stitched,
                         workdir, prov, extra):
     """Run each configured external tool and record its
     StageResult (as a dict) in extra[\"external_tools\"] and
     its raw output JSON in extra[\"external_tools_raw\"].
-    Evidence only — the results are never fed to
-    aggregate_verdict (see PHASE_2_PROGRESS.md, 2B judgment
-    calls 2–3). Never raises: a per-tool failure is recorded
-    in extra[\"<tool>_error\"] and the run continues."""
+    TRICERATOPS runs once per BP-3 seed (5 deterministic
+    seeds, aggregated — see _run_triceratops_seeds); every
+    other tool runs once. Evidence only — the results are
+    never fed to aggregate_verdict (see PHASE_2_PROGRESS.md,
+    2B judgment calls 2–3). Never raises: a per-tool failure
+    is recorded in extra[\"<tool>_error\"] and the run
+    continues."""
     if census is None or census.get("target") is None:
         extra["external_tools_error"] = (
             "no census target row: external tools need "
@@ -567,6 +644,13 @@ def _run_external_tools(configs, tic, census, period_d, t0,
                 inp["dilution_corrected"] = (
                     stitched.get("pfx")
                     in DILUTION_CORRECTED_PRODUCTS)
+                # BP-3 (PIPE50-2): a validation runs 5 seeds
+                # and aggregates — never a single seed.
+                result = _run_triceratops_seeds(
+                    config, inp, workdir, prov, extra)
+                extra.setdefault("external_tools", {})[tool] = (
+                    result.to_dict())
+                continue
             res = run_external_tool(
                 config, inp,
                 os.path.join(workdir, f"tool-{tool}"))

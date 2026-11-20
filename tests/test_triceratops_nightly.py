@@ -172,6 +172,20 @@ class TestNightlyRun(NightlyTestCase):
         self.assertFalse(green)
         self.assertIn("config override", reason)
 
+    def test_receipt_tagged_single_seed_provisional(self):
+        # D-NIGHTLY (bulk_v6 step 6, design §7): the nightly
+        # stays single-seed — a health check, not a
+        # validation measurement — and its receipt is tagged
+        # so a nightly FPP is never quoted as a validation.
+        passed, receipt = self._run()
+        self.assertTrue(passed)
+        self.assertEqual(receipt["n_seeds"], 1)
+        self.assertEqual(receipt["seed_reporting"],
+                         "PROVISIONAL_TRIAGE")
+        for tic in TICS:
+            self.assertEqual(
+                receipt["targets"][tic]["n_seeds"], 1)
+
     def test_receipt_records_the_effective_timeout(self):
         # PM-2: the receipt records the effective per-target
         # timeout — the config value when no override is

@@ -1068,9 +1068,13 @@ def triceratops_result(native, prov=None, policy=None):
     preserved, never reduced to a bare PASS/FAIL.
     policy_version records which policy produced the
     disposition. Uncertainty is None in v1: a single seeded
-    run carries no Monte Carlo error bar (a repeat-run
-    harness is future work; the seed makes a re-run
-    reproducible).
+    run carries no Monte Carlo error bar — the repeat-run
+    harness is BP-3 (PIPE50-2, bulk_v6 step 6): the desk
+    caller runs 5 seeds (BP3_SEEDS) and aggregates them
+    via aggregate_triceratops_results, whose metrics carry
+    the full band (fpp_median, fpp_band, per_seed,
+    n_seeds). A single adapted run carries the single-seed
+    summary instead (n_seeds 1, PROVISIONAL_TRIAGE).
 
     Limitation, recorded honestly (P-4): TRICERATOPS fetches
     neighbour-star data and TRILEGAL simulations from remote
@@ -1098,6 +1102,15 @@ def triceratops_result(native, prov=None, policy=None):
     if policy is None:
         policy = load_external_tools_policy()
     metrics = native["metrics"]
+    # BP-3 (PIPE50-2, bulk_v6 step 6): every adapted run
+    # carries the seed-band summary in its metrics — a
+    # single run is n_seeds 1 + PROVISIONAL_TRIAGE (a
+    # single seed is not a validation measurement, TB-4);
+    # the 5-seed aggregate (aggregate_triceratops_results)
+    # overwrites these with the multi-seed summary.
+    summary = _summarize_seed_band(
+        [{"seed": native["seed"], "fpp": metrics["fpp"],
+          "nfpp": metrics["nfpp"]}], policy)
     ev = {"metrics": {
         "fpp": metrics["fpp"], "nfpp": metrics["nfpp"],
         "prob_planet": metrics["prob_planet"],
@@ -1113,7 +1126,12 @@ def triceratops_result(native, prov=None, policy=None):
         "contrast_curve_used":
             metrics["contrast_curve_used"],
         "n_fold_points": metrics["n_fold_points"],
-        "seed": native["seed"]},
+        "seed": native["seed"],
+        "fpp_median": summary["fpp_median"],
+        "fpp_band": summary["fpp_band"],
+        "per_seed": summary["per_seed"],
+        "n_seeds": summary["n_seeds"],
+        "seed_status": summary["seed_status"]},
         "artifacts": list(native["artifacts"]),
         "tool_version": native["tool_version"],
         "config_hash": native["config_hash"],
@@ -1151,6 +1169,147 @@ def triceratops_result(native, prov=None, policy=None):
         execution_status=EXEC_ERROR
         if metrics["fpp_degenerate"] else EXEC_COMPLETED,
         **ev)
+
+
+def _summarize_seed_band(seeds, policy):
+    """Lazy import — triceratops_golden imports this module
+    (lazily, inside its functions); the codebase keeps
+    cross-module imports lazy (see
+    load_external_tools_policy)."""
+    from gauntlet.triceratops_golden import summarize_seed_band
+    return summarize_seed_band(seeds, policy)
+
+
+def aggregate_triceratops_results(results, policy=None):
+    """Aggregate single-seed TRICERATOPS StageResults into
+    one BP-3 multi-seed result (PIPE50-2, bulk_v6 step 6).
+
+    results: the per-seed StageResults from
+    triceratops_result, in seed order (the desk caller
+    passes the 5 BP3_SEEDS runs). policy: the
+    external-tools policy dict (default: the loaded
+    external_tools_v3 policy). Returns one StageResult:
+    value is the headline FPP (the MAX seed — the honest
+    headline), status comes from the existing disposition
+    on (max FPP, max NFPP) — so PASS requires every seed
+    to clear the validation bars, unchanged — and metrics
+    carry the BP-3 summary (fpp_median, fpp_band,
+    per_seed, n_seeds, seed_status) plus the headline
+    (max-FPP) seed's per-scenario breakdown, so the
+    headline FPP matches its own scenario split.
+    Artifacts are the union across seeds (each seed's
+    probs CSV); warnings are deduplicated, order kept;
+    wall_time_s is the sum across seeds.
+    Any unmeasured seed (a failed run, a degenerate
+    computation, an adapter exception) makes the aggregate
+    UNMEASURED — the band needs all its seeds; a band from
+    a subset is unmeasured, not narrower. Raises
+    ValueError on an empty list.
+    """
+    import math
+    if not results:
+        raise ValueError(
+            "nothing to aggregate: no seed results")
+    if policy is None:
+        policy = load_external_tools_policy()
+    bad = [r for r in results
+           if r.status == STATUS_UNMEASURED or r.value is None]
+    if bad:
+        seeds = ", ".join(
+            str(r.metrics.get("seed", "?")) for r in bad)
+        return StageResult(
+            "triceratops", STATUS_UNMEASURED,
+            f"seed band unmeasured: {len(bad)} of "
+            f"{len(results)} seed(s) unmeasured ({seeds}) — "
+            f"a band needs all its seeds",
+            _prov(results[0].provenance), {},
+            metrics={
+                "n_seeds": len(results),
+                "per_seed": [{"seed": r.metrics.get("seed"),
+                              "fpp": r.value,
+                              "nfpp": r.metrics.get("nfpp")}
+                             for r in results]},
+            execution_status=EXEC_ERROR)
+    entries = [{"seed": r.metrics.get("seed"), "fpp": r.value,
+                "nfpp": r.metrics.get("nfpp")} for r in results]
+    summary = _summarize_seed_band(entries, policy)
+    # Headline seed: max FPP (first max on ties). A NaN FPP
+    # cannot be the headline run — the headline is the max
+    # measured seed (all-NaN: the first seed).
+    measured = [r for r in results
+                if not (isinstance(r.value, float)
+                        and math.isnan(r.value))]
+    headline = (max(measured, key=lambda r: r.value)
+                if measured else results[0])
+    hm = headline.metrics
+    metrics = {
+        "fpp": summary["headline_fpp"],
+        "nfpp": summary["headline_nfpp"],
+        "prob_planet": hm.get("prob_planet"),
+        "prob_eb_target": hm.get("prob_eb_target"),
+        "prob_eb_neighbour": hm.get("prob_eb_neighbour"),
+        "prob_hierarchical_eb":
+            hm.get("prob_hierarchical_eb"),
+        "n_samples": hm.get("n_samples"),
+        "most_likely_false_positive":
+            hm.get("most_likely_false_positive"),
+        "fpp_degenerate": hm.get("fpp_degenerate", False),
+        "dilution_corrected": hm.get("dilution_corrected"),
+        "contrast_curve_used": hm.get("contrast_curve_used"),
+        "n_fold_points": hm.get("n_fold_points"),
+        "seed": hm.get("seed"),
+        "fpp_median": summary["fpp_median"],
+        "fpp_band": summary["fpp_band"],
+        "per_seed": summary["per_seed"],
+        "n_seeds": summary["n_seeds"],
+        "seed_status": summary["seed_status"],
+    }
+    artifacts = []
+    for r in results:
+        artifacts.extend(r.artifacts)
+    warnings = []
+    for r in results:
+        for w in r.warnings:
+            if w not in warnings:
+                warnings.append(w)
+    wall = sum((r.details or {}).get("wall_time_s") or 0.0
+               for r in results)
+    details = {"fpp": summary["headline_fpp"],
+               "nfpp": summary["headline_nfpp"],
+               "most_likely_false_positive":
+                   hm.get("most_likely_false_positive"),
+               "wall_time_s": wall}
+    # A missing NFPP reads as the grey zone (NaN fails both
+    # policy comparisons) — never an invented pass.
+    nfpp = summary["headline_nfpp"]
+    if nfpp is None:
+        nfpp = float("nan")
+    status, reason = triceratops_disposition(
+        summary["headline_fpp"], nfpp, False, policy)
+    fpp = summary["headline_fpp"]
+    band = summary["fpp_band"]
+    story = (f"headline FPP {fpp:.4f} (seed {hm.get('seed')}, "
+             f"max of {summary['n_seeds']}); median "
+             f"{summary['fpp_median']:.4f}, band [{band[0]:.4f}, "
+             f"{band[1]:.4f}]; NFPP "
+             f"{nfpp if summary['headline_nfpp'] is not None else 'null'}"
+             f"; most likely false positive: "
+             f"{hm.get('most_likely_false_positive')}")
+    if not hm.get("contrast_curve_used"):
+        story += " (no contrast curve: NFPP is an upper bound)"
+    if status != STATUS_UNMEASURED:
+        reason = f"{reason} {story}"
+    return StageResult(
+        "triceratops", status, reason,
+        _prov(results[0].provenance), details,
+        metrics=metrics, artifacts=artifacts,
+        tool_version=headline.tool_version,
+        config_hash=headline.config_hash,
+        policy_version=policy.get("version"),
+        input_hashes=dict(headline.input_hashes),
+        warnings=warnings, n_transits=results[0].n_transits,
+        value=summary["headline_fpp"],
+        threshold=policy["triceratops"]["fpp_validate_max"])
 
 
 # ---------------------------------------------------------------------------

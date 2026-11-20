@@ -31,6 +31,14 @@ curve):
     full [min, max] band, the per-seed values, N, and the
     convergence status. (WASP-29b median 0.168578 ->
     INCONCLUSIVE.)
+  * BP-3 amendment (bulk_v6 step 6): the HEADLINE FPP is the
+    MAX seed, not the median — on Zorro the median 0.003446
+    reads PASS while the max 0.016801 reads FAIL, and the max
+    is the honest headline. The median [min, max] is retained
+    alongside it; the PASS rule is unchanged (every seed <=
+    0.015). summarize_seed_band() is the one definition of
+    the summary; the desk caller runs BP3_SEEDS (20261114–
+    20261118) and aggregates via aggregate_triceratops_results.
   * PASS requires EVERY seed to pass (max FPP <= 0.015, the
     fpp_validate_max bar). A median that passes while one
     seed fails is not a PASS.
@@ -50,6 +58,94 @@ FIXTURE_DIR = (Path(__file__).resolve().parent.parent
 
 # TB-4: a band's width comes from >= 5 seeds, never invented.
 MIN_SEEDS_FOR_BAND = 5
+
+# BP-3 (PIPE50-2, bulk_v6 step 6): the 5 deterministic
+# validation seeds — the Zorro list (20261114–20261118).
+# confirm_triceratops defaults to these seeds: the desk
+# gauntlet runs the tool once per seed and aggregates.
+# The policy's single seed (external_tools_v3, 20261114)
+# is the FIRST of the five — the nightly's single-seed
+# run is that seed, tagged PROVISIONAL_TRIAGE.
+BP3_SEEDS = (20261114, 20261115, 20261116, 20261117, 20261118)
+
+# A single-seed FPP is not a validation measurement
+# (TB-4) — it is triage evidence only. Single-seed runs
+# are tagged with this status wherever the template
+# quotes them (scores, review item, nightly receipt).
+SEED_STATUS_PROVISIONAL = "PROVISIONAL_TRIAGE"
+
+
+def summarize_seed_band(seeds, policy):
+    """The BP-3 seed-band summary for one target.
+
+    seeds: [{seed, fpp, nfpp, ...}] — the fixture `seeds`
+    shape (one entry per tool run). policy: the
+    external-tools policy dict (its ["triceratops"]
+    section carries the validation bars).
+    Returns {"fpp_median", "fpp_band": [min, max],
+    "per_seed": [{seed, fpp, nfpp}] in input order,
+    "n_seeds", "headline_fpp" (the MAX seed — the honest
+    headline, CC-4 display amendment: on Zorro the median
+    0.003446 reads PASS while the max 0.016801 reads FAIL),
+    "headline_nfpp" (max NFPP), "validates" (every seed
+    clears the validation bars — max FPP <=
+    fpp_validate_max AND max NFPP <= nfpp_validate_max),
+    "seed_status" ("PROVISIONAL_TRIAGE" when n_seeds == 1,
+    else None)}.
+    Raises ValueError on an empty list (a band from zero
+    seeds is unmeasured, not zero). A null or NaN FPP
+    cannot pass: the band/median/headline are computed
+    over the measured seeds, and validates is False when
+    any seed is null or NaN (all-NaN: band/median/headline
+    are NaN; the per_seed list still shows every seed).
+    """
+    import math
+    import statistics
+    if not seeds:
+        raise ValueError("seed band needs >= 1 seed, got 0")
+    per_seed = []
+    fpps = []
+    nfpps = []
+    unmeasured = False
+    for entry in seeds:
+        fpp = entry.get("fpp")
+        nfpp = entry.get("nfpp")
+        per_seed.append({"seed": entry.get("seed"),
+                         "fpp": fpp, "nfpp": nfpp})
+        if fpp is None or (isinstance(fpp, float)
+                           and math.isnan(fpp)):
+            unmeasured = True
+        else:
+            fpps.append(fpp)
+        if nfpp is None or (isinstance(nfpp, float)
+                            and math.isnan(nfpp)):
+            unmeasured = True
+        else:
+            nfpps.append(nfpp)
+    if fpps:
+        lo, hi = min(fpps), max(fpps)
+        median = statistics.median(fpps)
+    else:
+        lo = hi = median = float("nan")
+    headline_nfpp = max(nfpps) if nfpps else None
+    tri = policy["triceratops"]
+    validates = (
+        not unmeasured
+        and bool(fpps)
+        and hi <= tri["fpp_validate_max"]
+        and headline_nfpp is not None
+        and headline_nfpp <= tri["nfpp_validate_max"])
+    return {
+        "fpp_median": median,
+        "fpp_band": [lo, hi],
+        "per_seed": per_seed,
+        "n_seeds": len(seeds),
+        "headline_fpp": hi,
+        "headline_nfpp": headline_nfpp,
+        "validates": bool(validates),
+        "seed_status": (SEED_STATUS_PROVISIONAL
+                        if len(seeds) == 1 else None),
+    }
 
 
 def load_fixture(tic):

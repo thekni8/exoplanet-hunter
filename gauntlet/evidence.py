@@ -93,8 +93,15 @@ def _scores(extra_evidence):
     """The scores summary from the external-tool results.
 
     TRICERATOPS: FPP/NFPP/planet probability/most-likely FP
-    from the StageResult's value + metrics. LATTE: the report
-    PDF path (details, falling back to the first artifact).
+    from the StageResult's value + metrics, plus the BP-3
+    seed-band summary (fpp_median, fpp_band, per_seed,
+    n_seeds, seed_status — PIPE50-2, bulk_v6 step 6). The
+    FPP quoted here is the HEADLINE (the max seed); the
+    median [min, max] is retained alongside it. A
+    StageResult that predates BP-3 (no summary in its
+    metrics) reads as the single-seed summary it is:
+    n_seeds 1 + PROVISIONAL_TRIAGE. LATTE: the report PDF
+    path (details, falling back to the first artifact).
     A tool that never ran scores null — never a fabricated
     number.
     """
@@ -103,14 +110,29 @@ def _scores(extra_evidence):
     tri = tools.get("triceratops")
     if tri:
         metrics = tri.get("metrics") or {}
+        fpp = tri.get("value")
+        nfpp = metrics.get("nfpp")
+        n_seeds = metrics.get("n_seeds", 1)
         scores["triceratops"] = {
-            "fpp": tri.get("value"),
-            "nfpp": metrics.get("nfpp"),
+            "fpp": fpp,
+            "nfpp": nfpp,
             "prob_planet": metrics.get("prob_planet"),
             "most_likely_false_positive": metrics.get(
                 "most_likely_false_positive"),
             "status": tri.get("status"),
             "tool_version": tri.get("tool_version"),
+            "fpp_median": metrics.get("fpp_median", fpp),
+            "fpp_band": metrics.get(
+                "fpp_band",
+                [fpp, fpp] if fpp is not None else None),
+            "per_seed": metrics.get(
+                "per_seed",
+                [{"seed": metrics.get("seed"), "fpp": fpp,
+                  "nfpp": nfpp}]),
+            "n_seeds": n_seeds,
+            "seed_status": metrics.get(
+                "seed_status",
+                "PROVISIONAL_TRIAGE" if n_seeds == 1 else None),
         }
     lat = tools.get("latte")
     if lat:

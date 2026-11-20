@@ -211,6 +211,24 @@ def _checklist(package):
         })
     tri = scores.get("triceratops")
     if tri is not None and tri.get("fpp") is not None:
+        # BP-3 (PIPE50-2, bulk_v6 step 6): the item carries
+        # the seed-band summary — headline (the MAX seed),
+        # median, band, per-seed values, N. A score that
+        # predates BP-3 reads as the single-seed summary it
+        # is (n_seeds 1 + PROVISIONAL_TRIAGE).
+        fpp = tri.get("fpp")
+        n_seeds = tri.get("n_seeds", 1)
+        median = tri.get("fpp_median", fpp)
+        band = tri.get("fpp_band") or [fpp, fpp]
+        detail = (f"headline FPP {fpp} (max of {n_seeds} "
+                  f"seed{'s' if n_seeds != 1 else ''}; median "
+                  f"{median}, band [{band[0]}, {band[1]}]), "
+                  f"NFPP {tri.get('nfpp')}, most likely "
+                  f"false positive: "
+                  f"{tri.get('most_likely_false_positive')}")
+        if n_seeds == 1:
+            detail += (" — PROVISIONAL_TRIAGE: a single seed "
+                       "is not a validation measurement")
         items.append({
             "item": "confirm_triceratops",
             "description": "Confirm the TRICERATOPS false-"
@@ -218,10 +236,12 @@ def _checklist(package):
                            "candidate against the rest of the "
                            "evidence.",
             "status": "pending",
-            "detail": (f"FPP {tri.get('fpp')}, "
-                       f"NFPP {tri.get('nfpp')}, most likely "
-                       f"false positive: "
-                       f"{tri.get('most_likely_false_positive')}"),
+            "detail": detail,
+            "fpp_median": median,
+            "fpp_band": band,
+            "per_seed": tri.get("per_seed") or [],
+            "n_seeds": n_seeds,
+            "headline": fpp,
         })
     else:
         items.append({

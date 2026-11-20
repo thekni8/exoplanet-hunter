@@ -39,6 +39,17 @@ RSS watchdog at the policy's memory_mb (P-3, scoped to this
 job — macOS applies no RLIMIT_AS cap). The receipt records
 peak RSS per run (the P3-8 memory measurement).
 
+Seeds (D-NIGHTLY, bulk_v6 step 6 / design §7): the nightly
+STAYS single-seed — it is a health check (tool/environment
+drift), not a validation measurement, and 5x the nightly
+cost (~100 min) buys nothing for drift detection. The
+receipt is tagged n_seeds 1 + PROVISIONAL_TRIAGE so a
+single-seed nightly FPP can never be mistaken for a
+validation measurement. The 5-seed default applies to
+candidate VALIDATIONS (the desk gauntlet path), not to
+this monitoring nightly. A stricter reading (nightly at
+5 seeds) is available if Dev wants it.
+
 SSL: the driver sets SSL_CERT_FILE to the TRICERATOPS
 venv's certifi bundle (the TRILEGAL host omits a ZeroSSL
 intermediate; the intermediate was appended to the venv
@@ -246,7 +257,10 @@ def run_nightly(inputs_dir, fixtures_dir, receipt_path, workdir,
                      peak_rss_mb=(round(res.peak_rss_mb, 1)
                                   if res.peak_rss_mb is not None
                                   else None),
-                     rss_watchdog_applied=res.rss_watchdog_applied)
+                     rss_watchdog_applied=res.rss_watchdog_applied,
+                     # D-NIGHTLY: every nightly run is a
+                     # single seed (see the module docstring).
+                     n_seeds=1)
         if res.status != "completed":
             entry.update(status="run_failed",
                          failures=[f"{res.status}: "
@@ -300,6 +314,12 @@ def run_nightly(inputs_dir, fixtures_dir, receipt_path, workdir,
         "timeout_s": config.timeout_s,
         "ssl_cert_file": ssl_path,
         "config_override": config_override is not None,
+        # D-NIGHTLY (bulk_v6 step 6): the nightly stays
+        # single-seed — a health check, not a validation
+        # measurement. The tag keeps a nightly FPP from
+        # being quoted as a validation.
+        "n_seeds": 1,
+        "seed_reporting": "PROVISIONAL_TRIAGE",
         "overall": "pass" if overall_pass else "fail",
         "targets": results,
         "issue": None,
