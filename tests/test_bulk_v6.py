@@ -798,8 +798,12 @@ class TestAnystagePromotion(unittest.TestCase):
     final-only. p413_score re-exports the same functions."""
 
     def setUp(self):
+        self.previous = bs.CALIBRATION_VERSION
         bs.set_calibration("bulk_v5")
         self.bars = GateBars("bulk_v5", 9.0)
+
+    def tearDown(self):
+        bs.set_calibration(self.previous)
 
     def test_functions_live_in_p4110_score(self):
         for name in ("pass1_recovers",
