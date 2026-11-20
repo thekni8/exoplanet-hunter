@@ -173,7 +173,7 @@ def _run_pass2(t, f_inj, q, fcol, base, tic, sector, ephemeris,
 
 def _run_pass3(t, f_inj, q, fcol, base, tic, sector, keep2, p2,
                ephemeris1, mstats1, arm, period_inj, epoch_inj,
-               duration_inj, keep_fits):
+               duration_inj, keep_fits, flagged=None):
     """Build the pass-3 mask from the pass-2 peak and run pass 3.
 
     Assumes pass 2 did not rescue and the peak is eligible
@@ -181,7 +181,10 @@ def _run_pass3(t, f_inj, q, fcol, base, tic, sector, keep2, p2,
     is unioned with the K=2 mask; the ARM cap applies to the union.
     period_inj / epoch_inj / duration_inj are the injected planet
     (ground truth for the recovery verdict only — never an input to
-    the mask). Returns (eligibility_dict, k3_record_dict).
+    the mask). `flagged` is orc.flagged_periods' output for the
+    pass-1 record(s) (F-2, bulk_v6): when given, a pass-3 row
+    matching a flagged pass-1 signal re-raises the EB flags (and
+    the demotion). Returns (eligibility_dict, k3_record_dict).
     """
     veto2 = k2.alias_veto(
         p2.get("period_days"), p2.get("t0_btjd"),
@@ -231,7 +234,21 @@ def _run_pass3(t, f_inj, q, fcol, base, tic, sector, keep2, p2,
     p3 = _screen(mask3_path, tic, sector)
     if not keep_fits:
         os.remove(mask3_path)
+    # F-2 (bulk_v6): re-raise a flagged pass-1 signal's EB
+    # flags on the pass-3 row — before the subset (so the
+    # stored record carries them) and before the recovery
+    # verdict (check_recovery requires status "survivor",
+    # so a carried demotion fails recovery exactly as a
+    # measured flag would).
+    carried3 = (orc.carried_eb_flags(p3.get("period_days"),
+                                     flagged)
+                if flagged else [])
+    if carried3:
+        orc.apply_eb_carry(p3, carried3)
     rec["pass3"] = orc._subset(p3)
+    if carried3:
+        rec["pass3"]["flags_carried_from"] = (
+            orc.FLAGS_CARRIED_FROM_PASS1)
     veto3 = k3.pass3_veto(
         p3.get("period_days"), p3.get("t0_btjd"),
         [{"period_d": ephemeris1["period_ref_d"],
@@ -384,7 +401,23 @@ def run_host_campaign_k3(job):
                 r["final_genuine"] = False
             else:
                 r["stopped_pass"] = None
+                # F-2 (bulk_v6): re-raise the fresh pass-1
+                # screen's EB flags on the pass-2 row when its
+                # period matches a flagged pass-1 signal — on
+                # the FULL record, before the subset (so the
+                # stored record carries the flags + demotion)
+                # and before the recovery verdict and pass-3
+                # eligibility (a carried demotion behaves
+                # exactly as a measured flag would).
+                flagged = orc.flagged_periods(p1)
+                carried = orc.carried_eb_flags(
+                    p2.get("period_days"), flagged)
+                if carried:
+                    orc.apply_eb_carry(p2, carried)
                 r["pass2"] = orc._subset(p2)
+                if carried:
+                    r["pass2"]["flags_carried_from"] = (
+                        orc.FLAGS_CARRIED_FROM_PASS1)
                 r["pass2_match"] = orc.period_match_class(
                     p2.get("period_days"), tr["period_d"])
                 veto = k2.alias_veto(
@@ -419,7 +452,8 @@ def run_host_campaign_k3(job):
                     elig, rec3 = _run_pass3(
                         t, f_inj, q, fcol, base, tic, sector, keep2,
                         p2, ephemeris, mstats, arm, tr["period_d"],
-                        tr["epoch_btjd"], tr["duration_d"], keep_fits)
+                        tr["epoch_btjd"], tr["duration_d"],
+                        keep_fits, flagged=flagged)
                     r["pass3_eligibility"] = elig
                     r.update(rec3)
                 r["final_recovered"] = bool(
@@ -513,7 +547,20 @@ def run_host_null_k3(job):
                 r["note"] = "stopped-duty-cycle"
                 r["stopped_pass"] = 2
             else:
+                # F-2 (bulk_v6): as in the campaign leg — the
+                # fresh pass-1 screen's EB flags travel to the
+                # pass-2 row on a harmonic period match, before
+                # the subset, the survivor flag, and pass-3
+                # eligibility.
+                flagged = orc.flagged_periods(p1)
+                carried = orc.carried_eb_flags(
+                    p2.get("period_days"), flagged)
+                if carried:
+                    orc.apply_eb_carry(p2, carried)
                 r["pass2"] = orc._subset(p2)
+                if carried:
+                    r["pass2"]["flags_carried_from"] = (
+                        orc.FLAGS_CARRIED_FROM_PASS1)
                 r["pass2_survivor"] = bool(
                     p2.get("status") == "survivor")
                 veto2 = k2.alias_veto(
@@ -538,7 +585,8 @@ def run_host_null_k3(job):
                         t, f, q, fcol, base, tic, sector, keep2, p2,
                         ephemeris, mstats, arm,
                         period_inj=None, epoch_inj=None,
-                        duration_inj=None, keep_fits=keep_fits)
+                        duration_inj=None, keep_fits=keep_fits,
+                        flagged=flagged)
                     # _run_pass3 needs an injected period for the
                     # recovery verdict — the null leg has none, so
                     # use the pass-3 record's screen fields only.

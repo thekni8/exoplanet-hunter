@@ -58,6 +58,27 @@ The file carries no known_toi/known_vsx flags (the re-screen
 ran --skip-known-filter), so the full 0-TOIs-lost check stays
 a frozen-replay validation item (Mac), not a fixture assertion.
 
+## golden/f2_38516539.json — F-2 regression fixture (bulk_v6)
+
+The F-2 evidence case (TIC 38516539, NULL_DIAGNOSIS §7): the
+stitched pass-1 subset (P 0.68686 d, demoted, [DURATION_EB]),
+the stitched pass-2 subset (P 0.68994 d, survivor tier A, no
+flags — the hole F-2 closes), and the three per-sector pass-1
+subsets (S95 DURATION_EB @ 0.68847, S96 SECONDARY_EB +
+HARMONIC_P2_SUSPECT @ 0.69071, S97 DURATION_EB @ 0.68863).
+Subsets copied verbatim in orc._subset shape (3.2 KB).
+
+Source: `phase41-vote/nulldiag_extract.json` (d2_stitched
+arm), sha256
+`4851cfdb193c55891f78855a4a7e91c6dc5a92c6a4c08cb8851800e6a1e7ef22`.
+Pinned expectations (measured 2026-11-20): the stitched
+pass-1 source carries DURATION_EB to the pass-2 row; the
+per-sector source carries {DURATION_EB, SECONDARY_EB,
+HARMONIC_P2_SUSPECT} (all three per-sector periods within
+1% of the pass-2 period at ratio 1.0). In both cases the
+pass-2 row becomes status "demoted" with the provenance
+marker flags_carried_from "pass1".
+
 ## injection/ — injection-recovery substrate (Phase 1.1, item 6)
 
 `substrate_238620464.npz` — the stitched light curve of the

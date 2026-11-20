@@ -567,7 +567,8 @@ def _stitched_pass2(t_s, f_s, q_s, fcol, base, tic, sector,
 
 
 def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
-                    p2, contaminants, trial, keep_fits):
+                    p2, contaminants, trial, keep_fits,
+                    flagged=None):
     """Pass 3 on the stitched curve: estimate the pass-2 peak's
     ephemeris from the stitched masked curve, build the mask,
     union with the stitched keep mask, cap at 25%, screen.
@@ -576,7 +577,10 @@ def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
     dicts (k3.pass3_veto shape); the pass-3 verdict vetoes against
     them PLUS the pass-2 peak. period/epoch/duration_inj are the
     injected planet (ground truth for the verdict only -- never an
-    input to the mask). Returns (eligibility, record).
+    input to the mask). `flagged` is orc.flagged_periods' output
+    for the per-sector pass-1 records (F-2, bulk_v6): when given,
+    a pass-3 row matching a flagged pass-1 signal re-raises the
+    EB flags (and the demotion). Returns (eligibility, record).
     """
     veto2 = k3.pass3_veto(p2.get("period_days"), p2.get("t0_btjd"),
                           contaminants)
@@ -623,7 +627,18 @@ def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
     p3 = k3_run._screen(path, tic, sector)
     if not keep_fits:
         os.remove(path)
+    # F-2 (bulk_v6): as in k3_run._run_pass3 — re-raise a
+    # flagged pass-1 signal's EB flags on the pass-3 row
+    # before the subset and the recovery verdict.
+    carried3 = (orc.carried_eb_flags(p3.get("period_days"),
+                                     flagged)
+                if flagged else [])
+    if carried3:
+        orc.apply_eb_carry(p3, carried3)
     rec["pass3"] = orc._subset(p3)
+    if carried3:
+        rec["pass3"]["flags_carried_from"] = (
+            orc.FLAGS_CARRIED_FROM_PASS1)
     veto3 = k3.pass3_veto(
         p3.get("period_days"), p3.get("t0_btjd"),
         contaminants + [_contaminant_dict(eph2, mstats3)])
@@ -870,9 +885,25 @@ def run_host_campaign_p43(job):
             bounds = [(m["sector"], float(np.min(m["t"])),
                        float(np.max(m["t"]))) for m in masked]
             t_p2s = time.time()
+            # F-2 (bulk_v6): the flagged source for the
+            # stitched leg is the PER-SECTOR pass-1 records
+            # (always in scope; the stitched pass-1 exists
+            # only when record_pass1 is on, so it is not a
+            # source — per-sector only, same in both legs).
+            flagged = orc.flagged_periods(
+                [v.get("pass1") for v in per_sector.values()])
             p2, _p2_raw = _stitched_pass2(
                 t_s, f_s, q_s, masked[0]["fcol"], base, tic, orig,
                 keep_fits)
+            # The stitched pass-2 record IS the subset
+            # (_stitched_pass2 returns it), so the carry
+            # lands on it directly — before the recovery
+            # verdict and pass-3 eligibility, exactly as a
+            # measured flag would.
+            carried = orc.carried_eb_flags(
+                p2.get("period_days"), flagged)
+            if carried:
+                orc.apply_eb_carry(p2, carried)
             sec_p2 = round(time.time() - t_p2s, 2)
             r["pass2"] = p2
             r["pass2_match"] = orc.period_match_class(
@@ -910,7 +941,7 @@ def run_host_campaign_p43(job):
                 elig, rec3 = _stitched_pass3(
                     t_s, f_s, q_s, masked[0]["fcol"], base, tic,
                     orig, keep_stitched, p2, contaminants, tr,
-                    keep_fits)
+                    keep_fits, flagged=flagged)
                 sec_p3 = round(time.time() - t_p3s, 2)
                 r["pass3_eligibility"] = elig
                 r.update(rec3)
@@ -1137,9 +1168,20 @@ def run_host_null_p43(job):
             r["stitch"] = tracking
             r["excluded_sectors"] = sorted(
                 set(sectors) - {m["sector"] for m in masked})
+            # F-2 (bulk_v6): as in the campaign leg — the
+            # flagged source is the per-sector pass-1
+            # records. (The stitched pass-1 baseline above
+            # is always recorded in this leg, but it is not
+            # a source — per-sector only, same in both legs.)
+            flagged = orc.flagged_periods(
+                [v.get("pass1") for v in per_sector.values()])
             p2, _ = _stitched_pass2(t_s, f_s, q_s,
                                     masked[0]["fcol"], base, tic,
                                     sectors[0], keep_fits)
+            carried = orc.carried_eb_flags(
+                p2.get("period_days"), flagged)
+            if carried:
+                orc.apply_eb_carry(p2, carried)
             r["pass2"] = p2
             r["pass2_survivor"] = bool(
                 p2.get("status") == "survivor")
@@ -1155,7 +1197,8 @@ def run_host_null_p43(job):
             elig, rec3 = _stitched_pass3(
                 t_s, f_s, q_s, masked[0]["fcol"], base, tic,
                 sectors[0], np.ones(len(t_s), dtype=bool), p2,
-                contaminants, trial_none, keep_fits)
+                contaminants, trial_none, keep_fits,
+                flagged=flagged)
             r["pass3_eligibility"] = elig
             r["k3_mask"] = rec3.get("k3_mask")
             r["k3_ephemeris"] = rec3.get("k3_ephemeris")

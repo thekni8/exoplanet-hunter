@@ -1,0 +1,114 @@
+{
+ "provenance": {
+  "source": "phase41-vote/nulldiag_extract.json (d2_stitched arm)",
+  "source_sha256": "4851cfdb193c55891f78855a4a7e91c6dc5a92c6a4c08cb8851800e6a1e7ef22",
+  "tic": "38516539",
+  "note": "F-2 regression case (NULL_DIAGNOSIS \u00a77): per-sector pass-1 screens demoted with EB flags; the masked stitched pass-2 row carries NO flags and survives as tier A. Subsets copied verbatim (orc._subset shape)."
+ },
+ "stitched_pass1": {
+  "status": "demoted",
+  "tier": "A",
+  "period_days": 0.6868581634171752,
+  "t0_btjd": 3884.2435682889045,
+  "duration_hours": 6.048,
+  "depth_percent": 0.5039819688263476,
+  "sde": 77.54457269052362,
+  "mes_pink": 19.52995172548119,
+  "n_events": 97,
+  "n_strong_events": 24,
+  "max_event_snr": 4.403927229861292,
+  "cdpp_pct": 0.25300095544227186,
+  "v_ratio": 0.8813984161343826,
+  "flags": [
+   "DURATION_EB"
+  ],
+  "gate_reason": null,
+  "secondary_depth_percent": -0.7092792172877838,
+  "search_health": "VALID_DETECTION"
+ },
+ "stitched_pass2": {
+  "status": "survivor",
+  "tier": "A",
+  "period_days": 0.6899387053371207,
+  "t0_btjd": 3908.731020285498,
+  "duration_hours": 4.32,
+  "depth_percent": 0.6560111014404237,
+  "sde": 97.01808625547059,
+  "mes_pink": 21.649036806241664,
+  "n_events": 76,
+  "n_strong_events": 24,
+  "max_event_snr": 4.462621054629721,
+  "cdpp_pct": 0.2661401608449936,
+  "v_ratio": 0.5987004536999007,
+  "flags": [],
+  "gate_reason": null,
+  "secondary_depth_percent": -0.21753401852953047,
+  "search_health": "VALID_DETECTION"
+ },
+ "per_sector_pass1": {
+  "95": {
+   "status": "demoted",
+   "tier": "A",
+   "period_days": 0.6884720098459703,
+   "t0_btjd": 3884.2235682889045,
+   "duration_hours": 6.048,
+   "depth_percent": 1.1998507734646862,
+   "sde": 64.44749903954052,
+   "mes_pink": 26.928961778046453,
+   "n_events": 23,
+   "n_strong_events": 23,
+   "max_event_snr": 7.750177326104208,
+   "cdpp_pct": 0.22856475453967204,
+   "v_ratio": 0.7777357455307959,
+   "flags": [
+    "DURATION_EB"
+   ],
+   "gate_reason": null,
+   "secondary_depth_percent": -1.4219845026473,
+   "search_health": "VALID_DETECTION"
+  },
+  "96": {
+   "status": "demoted",
+   "tier": "A",
+   "period_days": 0.6907131632118537,
+   "t0_btjd": 3908.707020285498,
+   "duration_hours": 3.168,
+   "depth_percent": 0.5766894002171208,
+   "sde": 32.65987400769064,
+   "mes_pink": 13.230630992381442,
+   "n_events": 28,
+   "n_strong_events": 4,
+   "max_event_snr": 3.241090288139423,
+   "cdpp_pct": 0.2623846011113269,
+   "v_ratio": 0.6238005476461195,
+   "flags": [
+    "SECONDARY_EB",
+    "HARMONIC_P2_SUSPECT"
+   ],
+   "gate_reason": null,
+   "secondary_depth_percent": 0.660745130170115,
+   "search_health": "VALID_DETECTION"
+  },
+  "97": {
+   "status": "demoted",
+   "tier": "A",
+   "period_days": 0.6886261051217966,
+   "t0_btjd": 3937.745959730616,
+   "duration_hours": 6.048,
+   "depth_percent": 0.8540437533258634,
+   "sde": 95.53270764058283,
+   "mes_pink": 25.776751381093327,
+   "n_events": 46,
+   "n_strong_events": 40,
+   "max_event_snr": 6.122177913266937,
+   "cdpp_pct": 0.21904495073157343,
+   "v_ratio": 0.6166075644524769,
+   "flags": [
+    "DURATION_EB"
+   ],
+   "gate_reason": null,
+   "secondary_depth_percent": -0.9718688170313183,
+   "search_health": "VALID_DETECTION"
+  }
+ }
+}

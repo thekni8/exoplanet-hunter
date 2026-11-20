@@ -184,7 +184,21 @@ def run_k3_star(job):
             rec["pass3"] = None
         else:
             rec["stopped_pass"] = None
+            # F-2 (bulk_v6): the slice's pass-1 row is the
+            # flagged source (p1, in scope from the job).
+            # The carry lands on the full pass-2 record
+            # before the subset (so the stored record and
+            # the emitted rows carry the flags + demotion)
+            # and before pass-3 eligibility.
+            flagged = orc.flagged_periods(p1)
+            carried = orc.carried_eb_flags(
+                p2.get("period_days"), flagged)
+            if carried:
+                orc.apply_eb_carry(p2, carried)
             rec["pass2"] = orc._subset(p2)
+            if carried:
+                rec["pass2"]["flags_carried_from"] = (
+                    orc.FLAGS_CARRIED_FROM_PASS1)
             veto2 = k2.alias_veto(
                 p2.get("period_days"), p2.get("t0_btjd"),
                 ephemeris["period_ref_d"],
@@ -209,7 +223,8 @@ def run_k3_star(job):
                     t, f, q, fcol, base, tic, sector, keep2, p2,
                     ephemeris, mstats, K3_PRODUCTION_ARM,
                     period_inj=None, epoch_inj=None,
-                    duration_inj=None, keep_fits=keep_fits)
+                    duration_inj=None, keep_fits=keep_fits,
+                    flagged=flagged)
                 # _run_pass3's null-leg shape: no recovery
                 # verdict (no ground truth) — the pass-3 screen
                 # record is the result.

@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import bulk_screen as bs  # noqa: E402
+from bulk import oracle_run as orc  # noqa: E402
 from bulk import replay_matrix as _rm  # noqa: E402
 from calibration import (CalibrationError, load_profile,  # noqa: E402
                          load_registry, profile_sha256)
@@ -550,6 +551,146 @@ class TestB1JoinOrder(unittest.TestCase):
         tier_a_kept6 = [r for r in kept6 if r.get("tier") == "A"]
         self.assertEqual(len(tier_a_kept5), 3)
         self.assertEqual(len(tier_a_kept6), 3)
+
+
+class TestF2FlagCarry(unittest.TestCase):
+    """F-2 (bulk_v6): EB-flag carry-forward helper behaviour
+    (bulk/oracle_run.py)."""
+
+    def test_harmonic_matching_all_ratios(self):
+        # Each of the 7 ratios matches within 1% and misses
+        # at 2% off. The flagged signal is P 3.0 d.
+        flagged = orc.flagged_periods(
+            {"period_days": 3.0, "flags": ["DURATION_EB"]})
+        self.assertEqual(flagged, [(3.0, ["DURATION_EB"])])
+        for h in (1.0 / 3.0, 0.5, 2.0 / 3.0, 1.0, 1.5, 2.0, 3.0):
+            self.assertEqual(
+                orc.carried_eb_flags(3.0 * h, flagged),
+                ["DURATION_EB"], f"ratio {h} must match")
+            self.assertEqual(
+                orc.carried_eb_flags(3.0 * h * 0.995, flagged),
+                ["DURATION_EB"], f"ratio {h} at -0.5% must match")
+            self.assertEqual(
+                orc.carried_eb_flags(3.0 * h * 1.02, flagged),
+                [], f"ratio {h} at +2% must not match")
+
+    def test_eb_family_carried(self):
+        flags = ["ODD_EVEN_EB", "SECONDARY_EB", "DURATION_EB",
+                 "DEPTH_EB", "HARMONIC_P2_SUSPECT",
+                 "HARMONIC_P3_SUSPECT"]
+        flagged = orc.flagged_periods(
+            {"period_days": 2.0, "flags": flags})
+        self.assertEqual(flagged, [(2.0, flags)])
+
+    def test_non_eb_flags_not_carried(self):
+        # DEPTH_TOO_SHALLOW is demoting but NOT carried (a
+        # property of the new measurement); TWO_EVENT_WEAK is
+        # re-evaluated per pass; veto flags are not EB flags.
+        for flag in ("DEPTH_TOO_SHALLOW", "TWO_EVENT_WEAK",
+                     "SECTOR_EPOCH_CLUSTER", "T0_CLUSTER"):
+            flagged = orc.flagged_periods(
+                {"period_days": 2.0, "flags": [flag]})
+            self.assertEqual(flagged, [],
+                             f"{flag} must not be carried")
+        # Mixed: only the EB flag survives.
+        flagged = orc.flagged_periods(
+            {"period_days": 2.0,
+             "flags": ["DEPTH_TOO_SHALLOW", "SECONDARY_EB"]})
+        self.assertEqual(flagged, [(2.0, ["SECONDARY_EB"])])
+
+    def test_no_period_no_carry(self):
+        flagged = orc.flagged_periods(
+            {"period_days": None, "flags": ["DURATION_EB"]})
+        self.assertEqual(flagged, [])
+        self.assertEqual(
+            orc.carried_eb_flags(
+                None, [(3.0, ["DURATION_EB"])]), [])
+        self.assertEqual(orc.carried_eb_flags(3.0, []), [])
+
+    def test_carried_flags_union_sorted(self):
+        flagged = [(3.0, ["DURATION_EB"]),
+                   (1.5, ["SECONDARY_EB", "HARMONIC_P2_SUSPECT"])]
+        # 3.0 d matches the first at 1.0 and the second at 2.0.
+        self.assertEqual(
+            orc.carried_eb_flags(3.0, flagged),
+            ["DURATION_EB", "HARMONIC_P2_SUSPECT",
+             "SECONDARY_EB"])
+        # 5.0 d matches neither.
+        self.assertEqual(orc.carried_eb_flags(5.0, flagged), [])
+
+    def test_apply_eb_carry(self):
+        rec = {"period_days": 3.0, "status": "survivor",
+               "flags": ["SOME_FLAG"]}
+        orc.apply_eb_carry(rec, ["DURATION_EB"])
+        self.assertEqual(rec["status"], "demoted")
+        self.assertEqual(rec["flags"],
+                         ["SOME_FLAG", "DURATION_EB"])
+        self.assertEqual(rec["flags_carried_from"], "pass1")
+        # Idempotent on the flags list (no duplicates).
+        orc.apply_eb_carry(rec, ["DURATION_EB"])
+        self.assertEqual(rec["flags"],
+                         ["SOME_FLAG", "DURATION_EB"])
+
+
+class TestF2Regression38516539(unittest.TestCase):
+    """F-2 on the frozen evidence case (TIC 38516539,
+    fixture tests/fixtures/golden/f2_38516539.json): the
+    stitched pass-2 row must carry the EB flag after the fix.
+    Built from the extracted record, not a re-run."""
+
+    @classmethod
+    def setUpClass(cls):
+        repo = Path(__file__).resolve().parent.parent
+        path = (repo / "tests" / "fixtures" / "golden"
+                / "f2_38516539.json")
+        cls.fx = json.loads(path.read_text())
+
+    def test_fixture_shape(self):
+        p1 = self.fx["stitched_pass1"]
+        p2 = self.fx["stitched_pass2"]
+        self.assertEqual(p1["status"], "demoted")
+        self.assertEqual(p1["flags"], ["DURATION_EB"])
+        self.assertAlmostEqual(p1["period_days"], 0.68686, 4)
+        self.assertEqual(p2["status"], "survivor")
+        self.assertEqual(p2["tier"], "A")
+        self.assertEqual(p2["flags"], [])
+        self.assertAlmostEqual(p2["period_days"], 0.68994, 4)
+        per_sector = self.fx["per_sector_pass1"]
+        self.assertEqual(set(per_sector), {"95", "96", "97"})
+        self.assertEqual(per_sector["96"]["flags"],
+                         ["SECONDARY_EB", "HARMONIC_P2_SUSPECT"])
+
+    def test_stitched_source_carries_duration_eb(self):
+        flagged = orc.flagged_periods(
+            self.fx["stitched_pass1"])
+        self.assertEqual(len(flagged), 1)
+        p2 = copy.deepcopy(self.fx["stitched_pass2"])
+        carried = orc.carried_eb_flags(
+            p2["period_days"], flagged)
+        self.assertEqual(carried, ["DURATION_EB"])
+        orc.apply_eb_carry(p2, carried)
+        self.assertEqual(p2["status"], "demoted")
+        self.assertEqual(p2["flags"], ["DURATION_EB"])
+        self.assertEqual(p2["flags_carried_from"], "pass1")
+
+    def test_per_sector_source_carries_all_three(self):
+        # The p43 stitched leg's source: the per-sector
+        # pass-1 records. All three periods sit within 1% of
+        # the pass-2 period at ratio 1.0, so the union of
+        # their EB flags carries.
+        flagged = orc.flagged_periods(
+            list(self.fx["per_sector_pass1"].values()))
+        self.assertEqual(len(flagged), 3)
+        p2 = copy.deepcopy(self.fx["stitched_pass2"])
+        carried = orc.carried_eb_flags(
+            p2["period_days"], flagged)
+        self.assertEqual(
+            carried,
+            ["DURATION_EB", "HARMONIC_P2_SUSPECT",
+             "SECONDARY_EB"])
+        orc.apply_eb_carry(p2, carried)
+        self.assertEqual(p2["status"], "demoted")
+        self.assertEqual(p2["flags_carried_from"], "pass1")
 
 
 if __name__ == "__main__":

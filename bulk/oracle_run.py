@@ -98,7 +98,8 @@ import numpy as np  # noqa: E402
 
 import bulk_screen as bs  # noqa: E402
 import injection_harness as ih  # noqa: E402
-from bulk.inject_campaign import check_recovery, inject_trial  # noqa: E402
+from bulk.inject_campaign import (ALT_HARMONIC_RATIOS,  # noqa: E402
+                                check_recovery, inject_trial)
 from bulk.inject_real_s96 import (load_real_fits,  # noqa: E402
                                   write_injected_fits)
 from synth_fits import screen_job  # noqa: E402
@@ -330,6 +331,104 @@ def _eb_demoted(pass1):
     event-count-dependent and re-evaluated by derive_tier)."""
     return (pass1.get("status") == "demoted"
             and pass1.get("gate_reason") != "FAILED_TWO_COMBINED")
+
+
+# ---------------------------------------------------------------------------
+# F-2: EB-flag carry-forward (bulk_v6 / PIPE50-1)
+# ---------------------------------------------------------------------------
+# When a screen demotes a signal with EB flags, the flag travels
+# with the signal identity to later passes on the same host: a
+# later-pass row matching a flagged signal re-raises the flag
+# (and the demotion). Evidence: TIC 38516539 — per-sector
+# pass-1 screens demoted it with DURATION_EB (S95, S97) and
+# SECONDARY_EB + HARMONIC_P2_SUSPECT (S96); the masked stitched
+# pass-2 row carried NO flags and survived as tier A (the mask
+# removed the secondary evidence). The carried set is the EB
+# family only (design D-F2): flags endswith "_EB" or containing
+# "HARMONIC". DEPTH_TOO_SHALLOW is demoting but NOT carried (a
+# property of the new measurement, not an identity to attach
+# to a later signal); TWO_EVENT_WEAK is not carried either
+# (event-count-dependent, re-evaluated per pass — the same
+# reasoning as _eb_demoted above).
+#
+# Harmonic matching uses the code's existing ratio set
+# (inject_campaign.ALT_HARMONIC_RATIOS, already used for
+# alt-peak filtering) at 1% tolerance (the RECOVERY_TOL
+# precedent). A carried flag re-raises the demotion exactly as
+# a measured flag would (status "demoted" + the flag in the
+# record), and carries a provenance marker (flags_carried_from:
+# "pass1") so a carried flag is never mistaken for a measured
+# one. The marker is NOT in _KEEP_KEYS: call sites set it on
+# the stored subset after _subset (a marker on the full record
+# would not survive the subset).
+
+# The provenance marker value for a carried flag.
+FLAGS_CARRIED_FROM_PASS1 = "pass1"
+
+
+def is_eb_flag(flag):
+    """True iff the flag is in the carried EB family (D-F2):
+    endswith "_EB" or containing "HARMONIC"."""
+    return flag.endswith("_EB") or "HARMONIC" in flag
+
+
+def flagged_periods(records):
+    """[(period, [flags])] for EB-flagged pass-1 signals.
+
+    `records` is one pass-1 record or an iterable of them
+    (the p43 stitched leg passes the per-sector pass-1
+    records). A record contributes iff it carries a found
+    period AND at least one EB-family flag. Only the EB
+    family is returned (D-F2)."""
+    if isinstance(records, dict):
+        records = [records]
+    out = []
+    for rec in records:
+        period = rec.get("period_days") if rec else None
+        if period is None:
+            continue
+        flags = [f for f in (rec.get("flags") or [])
+                 if is_eb_flag(f)]
+        if flags:
+            out.append((period, flags))
+    return out
+
+
+def carried_eb_flags(period, flagged,
+                     ratios=ALT_HARMONIC_RATIOS, tol=0.01):
+    """EB flags carried to a later-pass row at `period`.
+
+    `flagged` is flagged_periods' output. A flagged signal
+    matches iff period / flagged_period is within `tol`
+    (relative) of one of `ratios`. Returns the sorted unique
+    matched flags, or [] (no match, or no period)."""
+    if period is None:
+        return []
+    matched = set()
+    for fperiod, flags in flagged:
+        if not fperiod:
+            continue
+        ratio = period / fperiod
+        for h in ratios:
+            if abs(ratio - h) / h <= tol:
+                matched.update(flags)
+                break
+    return sorted(matched)
+
+
+def apply_eb_carry(record, flags):
+    """Apply a carried flag set to a pass record, in place:
+    the flags join the record's flags list (no duplicates),
+    the status becomes "demoted", and the provenance marker
+    records the carry. Returns True (the caller still sets
+    the marker on the stored subset after _subset — see the
+    module note above)."""
+    existing = record.get("flags") or []
+    record["flags"] = existing + [f for f in flags
+                                  if f not in existing]
+    record["status"] = "demoted"
+    record["flags_carried_from"] = FLAGS_CARRIED_FROM_PASS1
+    return True
 
 
 def run_host_campaign(job):
