@@ -216,6 +216,7 @@ def _apply_profile(prof):
     global T0_CLUSTER_MAX_EVENTS
     global K3_JOIN_AFTER_VETO
     global MASK_GATE_ENABLED, MASK_GATE_DEPTH_PCT
+    global MASK_GATE_PERIOD_D
     global RECORD_PASS1_STITCHED
     global EVENT_GUARD_D, EVENT_GAP_D, EVENT_MIN_COVERAGE
     global EVENT_MIN_CADENCES
@@ -348,11 +349,14 @@ def _apply_profile(prof):
     # profile's behaviour must not change.
     K3_JOIN_AFTER_VETO = bool(prof.get("k3_join_after_veto",
                                        False))
-    # Mask gating (bulk_v6, PIPE50-9a): profiles that predate
-    # the keys mean the gate OFF (the mask applies
-    # unconditionally, as before) and the depth value is inert.
-    # A declared depth must be positive — a zero or negative
-    # depth would make every pass-1 record contaminant-like.
+    # Mask gating (bulk_v6, PIPE50-9a + GATEFIX-20261120):
+    # profiles that predate the keys mean the gate OFF (the
+    # mask applies unconditionally, as before) and the depth
+    # and period values are inert. A declared depth must be
+    # positive — a zero or negative depth would make every
+    # pass-1 record contaminant-like; a declared period must
+    # be positive for the same reason. Profiles that predate
+    # the period key mean 13.7 d (the GATEFIX value).
     MASK_GATE_ENABLED = bool(prof.get("mask_gate_enabled",
                                       False))
     MASK_GATE_DEPTH_PCT = float(prof.get("mask_gate_depth_pct",
@@ -362,6 +366,13 @@ def _apply_profile(prof):
             f"calibration profile {prof['version']!r} declares "
             f"mask_gate_depth_pct {MASK_GATE_DEPTH_PCT} — "
             f"expected a positive depth in percent")
+    MASK_GATE_PERIOD_D = float(prof.get("mask_gate_period_d",
+                                        13.7))
+    if MASK_GATE_PERIOD_D <= 0:
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"mask_gate_period_d {MASK_GATE_PERIOD_D} — "
+            f"expected a positive period in days")
     # Stitched pass-1 recording (bulk_v6, PIPE50-9c): profiles
     # that predate the key mean False (not recorded).
     RECORD_PASS1_STITCHED = bool(prof.get(

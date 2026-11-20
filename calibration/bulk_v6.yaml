@@ -38,7 +38,12 @@
 # and to the TOI/VSX joins.
 # (3) Mask gating — the K=2/K=3 mask applies only when the
 # pass-1 record is contaminant-like (a demoting EB flag, or
-# recorded depth > 1.0%). When pass 1 finds a planet-like
+# recorded depth > 1.0%, or recorded period >= 13.7 d — the
+# period clause was added by the GATEFIX vote, ref
+# GATEFIX-20261120, RATIFIED 2026-11-20: the step-5 parity
+# gate FAILED 65/69 because the EB/depth rule alone gated
+# off four shallow long-period systematics hiding
+# short-period planets). When pass 1 finds a planet-like
 # signal, no mask is applied: pass 2 carries the pass-1
 # record forward and pass 3 does not run. (PIPE50-9a: the
 # unconditional mask deletes the signal pass 1 found —
@@ -59,7 +64,7 @@
 # sha256 against the registry and refuses a mismatch.
 version: bulk_v6
 status: active
-rationale: "Bulk calibration v6 (2026-11-20, bulk_v6 build, PIPE50 vote ref PIPE50-20261119 — ACTIVE): all bulk_v5 gates carried over verbatim + F-1 merge-time T0-cluster veto (few-event rows, T0-only union-find linkage, 3 h, clusters >20 stars; disposition DEMOTED_T0_CLUSTER) + B-1 K=3 join after the (P, T0) veto (restores the 32 tier-B pass-1 survivors lost on S97) + mask gating (mask only when pass-1 is contaminant-like: EB flag or depth > 1.0%) + stitched pass-1 recording default-on. F-1 evidence (NULL_DIAGNOSIS, PROVEN): 158/213 null finals T0-clustered. The 8.33/1,000 bound is KEPT. Supersedes bulk_v5 for new screens."
+rationale: "Bulk calibration v6 (2026-11-20, bulk_v6 build, PIPE50 vote ref PIPE50-20261119 — ACTIVE): all bulk_v5 gates carried over verbatim + F-1 merge-time T0-cluster veto (few-event rows, T0-only union-find linkage, 3 h, clusters >20 stars; disposition DEMOTED_T0_CLUSTER) + B-1 K=3 join after the (P, T0) veto (restores the 32 tier-B pass-1 survivors lost on S97) + mask gating (mask only when pass-1 is contaminant-like: EB flag or depth > 1.0% or recorded period >= 13.7 d — period clause added by the GATEFIX vote, ref GATEFIX-20261120, RATIFIED 2026-11-20) + stitched pass-1 recording default-on. F-1 evidence (NULL_DIAGNOSIS, PROVEN): 158/213 null finals T0-clustered. The 8.33/1,000 bound is KEPT. Supersedes bulk_v5 for new screens. Pre-merge amendment (GATEFIX-20261120, 2026-11-20): the period clause; bulk_v6 never reached main, so the registry entry is updated in the same commit rather than minting a v7."
 
 # --- quality mask --------------------------------------------------------
 quality_mask: 1610629823  # cadences with ANY of these bits set are
@@ -187,17 +192,34 @@ t0_cluster_max_events: 2     # few-event rows only
 # S97 via veto-cluster inflation (0 tier-A).
 k3_join_after_veto: true
 
-# --- bulk_v6: mask gating (PIPE50-9a) --------------------------------------
+# --- bulk_v6: mask gating (PIPE50-9a + GATEFIX-20261120) -------------------
 # The K=2/K=3 mask applies only when the pass-1 record is
 # contaminant-like: it carries a demoting EB flag (the §3
 # family: endswith "_EB" or "HARMONIC" in flag), OR its
 # recorded depth exceeds mask_gate_depth_pct (1.0% — the
 # COMASK_DEPTH_PCT value; deep = contaminant-like, consistent
-# with tier-B's 1% depth cap). Otherwise (planet-like pass-1
-# signal): no mask, pass 2 carries the pass-1 record forward,
-# pass 3 does not run.
+# with tier-B's 1% depth cap), OR its recorded period is at
+# least mask_gate_period_d (13.7 d). The period clause is the
+# GATEFIX vote's fix (ref GATEFIX-20261120, RATIFIED
+# 2026-11-20): the EB/depth rule alone gated off four shallow
+# long-period systematics (16.6–20.0 d, 0.66–0.98%,
+# unflagged) hiding short-period planets, failing the step-5
+# parity gate 65/69. Derivation (T/2 geometry): in a sector
+# of length T ≈ 27.4 d, a single-event BLS fit is forced to
+# P >= T/2 ≈ 13.7 d — a lone dip at t0 fits only if no second
+# (empty) transit falls inside [0, T] — so single-event
+# systematics pile up at >= 13.7 d, where a sector also holds
+# <= 2 transits and periodicity cannot be tested; 13.7 d is
+# also the TESS spacecraft-orbit period (the systematic
+# family). A missing period masks (fail toward the
+# parity-proven behaviour); a missing depth does not satisfy
+# the depth clause (flagged, not changed — GATEFIX G6).
+# Otherwise (planet-like pass-1 signal: shallow, unflagged,
+# short-period): no mask, pass 2 carries the pass-1 record
+# forward, pass 3 does not run.
 mask_gate_enabled: true
 mask_gate_depth_pct: 1.0
+mask_gate_period_d: 13.7
 
 # --- bulk_v6: stitched pass-1 recording (PIPE50-9c) ------------------------
 # The stitched pass-1 screen is recorded per trial in all

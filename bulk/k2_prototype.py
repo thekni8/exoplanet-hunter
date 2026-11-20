@@ -122,7 +122,8 @@ def grid_df():
 
 
 # --------------------------------------------------------------------------
-# Mask gate (bulk_v6, design section 5.2 / PIPE50-9a)
+# Mask gate (bulk_v6, design section 5.2 / PIPE50-9a, period
+# clause per GATEFIX-20261120, RATIFIED 2026-11-20)
 # --------------------------------------------------------------------------
 # The K=2 mask deletes the signal pass 1 found — when pass 1
 # finds the PLANET, the mask removes its transits and pass 2
@@ -130,12 +131,28 @@ def grid_df():
 # are DISJOINT, 0/800 trials recovered by both). The gate
 # applies the mask only when the pass-1 signal is
 # contaminant-like: it carries a demoting EB flag (the F-2
-# family: endswith "_EB" or "HARMONIC" in flag) OR its
+# family: endswith "_EB" or "HARMONIC" in flag), OR its
 # recorded depth exceeds mask_gate_depth_pct (1.0% — the
 # COMASK_DEPTH_PCT value, consistent with tier B's 1% depth
-# cap). Otherwise (planet-like: shallow, unflagged) there is
-# no mask — pass 2 carries the pass-1 record forward as the
-# leg result and pass 3 does not run.
+# cap), OR its recorded period is at least
+# mask_gate_period_d (13.7 d). The period clause is the
+# GATEFIX fix: the EB/depth rule alone gated off four shallow
+# long-period systematics (16.6–20.0 d, 0.66–0.98%,
+# unflagged) hiding short-period planets, failing the step-5
+# parity gate 65/69. Derivation (T/2 geometry): in a sector
+# of length T ≈ 27.4 d, a single-event BLS fit is forced to
+# P >= T/2 ≈ 13.7 d — a lone dip at t0 fits only if no second
+# (empty) transit falls inside [0, T] — so single-event
+# systematics pile up at >= 13.7 d, where a sector also holds
+# <= 2 transits and periodicity cannot be tested; 13.7 d is
+# also the TESS spacecraft-orbit period (the systematic
+# family). Otherwise (planet-like: shallow, unflagged,
+# short-period) there is no mask — pass 2 carries the pass-1
+# record forward as the leg result and pass 3 does not run.
+# A missing period masks (fail toward the parity-proven
+# behaviour, like a None record); a missing depth does not
+# satisfy the depth clause (flagged, not changed — GATEFIX
+# G6).
 #
 # The gate is decided at the CALLER (where the pass-1 record
 # is in scope), not inside build_k2_mask (which takes only a
@@ -147,10 +164,11 @@ def mask_gate_allows(record):
 
     Gate OFF -> True (mask unconditional). Gate ON -> True iff
     the record is contaminant-like (an EB-family flag, or
-    depth_percent > MASK_GATE_DEPTH_PCT). A record of None
-    (no pass-1 record to gate on) fails open to the old
-    behaviour (mask); a missing depth simply does not satisfy
-    the depth clause.
+    depth_percent > MASK_GATE_DEPTH_PCT, or period_days >=
+    MASK_GATE_PERIOD_D). A record of None (no pass-1 record
+    to gate on) fails open to the old behaviour (mask); a
+    missing period likewise masks (GATEFIX G6). A missing
+    depth simply does not satisfy the depth clause.
     """
     if not getattr(bs, "MASK_GATE_ENABLED", False):
         return True
@@ -160,7 +178,13 @@ def mask_gate_allows(record):
         return True
     depth = record.get("depth_percent")
     gate_depth = getattr(bs, "MASK_GATE_DEPTH_PCT", 1.0)
-    return depth is not None and depth > gate_depth
+    if depth is not None and depth > gate_depth:
+        return True
+    period = record.get("period_days")
+    if period is None:
+        return True
+    gate_period = getattr(bs, "MASK_GATE_PERIOD_D", 13.7)
+    return period >= gate_period
 
 
 def gated_off_mask_stats():

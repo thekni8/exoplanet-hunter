@@ -87,9 +87,9 @@
     },
     {
       "calibration_id": "bulk_v6",
-      "sha256": "3163ff308f850df022078cc4268bee44454d0ffcb2edb716c6bc81e953a43bfc",
+      "sha256": "57dca5cd427c17fee79b06e9daf85702abf048ff82fb1620e01d7eccbe09a8c9",
       "status": "active",
-      "rationale": "Bulk calibration v6 (2026-11-20, bulk_v6 build, PIPE50 vote ref PIPE50-20261119 — ACTIVE): all bulk_v5 gates carried over verbatim + F-1 merge-time T0-cluster veto (few-event rows, T0-only union-find linkage, 3 h, clusters >20 stars; disposition DEMOTED_T0_CLUSTER) + B-1 K=3 join after the (P, T0) veto (restores the 32 tier-B pass-1 survivors lost on S97) + mask gating (mask only when pass-1 is contaminant-like: EB flag or depth > 1.0%) + stitched pass-1 recording default-on. F-1 evidence (NULL_DIAGNOSIS, PROVEN): 158/213 null finals T0-clustered. The 8.33/1,000 bound is KEPT. Supersedes bulk_v5 for new screens.",
+      "rationale": "Bulk calibration v6 (2026-11-20, bulk_v6 build, PIPE50 vote ref PIPE50-20261119 — ACTIVE): all bulk_v5 gates carried over verbatim + F-1 merge-time T0-cluster veto (few-event rows, T0-only union-find linkage, 3 h, clusters >20 stars; disposition DEMOTED_T0_CLUSTER) + B-1 K=3 join after the (P, T0) veto (restores the 32 tier-B pass-1 survivors lost on S97) + mask gating (mask only when pass-1 is contaminant-like: EB flag or depth > 1.0% or recorded period >= 13.7 d — period clause added by the GATEFIX vote, ref GATEFIX-20261120, RATIFIED 2026-11-20) + stitched pass-1 recording default-on. F-1 evidence (NULL_DIAGNOSIS, PROVEN): 158/213 null finals T0-clustered. The 8.33/1,000 bound is KEPT. Supersedes bulk_v5 for new screens. Pre-merge amendment (GATEFIX-20261120, 2026-11-20): the period clause; bulk_v6 never reached main, so the registry entry is updated in the same commit rather than minting a v7.",
       "supersedes": "bulk_v5"
     }
   ]

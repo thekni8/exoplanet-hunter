@@ -699,10 +699,13 @@ class TestF2Regression38516539(unittest.TestCase):
 
 
 class TestMaskGate(unittest.TestCase):
-    """The bulk_v6 mask gate (design section 5.2, PIPE50-9a):
-    the mask applies only when the pass-1 record is
-    contaminant-like (EB flag OR depth > 1.0%). Gate OFF =
-    mask unconditional (the frozen-profile behaviour)."""
+    """The bulk_v6 mask gate (design section 5.2, PIPE50-9a +
+    GATEFIX-20261120): the mask applies only when the pass-1
+    record is contaminant-like (EB flag OR depth > 1.0% OR
+    period >= 13.7 d). Gate OFF = mask unconditional (the
+    frozen-profile behaviour). Planet-like records here carry
+    a short period so each test exercises its intended clause
+    (a missing period masks — GATEFIX G6)."""
 
     def setUp(self):
         self.previous = bs.CALIBRATION_VERSION
@@ -717,29 +720,37 @@ class TestMaskGate(unittest.TestCase):
                      "ODD_EVEN_EB", "DEPTH_EB"):
             self.assertTrue(
                 k2.mask_gate_allows(
-                    {"flags": [flag], "depth_percent": 0.05}),
+                    {"flags": [flag], "depth_percent": 0.05,
+                     "period_days": 2.0}),
                 f"{flag} must allow the mask")
 
     def test_gate_on_deep_allows(self):
         bs.set_calibration("bulk_v6")
         self.assertTrue(k2.mask_gate_allows(
-            {"flags": [], "depth_percent": 1.5}))
+            {"flags": [], "depth_percent": 1.5,
+             "period_days": 2.0}))
         # Exactly 1.0% does NOT allow (strictly greater).
         self.assertFalse(k2.mask_gate_allows(
-            {"flags": [], "depth_percent": 1.0}))
+            {"flags": [], "depth_percent": 1.0,
+             "period_days": 2.0}))
 
     def test_gate_on_planet_like_blocks(self):
         bs.set_calibration("bulk_v6")
-        # Shallow, unflagged: the planet case — no mask.
+        # Shallow, unflagged, short-period: the planet case —
+        # no mask.
         self.assertFalse(k2.mask_gate_allows(
-            {"flags": [], "depth_percent": 0.05}))
+            {"flags": [], "depth_percent": 0.05,
+             "period_days": 2.0}))
         # Non-EB flags do not allow.
         self.assertFalse(k2.mask_gate_allows(
             {"flags": ["DEPTH_TOO_SHALLOW", "TWO_EVENT_WEAK"],
-             "depth_percent": 0.05}))
-        # Missing depth + no flags: nothing contaminant-like.
+             "depth_percent": 0.05, "period_days": 2.0}))
+        # Missing depth + no flags + short period: nothing
+        # contaminant-like. (The missing-depth path fails the
+        # other way — flagged, not changed; GATEFIX G6.)
         self.assertFalse(k2.mask_gate_allows(
-            {"flags": [], "depth_percent": None}))
+            {"flags": [], "depth_percent": None,
+             "period_days": 2.0}))
 
     def test_gate_on_none_record_fails_open(self):
         bs.set_calibration("bulk_v6")
@@ -764,6 +775,69 @@ class TestMaskGate(unittest.TestCase):
         self.assertIsNone(stats["stop_reason"])
         # Fresh dict per call (the caller stores it).
         self.assertIsNot(stats, k2.gated_off_mask_stats())
+
+
+class TestMaskGatePeriod(unittest.TestCase):
+    """The GATEFIX period clause (GATEFIX-20261120, G1): the
+    mask applies when the recorded period is at least 13.7 d
+    — the T/2 boundary for a ~27.4 d sector, where a
+    single-event fit is forced to land and periodicity cannot
+    be tested. Tests the derivation (boundary values, missing
+    period), not the four lost trials."""
+
+    def setUp(self):
+        self.previous = bs.CALIBRATION_VERSION
+
+    def tearDown(self):
+        bs.set_calibration(self.previous)
+
+    def _record(self, period, depth=0.05, flags=()):
+        return {"flags": list(flags), "depth_percent": depth,
+                "period_days": period}
+
+    def test_period_boundary(self):
+        bs.set_calibration("bulk_v6")
+        # Just below the boundary: planet-like, no mask.
+        self.assertFalse(k2.mask_gate_allows(
+            self._record(13.69)))
+        # At the boundary (inclusive): mask.
+        self.assertTrue(k2.mask_gate_allows(
+            self._record(13.7)))
+        # Just above: mask.
+        self.assertTrue(k2.mask_gate_allows(
+            self._record(13.71)))
+        # The grid edge: mask.
+        self.assertTrue(k2.mask_gate_allows(
+            self._record(20.0)))
+
+    def test_missing_period_masks(self):
+        bs.set_calibration("bulk_v6")
+        # No period key: fail toward the parity-proven
+        # behaviour (mask), like a None record.
+        self.assertTrue(k2.mask_gate_allows(
+            {"flags": [], "depth_percent": 0.05}))
+        # Explicit None period: same.
+        self.assertTrue(k2.mask_gate_allows(
+            {"flags": [], "depth_percent": 0.05,
+             "period_days": None}))
+
+    def test_eb_and_depth_still_fire_short_period(self):
+        bs.set_calibration("bulk_v6")
+        # The clauses are OR-ed: an EB flag or a deep record
+        # allows the mask even at a short period.
+        self.assertTrue(k2.mask_gate_allows(
+            self._record(2.0, flags=("DURATION_EB",))))
+        self.assertTrue(k2.mask_gate_allows(
+            self._record(2.0, depth=1.5)))
+
+    def test_short_shallow_blocks(self):
+        bs.set_calibration("bulk_v6")
+        # Planet protection survives the clause: a shallow,
+        # unflagged short-period record still blocks the mask.
+        self.assertFalse(k2.mask_gate_allows(
+            self._record(2.0)))
+        self.assertFalse(k2.mask_gate_allows(
+            self._record(5.75)))
 
 
 def _tier_a_subset(period=1.7, mes=12.0, sde=9.0, nev=5, nst=3,
