@@ -170,6 +170,12 @@ from bulk.grid_edge import disposition_grid_edge as _disposition_grid_edge
 from bulk.replay_matrix import CLUSTER_MIN_SIZE as _RM_CLUSTER_MIN_SIZE
 from bulk.replay_matrix import CLUSTER_TOL_P as _RM_CLUSTER_TOL_P
 from bulk.replay_matrix import CLUSTER_TOL_T0_D as _RM_CLUSTER_TOL_T0_D
+from bulk.replay_matrix import (T0_CLUSTER_MAX_EVENTS as
+                                _RM_T0_CLUSTER_MAX_EVENTS)
+from bulk.replay_matrix import (T0_CLUSTER_MIN_SIZE as
+                                _RM_T0_CLUSTER_MIN_SIZE)
+from bulk.replay_matrix import (T0_CLUSTER_TOL_T0_D as
+                                _RM_T0_CLUSTER_TOL_T0_D)
 from bulk.replay_matrix import (sector_epoch_cluster_tics as
                                 _sector_epoch_cluster_tics)
 from bulk.replay_matrix import two_event_combined as _two_event_combined
@@ -204,6 +210,12 @@ def _apply_profile(prof):
     global EPOCH_CLUSTER_VETO_TIER_A
     global EPOCH_CLUSTER_TOL_P, EPOCH_CLUSTER_TOL_T0_D
     global EPOCH_CLUSTER_MIN_SIZE
+    global T0_CLUSTER_VETO_ENABLED
+    global T0_CLUSTER_TOL_T0_D, T0_CLUSTER_MIN_SIZE
+    global T0_CLUSTER_MAX_EVENTS
+    global K3_JOIN_AFTER_VETO
+    global MASK_GATE_ENABLED, MASK_GATE_DEPTH_PCT
+    global RECORD_PASS1_STITCHED
     global EVENT_GUARD_D, EVENT_GAP_D, EVENT_MIN_COVERAGE
     global EVENT_MIN_CADENCES
     _BULK_CAL = prof
@@ -304,6 +316,55 @@ def _apply_profile(prof):
             f"— expected the P3-13 criterion "
             f"({_RM_CLUSTER_TOL_P}, {_RM_CLUSTER_TOL_T0_D}, "
             f"{_RM_CLUSTER_MIN_SIZE}) from bulk/replay_matrix.py")
+    # F-1 T0-cluster veto (bulk_v6, PIPE50-1): profiles that
+    # predate the keys mean the veto OFF — a frozen profile's
+    # behaviour must not change. The criterion defaults to the
+    # F-1 values (inert while the veto is off). A profile that
+    # declares criterion values MUST match replay_matrix's F-1
+    # constants: the criterion mirrors P3-13 and is
+    # vote-frozen — fail loud here, never silently at merge
+    # time.
+    T0_CLUSTER_VETO_ENABLED = bool(prof.get(
+        "t0_cluster_veto_enabled", False))
+    T0_CLUSTER_TOL_T0_D = float(prof.get(
+        "t0_cluster_tol_t0_d", _RM_T0_CLUSTER_TOL_T0_D))
+    T0_CLUSTER_MIN_SIZE = int(prof.get(
+        "t0_cluster_min_size", _RM_T0_CLUSTER_MIN_SIZE))
+    T0_CLUSTER_MAX_EVENTS = int(prof.get(
+        "t0_cluster_max_events", _RM_T0_CLUSTER_MAX_EVENTS))
+    if (T0_CLUSTER_TOL_T0_D != _RM_T0_CLUSTER_TOL_T0_D
+            or T0_CLUSTER_MIN_SIZE != _RM_T0_CLUSTER_MIN_SIZE
+            or T0_CLUSTER_MAX_EVENTS != _RM_T0_CLUSTER_MAX_EVENTS):
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"T0-cluster criterion ({T0_CLUSTER_TOL_T0_D}, "
+            f"{T0_CLUSTER_MIN_SIZE}, {T0_CLUSTER_MAX_EVENTS}) "
+            f"— expected the F-1 criterion "
+            f"({_RM_T0_CLUSTER_TOL_T0_D}, {_RM_T0_CLUSTER_MIN_SIZE}, "
+            f"{_RM_T0_CLUSTER_MAX_EVENTS}) from bulk/replay_matrix.py")
+    # B-1 K=3 join order (bulk_v6): profiles that predate the
+    # key mean False (join before the veto) — a frozen
+    # profile's behaviour must not change.
+    K3_JOIN_AFTER_VETO = bool(prof.get("k3_join_after_veto",
+                                       False))
+    # Mask gating (bulk_v6, PIPE50-9a): profiles that predate
+    # the keys mean the gate OFF (the mask applies
+    # unconditionally, as before) and the depth value is inert.
+    # A declared depth must be positive — a zero or negative
+    # depth would make every pass-1 record contaminant-like.
+    MASK_GATE_ENABLED = bool(prof.get("mask_gate_enabled",
+                                      False))
+    MASK_GATE_DEPTH_PCT = float(prof.get("mask_gate_depth_pct",
+                                         1.0))
+    if MASK_GATE_DEPTH_PCT <= 0:
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"mask_gate_depth_pct {MASK_GATE_DEPTH_PCT} — "
+            f"expected a positive depth in percent")
+    # Stitched pass-1 recording (bulk_v6, PIPE50-9c): profiles
+    # that predate the key mean False (not recorded).
+    RECORD_PASS1_STITCHED = bool(prof.get(
+        "record_pass1_stitched", False))
     # Event-count rule (P4-2, Phase 4): an event counts only if
     # its full window lies within one contiguous valid segment
     # with a guard clearance from the segment edges, with

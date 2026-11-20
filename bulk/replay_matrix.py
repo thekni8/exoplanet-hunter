@@ -56,6 +56,18 @@ CLUSTER_TOL_P = 0.01      # periods within 1%
 CLUSTER_TOL_T0_D = 0.125  # T0 within 3 h
 CLUSTER_MIN_SIZE = 21     # clusters of >20 stars
 
+# --- T0-cluster veto criterion (F-1, bulk_v6 / PIPE50-1) ---
+# Mirrors the P3-13 criterion's T0 half: T0-only union-find
+# linkage within 3 h, clusters of >20 stars, few-event rows
+# only (n_events <= 2, the tier-B population). The profile
+# must declare these exact values — bulk_screen._apply_profile
+# fails loud on a mismatch (the P3-15 pattern). The criterion
+# mirrors P3-13 and must NOT be tuned on S98 or on the BP-1
+# numbers (see calibration/bulk_v6.yaml).
+T0_CLUSTER_TOL_T0_D = 0.125  # T0 within 3 h
+T0_CLUSTER_MIN_SIZE = 21     # clusters of >20 stars
+T0_CLUSTER_MAX_EVENTS = 2    # few-event rows only
+
 # --- pre-registered adoption rule (rule doc §2) ---
 MAX_CAMPAIGN_LOSS = 0.05       # point-estimate loss bar, 1-2-event regime
 MAX_CAMPAIGN_LOSS_UPPER = 0.10  # 95% Wilson upper-bound bar

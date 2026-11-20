@@ -1,0 +1,208 @@
+# Bulk-screen calibration profile v6 (bulk_v6 build, 2026-11-20,
+# PIPE50 vote ref PIPE50-20261119). All bulk_v5 gates carried over
+# VERBATIM, plus FOUR changes:
+# (1) F-1 — a merge-time T0-cluster veto for few-event rows
+# (n_events <= 2, the tier-B population): cluster final rows by
+# T0 ALONE within a 3 h window (union-find linkage, transitive
+# chaining, not fixed bins); clusters of >20 stars in a sector
+# are demoted (disposition DEMOTED_T0_CLUSTER, demote-not-delete).
+# Evidence (NULL_DIAGNOSIS_BP1, PROVEN): null survivors are
+# dominated by sector-wide common-mode artifact events passing
+# the tier-B single-event gate — 158/213 finals t0-clustered
+# (74.2%); the same epochs dominate BLS detections on 5-22% of
+# ALL light curves at pass 1. The (P, T0) veto cannot catch
+# these rows: their periods are meaningless for single events
+# (max (P, T0) cluster 16 vs max T0-only cluster 30 in the same
+# data). Expected post-fix residuals 3.7-7.4/1,000 (MEDIUM
+# confidence — estimates, not measurements; the veto's exact
+# yield needs the full-sector replay + fresh null campaign).
+# What F-1 demotes: few-event rows in a >20-star T0 cluster.
+# What it does NOT demote: tier-A multi-event rows (never F-1
+# targets — a stitched tier-A genuine periodic signal must
+# survive); rows in clusters of <=20 stars; rows whose T0 is
+# unshared. A genuine single transit coinciding with an
+# artifact epoch on >20 stars WOULD be demoted — the accepted
+# risk, mitigated by demote-not-delete + the manual-review
+# queue (the queue query extends to DEMOTED_T0_CLUSTER).
+# The criterion (3 h, >20) mirrors P3-13 and must NOT be tuned
+# on S98 or on the BP-1 numbers: S98 is in-sample for the
+# diagnosis, and tuning the bar on the campaign it judges is
+# circular. The 8.33/1,000 bound is KEPT (PIPE50-5) until a
+# section-7 vote re-derives it.
+# (2) B-1 — the K=3 join moves to AFTER the (P, T0) veto
+# (k3_join_after_veto: true). Stage 5 (b) proved the old
+# join-before-veto wiring costs 32 tier-B pass-1 survivors
+# (0 tier-A) on S97 via veto-cluster inflation. K=3 rows are
+# still subject to the F-1 veto (after the join, with the
+# >20 bar counting pass-1 rows only — design decision D-F1K3)
+# and to the TOI/VSX joins.
+# (3) Mask gating — the K=2/K=3 mask applies only when the
+# pass-1 record is contaminant-like (a demoting EB flag, or
+# recorded depth > 1.0%). When pass 1 finds a planet-like
+# signal, no mask is applied: pass 2 carries the pass-1
+# record forward and pass 3 does not run. (PIPE50-9a: the
+# unconditional mask deletes the signal pass 1 found —
+# single-leg pass-1 and final recovery are DISJOINT, 0/800.)
+# (4) Stitched pass-1 recording is default-on for campaigns
+# (record_pass1_stitched: true) and any-stage scoring is the
+# shared primary rule (PIPE50-9b/c). The 4.1-10 and
+# bright-star curves stay flagged FINAL-ONLY (understated)
+# pending re-scoring.
+# Nothing is deleted by these gates: a demoted row keeps its
+# disposition and stays in screen_hits.jsonl, queryable and
+# reversible.
+# IMMUTABLE once used in a run: to change a threshold, copy
+# this file to bulk_v7.yaml, bump `version`, and update the
+# code + golden suite in the same change. See
+# calibration/README.md for the rules. Registered in
+# calibration/registry.json — the loader verifies this file's
+# sha256 against the registry and refuses a mismatch.
+version: bulk_v6
+status: active
+rationale: "Bulk calibration v6 (2026-11-20, bulk_v6 build, PIPE50 vote ref PIPE50-20261119 — ACTIVE): all bulk_v5 gates carried over verbatim + F-1 merge-time T0-cluster veto (few-event rows, T0-only union-find linkage, 3 h, clusters >20 stars; disposition DEMOTED_T0_CLUSTER) + B-1 K=3 join after the (P, T0) veto (restores the 32 tier-B pass-1 survivors lost on S97) + mask gating (mask only when pass-1 is contaminant-like: EB flag or depth > 1.0%) + stitched pass-1 recording default-on. F-1 evidence (NULL_DIAGNOSIS, PROVEN): 158/213 null finals T0-clustered. The 8.33/1,000 bound is KEPT. Supersedes bulk_v5 for new screens."
+
+# --- quality mask --------------------------------------------------------
+quality_mask: 1610629823  # cadences with ANY of these bits set are
+                          # excluded from BLS input: lightkurve's
+                          # TESS default 17087 (bits 0,1,2,3,4,5,7,9,
+                          # 14) PLUS bits 29/30 (TESS scattered
+                          # light, 536870912 + 1073741824). v1/v2
+                          # profiles predate this field and mean
+                          # 17087. Bit 12 (4096) is deliberately NOT
+                          # masked: TOI-700 c's only sector-1
+                          # transit sits on bit-12 cadences.
+
+# --- clip option ----------------------------------------------------------
+clip_option: floor_10pct  # lower clip cut floored at 10% below the
+                          # median (mad_clip.py); the v1 symmetric
+                          # clip is kept only as bulk_v1's frozen
+                          # behaviour. One of mad_clip.PROFILE_OPTIONS.
+
+# --- survivor bar (carried over unchanged from bulk_v1) -------------------
+record_floor_sde: 6.0   # hits below this are not even recorded
+survivor_sde: 7.0       # screen bar (deep-pipeline discovery bar is 8.5)
+depth_min_pct: 0.02     # shallower dips are noise country
+depth_eb_pct: 3.0       # deeper dips are EB country
+
+# --- v1.1 tiers (pink-noise MES rescore) --------------------------------
+tier_a_mes: 9.0             # periodic tier: MES_pink >= 9
+tier_a_min_events: 3        # ... with >= 3 observed transit events
+tier_a_min_strong: 2        # ... and >= 2 events individually >= 3 sigma
+strong_event_snr: 3.0       # what counts as a "strong" single event
+tier_b_event_snr: 8.0       # few-transit tier (1-2 events): the best
+                            # single event must stand at >= 8 sigma pink
+tier_b_max_depth_pct: 1.0   # ... and depth <= 1% (deeper lone dips are
+                            # EB/artifact country; they stay recorded)
+
+# --- search grid ---------------------------------------------------------
+min_period_d: 0.5
+max_period_d: 20.0
+bls_grid_points: 12000
+bls_durations_d: [0.04, 0.06, 0.09, 0.13, 0.18, 0.25]
+systematic_periods: [13.7, 6.85, 27.4]  # mirrors hunter._SYSTEMATIC_PERIODS
+
+# --- per-sector systematic windows ---------------------------------------
+# Observed pile-ups from the S96-S98 screens (bulk_v1 runs): a hit
+# whose period falls inside its sector's window is flagged
+# near_systematic, the same as the generic +/-3% family check.
+# v1 had no windows (its pile-ups were found by hand, after the
+# fact, in the recalibration notes).
+systematic_windows:
+  96: [[12.7, 14.3], [6.3, 6.5]]
+  97: [[13.2, 15.0]]
+  98: [[13.5, 15.0], [7.0, 7.4]]
+
+# --- grid-edge disposition floor (P3-14) ----------------------------------
+# The quality floor for SINGLE_TRANSIT_POOL (search_health
+# vocabulary): a single-event grid-edge record enters the pool
+# only when its in-transit cadences carry no unmasked quality
+# flags and it has >= 4 in-transit cadences. The floor is a
+# disposition rule, not a threshold change — it adds a field,
+# it does not move a bar.
+grid_edge_min_in_transit_cadences: 4
+grid_edge_max_unmasked_flag_fraction: 0.0
+
+# --- tier-B tightening gates (P3-15, adopted 2026-11-16) ---------------
+# P3-11 decision (phase3-vote/p3-11-decision.md §9, parent
+# 2026-11-16, Amendment A approved). The implementations live
+# in bulk/replay_matrix.py (two_event_combined,
+# sector_epoch_cluster_tics) — the screen calls them, it does
+# not re-implement them. The criterion values below MUST match
+# replay_matrix's P3-13 constants; _apply_profile fails loud
+# on a mismatch, so the profile and the implementation can
+# never silently diverge.
+two_combined_enabled: true  # 2-event rows need n_strong >= 2
+                            # AND mes_pink >= 9.0 (tier_a_mes);
+                            # rows with n_events != 2 unaffected.
+                            # Failures demote with flag
+                            # TWO_EVENT_WEAK + gate_reason
+                            # FAILED_TWO_COMBINED (manual-review
+                            # marker, never a deletion).
+epoch_cluster_veto_enabled: true  # SECTOR_EPOCH_CLUSTER veto:
+                            # per sector, cluster (P, T0) within
+                            # 1% / 3 h (union-find, P3-13
+                            # criterion); clusters of >20 stars —
+                            # tier-B members demoted (disposition
+                            # DEMOTED_SECTOR_EPOCH_CLUSTER),
+                            # tier-A members demoted too when
+                            # epoch_cluster_veto_tier_a is true
+                            # (v5), flagged only when false (v4).
+                            # Sector-level: applied at
+                            # merge (run_chunked), never
+                            # per-slice (clusters span slices).
+epoch_cluster_veto_tier_a: true  # v5 (fixes round 1): tier-A
+                            # cluster members are DEMOTED like
+                            # tier-B (same disposition, same
+                            # reversibility). v4 and earlier mean
+                            # false (tier-A flagged, never
+                            # demoted) — a frozen profile's
+                            # behaviour must not change.
+epoch_cluster_tol_p: 0.01       # period tolerance (fraction)
+epoch_cluster_tol_t0_d: 0.125   # T0 tolerance, days (3 h)
+epoch_cluster_min_size: 21      # clusters of >20 stars
+
+# --- bulk_v6: F-1 T0-cluster veto (PIPE50-1) -------------------------------
+# Merge-time veto for few-event rows (n_events <= 2, the tier-B
+# population): cluster final rows by T0 ALONE within 3 h
+# (union-find linkage); clusters of >20 stars are demoted
+# (disposition DEMOTED_T0_CLUSTER, demote-not-delete). The
+# criterion values below MUST match replay_matrix's F-1
+# constants; _apply_profile fails loud on a mismatch, so the
+# profile and the implementation can never silently diverge
+# (the P3-15 pattern). Tier-A multi-event rows are never F-1
+# targets. The >20 bar counts pass-1 rows only (D-F1K3): K=3
+# rows in a qualifying cluster are demoted but never push a
+# cluster over the bar.
+t0_cluster_veto_enabled: true
+t0_cluster_tol_t0_d: 0.125   # T0 tolerance, days (3 h)
+t0_cluster_min_size: 21      # clusters of >20 stars
+t0_cluster_max_events: 2     # few-event rows only
+
+# --- bulk_v6: B-1 K=3 join order (Stage 5 finding B-1) --------------------
+# The K=3 survivors/hits join AFTER the (P, T0) epoch-cluster
+# veto (the F-1 veto runs after the join, §6 order), but
+# BEFORE the TOI/VSX joins. Under earlier profiles the join is
+# before the veto (a frozen profile's behaviour must not
+# change). The old wiring cost 32 tier-B pass-1 survivors on
+# S97 via veto-cluster inflation (0 tier-A).
+k3_join_after_veto: true
+
+# --- bulk_v6: mask gating (PIPE50-9a) --------------------------------------
+# The K=2/K=3 mask applies only when the pass-1 record is
+# contaminant-like: it carries a demoting EB flag (the §3
+# family: endswith "_EB" or "HARMONIC" in flag), OR its
+# recorded depth exceeds mask_gate_depth_pct (1.0% — the
+# COMASK_DEPTH_PCT value; deep = contaminant-like, consistent
+# with tier-B's 1% depth cap). Otherwise (planet-like pass-1
+# signal): no mask, pass 2 carries the pass-1 record forward,
+# pass 3 does not run.
+mask_gate_enabled: true
+mask_gate_depth_pct: 1.0
+
+# --- bulk_v6: stitched pass-1 recording (PIPE50-9c) ------------------------
+# The stitched pass-1 screen is recorded per trial in all
+# future campaigns (default-on; ~0.9 s/trial, negligible
+# against the campaign budget). Required for any-stage scoring
+# of the stitched leg.
+record_pass1_stitched: true
+

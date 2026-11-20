@@ -84,6 +84,13 @@
       "status": "active",
       "rationale": "External-tool configuration v3 (2026-11-17, Phase 4 P4-8): v2's venv paths, tool versions, seed, memory cap, TRICERATOPS bars and disposition policy (A) carried over UNCHANGED; the only change is timeout_s 1800 -> 3600. Evidence: the P4-8 full nightly (Mac, 2026-11-17) measured healthy walls 164.9-549.8 s and healthy inits up to 467.9 s (warm cache), but the outage-era healthy init tail reached 1714.3 s (TIC 399571743) — a healthy run can exceed the 1800 s cap (init 1714 s + calc ~300 s = ~2014 s), so the v2 cap sits below the healthy tail. The 3600 s cap is 2x the old cap with headroom over the worst observed healthy run; the wrapper's init budget is 2400 s (P4-8). The runner cap remains the ultimate bound (the in-process SIGALRM budget does not enforce — the tool's per-sector try/except swallows it). Supersedes external_tools_v2 for all new tool runs.",
       "supersedes": "external_tools_v2"
+    },
+    {
+      "calibration_id": "bulk_v6",
+      "sha256": "3163ff308f850df022078cc4268bee44454d0ffcb2edb716c6bc81e953a43bfc",
+      "status": "active",
+      "rationale": "Bulk calibration v6 (2026-11-20, bulk_v6 build, PIPE50 vote ref PIPE50-20261119 — ACTIVE): all bulk_v5 gates carried over verbatim + F-1 merge-time T0-cluster veto (few-event rows, T0-only union-find linkage, 3 h, clusters >20 stars; disposition DEMOTED_T0_CLUSTER) + B-1 K=3 join after the (P, T0) veto (restores the 32 tier-B pass-1 survivors lost on S97) + mask gating (mask only when pass-1 is contaminant-like: EB flag or depth > 1.0%) + stitched pass-1 recording default-on. F-1 evidence (NULL_DIAGNOSIS, PROVEN): 158/213 null finals T0-clustered. The 8.33/1,000 bound is KEPT. Supersedes bulk_v5 for new screens.",
+      "supersedes": "bulk_v5"
     }
   ]
 }
