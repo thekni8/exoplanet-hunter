@@ -1053,5 +1053,89 @@ class TestM4GateOffCrashes(unittest.TestCase):
             self.assertGreaterEqual(len(gated), 1)
 
 
+class TestN6StitchedNullFinalSurvivor(unittest.TestCase):
+    """N6 (M2NULL-20261121, RATIFIED): p43_run's stitched null
+    leg never wrote `final_survivor` — the M2 scorer's
+    flag-based D2st host count read 0.00 (the gate verdict was
+    unaffected: it comes from kept rows). The key was never
+    written by the driver on any branch: BP-1's extract
+    synthesised it as bool(final_rows)
+    (nulldiag_extract.py), and BP1_RECORD.md section 5
+    already documented the gap at BP-1 time. The driver now
+    writes it with k3_run's semantics: pass-2 OR pass-3
+    survivor. Synthetic-FITS end-to-end: one pure-noise host
+    and one with a coherent signal in every sector; every
+    record carries the key, the flag matches the OR (and
+    bool(final_rows)) on every record, and the flag-based
+    host count matches the OR count — the scorer's
+    cross-check (m2_score.py analyse_arm). Fails on unfixed
+    code: the key is absent, so the presence assertion fails
+    outright."""
+
+    def setUp(self):
+        self.previous = bs.CALIBRATION_VERSION
+        bs.set_calibration("bulk_v6")
+
+    def tearDown(self):
+        bs.set_calibration(self.previous)
+
+    def _null_job(self, tmp, tic, period_d):
+        (tmp / "null-p43").mkdir(exist_ok=True)
+        (tmp / "w").mkdir(exist_ok=True)
+        paths = {}
+        for sec, t0 in ((95, 1500.0), (96, 1527.0),
+                        (97, 1554.0)):
+            # String keys: the driver looks paths up by the
+            # JSON-manifest key (str(sector)). One absolute
+            # epoch (t0=1502.0) so the signal is coherent
+            # across the stitch.
+            paths[str(sec)] = str(make_qlp_fits(
+                tmp / f"{tic}_s{sec:04d}.fits",
+                period_d=period_d, depth_frac=0.008,
+                t0=1502.0, t_start=t0))
+        return {"tic": tic, "sectors": [95, 96, 97],
+                "paths": paths, "out_dir": str(tmp),
+                "workdir": str(tmp / "w"), "manifest_sha": "test",
+                "calibration": "bulk_v6", "keep_fits": False}
+
+    def test_stitched_null_records_carry_final_survivor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            recs = []
+            for tic, period_d in (("424242", None),
+                                  ("434343", 5.0)):
+                res = p43run.run_host_null_p43(
+                    self._null_job(tmp, tic, period_d))
+                self.assertEqual(res["status"], "done")
+                rec = json.loads(
+                    (tmp / "null-p43"
+                     / f"{tic}_p43.json").read_text())
+                self.assertNotIn("error", rec)
+                recs.append(rec)
+            for rec in recs:
+                # The key itself (absent pre-fix).
+                self.assertIn("final_survivor", rec)
+                # k3_run semantics: pass-2 OR pass-3.
+                self.assertEqual(
+                    rec["final_survivor"],
+                    bool(rec["pass2_survivor"]
+                         or rec["pass3_survivor"]))
+                # Identical to the BP-1 extract's synthesis
+                # rule (bool(final_rows)).
+                self.assertEqual(rec["final_survivor"],
+                                 bool(rec["final_rows"]))
+            # The scorer's cross-check: flag-based host count
+            # == OR count (m2_score.py analyse_arm).
+            flag_hosts = sum(1 for r in recs
+                             if r["final_survivor"] is True)
+            or_hosts = sum(1 for r in recs
+                           if r["pass2_survivor"] is True
+                           or r["pass3_survivor"] is True)
+            self.assertEqual(flag_hosts, or_hosts)
+            # The signal host must exercise the True branch
+            # (otherwise the OR is only ever tested False).
+            self.assertTrue(recs[1]["final_survivor"])
+
+
 if __name__ == "__main__":
     unittest.main()

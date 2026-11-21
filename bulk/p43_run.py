@@ -1235,6 +1235,11 @@ def run_host_null_p43(job):
         # Full pipeline: the stitched MASKED curve.
         r["pass2_survivor"] = False
         r["pass3_survivor"] = False
+        # N6 (M2NULL-20261121, RATIFIED): the stitched null leg
+        # never wrote final_survivor (k3_run's null leg does) —
+        # the M2 scorer's flag-based D2st host count read 0.00.
+        # Same semantics as k3_run: pass-2 OR pass-3 survivor.
+        r["final_survivor"] = False
         if not masked:
             r.update({"pass2": None, "pass3": None,
                       "note": "all-sectors-stopped",
@@ -1311,6 +1316,12 @@ def run_host_null_p43(job):
                     == "survivor")
             r["final_rows"] = (int(r["pass2_survivor"])
                                + int(r["pass3_survivor"]))
+            # N6: same OR as k3_run's null leg — and identical
+            # to bool(final_rows), the rule the BP-1 extract
+            # builder (nulldiag_extract.py) used to synthesise
+            # this key for stitched records.
+            r["final_survivor"] = bool(
+                r["pass2_survivor"] or r["pass3_survivor"])
     except Exception as exc:  # noqa: BLE001
         r["error"] = f"{type(exc).__name__}: {exc}"
     r["complete"] = True
