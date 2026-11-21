@@ -1,0 +1,432 @@
+{
+ "provenance": {
+  "note": "ELIGFIX replay case (M2NULL zero-compute section (a) + ELIGFIX R10/R11): the five true F-2-only trials - trials where F-2's carry is the ONLY thing demoting a would-be survivor (2 copies with survivor baselines, 3 re-screens where the mask removed the secondary evidence). Per-sector pass-1 subsets copied verbatim (orc._subset shape) with the M2-recorded eligibility. Under the ELIGFIX flag bypass the flagged shallow demoted sectors become eligible (via eb-flag) and reach the gate; unflagged sectors are unchanged.",
+  "source": "science-vet/bulkv6/m2/run_d2/null-p43/<tic>_p43.json (M2 stitched null leg, 2,720 hosts, bulk_v6)",
+  "source_sha256": {
+   "149036941": "7927ef8a00645eef7fac3a717d58e3cfafb170ffd01eaf93254c66957904489f",
+   "177258779": "70b536f39a2a38787a415dc7106b93a20a154bb183d08db9903c0f46a8703c31",
+   "231810586": "4ba22114820a776818660f99723876993f76bff76e55ca0d81be35dbc8b2a007",
+   "271891311": "464dd71722d808d4a21afd616c6cf23da15314bf0fd12b33c90b8351bf9b55b4",
+   "300939631": "b6c56cec3fb64bb8e0f4096d864eabbbef77aee559c1bdd28bb53741c59fe50c"
+  }
+ },
+ "trials": {
+  "149036941": {
+   "final_rows": 0,
+   "kind": "re-screen",
+   "pass1_status": "demoted",
+   "pass1_tier": null,
+   "pass2_carried_from": null,
+   "pass2_status": "demoted",
+   "sectors": {
+    "95": {
+     "m2_eligible": true,
+     "m2_reason": "confirmed-contaminant",
+     "pass1": {
+      "cdpp_pct": 0.04435794494716502,
+      "depth_percent": 0.36624637304562685,
+      "duration_hours": 6.048,
+      "flags": [],
+      "gate_reason": null,
+      "max_event_snr": 8.290515802384482,
+      "mes_pink": 8.290515802384482,
+      "n_events": 1,
+      "n_strong_events": 1,
+      "period_days": 20.0,
+      "sde": 12.188435099832251,
+      "search_health": "BOUNDARY_LIMITED",
+      "secondary_depth_percent": 0.0314307024229632,
+      "status": "survivor",
+      "t0_btjd": 3893.6426868801486,
+      "tier": "B",
+      "v_ratio": 0.9997348370861069
+     }
+    },
+    "96": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.06845817334059423,
+      "depth_percent": 0.15349330585678483,
+      "duration_hours": 0.96,
+      "flags": [
+       "SECONDARY_EB",
+       "HARMONIC_P2_SUSPECT"
+      ],
+      "gate_reason": null,
+      "max_event_snr": 4.158306292513884,
+      "mes_pink": 14.031572463055632,
+      "n_events": 32,
+      "n_strong_events": 7,
+      "period_days": 0.5596652922629154,
+      "sde": 28.619635967548046,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": 0.15851216681480595,
+      "status": "demoted",
+      "t0_btjd": 3910.2276697319885,
+      "tier": "A",
+      "v_ratio": 0.9059172379577229
+     }
+    },
+    "97": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.03582450563344787,
+      "depth_percent": 0.2595736063660599,
+      "duration_hours": 6.048,
+      "flags": [],
+      "gate_reason": null,
+      "max_event_snr": 0.0,
+      "mes_pink": 0.0,
+      "n_events": 0,
+      "n_strong_events": 0,
+      "period_days": 16.12227074235808,
+      "sde": 13.636634405940999,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": 0.026510457814610255,
+      "status": "recorded",
+      "t0_btjd": 3946.934440303107,
+      "tier": null,
+      "v_ratio": 0.0
+     }
+    }
+   }
+  },
+  "177258779": {
+   "final_rows": 0,
+   "kind": "copy",
+   "pass1_status": "survivor",
+   "pass1_tier": "A",
+   "pass2_carried_from": "pass1",
+   "pass2_status": "demoted",
+   "sectors": {
+    "95": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.48780615281269746,
+      "depth_percent": 0.7577228968078066,
+      "duration_hours": 6.048,
+      "flags": [
+       "DURATION_EB"
+      ],
+      "gate_reason": null,
+      "max_event_snr": 2.9788104292604247,
+      "mes_pink": 7.713985420993018,
+      "n_events": 28,
+      "n_strong_events": 0,
+      "period_days": 0.6192552834619256,
+      "sde": 22.862454836250873,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": -0.9851555482394136,
+      "status": "demoted",
+      "t0_btjd": 3883.8632311238116,
+      "tier": null,
+      "v_ratio": 0.7562726194131498
+     }
+    },
+    "96": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.3742798262633154,
+      "depth_percent": 0.8163020728958615,
+      "duration_hours": 6.048,
+      "flags": [],
+      "gate_reason": null,
+      "max_event_snr": 3.0261847412785245,
+      "mes_pink": 7.783833823023369,
+      "n_events": 14,
+      "n_strong_events": 1,
+      "period_days": 1.2638641654114748,
+      "sde": 29.141245067742734,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": -0.8442861418224035,
+      "status": "recorded",
+      "t0_btjd": 3911.1038504572075,
+      "tier": null,
+      "v_ratio": 0.898823965123955
+     }
+    },
+    "97": {
+     "m2_eligible": true,
+     "m2_reason": "confirmed-contaminant",
+     "pass1": {
+      "cdpp_pct": 0.5742206636048341,
+      "depth_percent": 1.0763123073872687,
+      "duration_hours": 6.048,
+      "flags": [],
+      "gate_reason": null,
+      "max_event_snr": 4.173419128221282,
+      "mes_pink": 8.717348885663684,
+      "n_events": 27,
+      "n_strong_events": 5,
+      "period_days": 1.2260892667375134,
+      "sde": 38.823788990353215,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": -0.49000654080186834,
+      "status": "recorded",
+      "t0_btjd": 3937.5693695053533,
+      "tier": null,
+      "v_ratio": 0.8577852271518015
+     }
+    }
+   }
+  },
+  "231810586": {
+   "final_rows": 0,
+   "kind": "re-screen",
+   "pass1_status": "demoted",
+   "pass1_tier": "A",
+   "pass2_carried_from": null,
+   "pass2_status": "demoted",
+   "sectors": {
+    "95": {
+     "m2_eligible": true,
+     "m2_reason": "confirmed-contaminant",
+     "pass1": {
+      "cdpp_pct": 0.05140825075146422,
+      "depth_percent": 0.4332224478209354,
+      "duration_hours": 6.048,
+      "flags": [],
+      "gate_reason": null,
+      "max_event_snr": 8.359041993175401,
+      "mes_pink": 8.359041993175401,
+      "n_events": 1,
+      "n_strong_events": 1,
+      "period_days": 20.0,
+      "sde": 11.30840169422559,
+      "search_health": "BOUNDARY_LIMITED",
+      "secondary_depth_percent": -0.010377318115284417,
+      "status": "survivor",
+      "t0_btjd": 3899.60990408422,
+      "tier": "B",
+      "v_ratio": 0.9319966773660968
+     }
+    },
+    "96": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.030289569694841825,
+      "depth_percent": 0.07946785719687174,
+      "duration_hours": 4.32,
+      "flags": [
+       "ODD_EVEN_EB",
+       "SECONDARY_EB",
+       "HARMONIC_P2_SUSPECT"
+      ],
+      "gate_reason": null,
+      "max_event_snr": 6.232044696291822,
+      "mes_pink": 13.72863541499366,
+      "n_events": 20,
+      "n_strong_events": 9,
+      "period_days": 0.9721417662857443,
+      "sde": 25.649639144272303,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": 0.0897913456861299,
+      "status": "demoted",
+      "t0_btjd": 3910.189882129278,
+      "tier": "A",
+      "v_ratio": 0.7088768793534931
+     }
+    },
+    "97": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.07355496678626365,
+      "depth_percent": 0.09937613865564003,
+      "duration_hours": 4.32,
+      "flags": [
+       "ODD_EVEN_EB",
+       "HARMONIC_P2_SUSPECT"
+      ],
+      "gate_reason": null,
+      "max_event_snr": 2.75605645403254,
+      "mes_pink": 8.019928139650737,
+      "n_events": 34,
+      "n_strong_events": 0,
+      "period_days": 0.9703022339027596,
+      "sde": 17.416174873706588,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": 0.05889312722221485,
+      "status": "demoted",
+      "t0_btjd": 3937.445860545743,
+      "tier": null,
+      "v_ratio": 0.7941379619356096
+     }
+    }
+   }
+  },
+  "271891311": {
+   "final_rows": 0,
+   "kind": "copy",
+   "pass1_status": "survivor",
+   "pass1_tier": "A",
+   "pass2_carried_from": "pass1",
+   "pass2_status": "demoted",
+   "sectors": {
+    "95": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.032205337459071365,
+      "depth_percent": 0.060687353981209884,
+      "duration_hours": 6.048,
+      "flags": [
+       "DURATION_EB"
+      ],
+      "gate_reason": null,
+      "max_event_snr": 5.51884337282064,
+      "mes_pink": 9.047190803406108,
+      "n_events": 35,
+      "n_strong_events": 8,
+      "period_days": 0.5202491333878195,
+      "sde": 8.077493333088416,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": 0.0,
+      "status": "demoted",
+      "t0_btjd": 3883.855114811335,
+      "tier": "A",
+      "v_ratio": 720.6837502500902
+     }
+    },
+    "96": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.07715929115843945,
+      "depth_percent": 0.42707745791032053,
+      "duration_hours": 6.048,
+      "flags": [],
+      "gate_reason": null,
+      "max_event_snr": 5.33625268716957,
+      "mes_pink": 5.33625268716957,
+      "n_events": 1,
+      "n_strong_events": 1,
+      "period_days": 13.271028037383179,
+      "sde": 7.466217074869346,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": -0.005527369796487491,
+      "status": "recorded",
+      "t0_btjd": 3919.8817327839283,
+      "tier": null,
+      "v_ratio": 2.316142281312766
+     }
+    },
+    "97": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.18835404711550843,
+      "depth_percent": 0.24684196178376738,
+      "duration_hours": 2.208,
+      "flags": [
+       "HARMONIC_P2_SUSPECT"
+      ],
+      "gate_reason": null,
+      "max_event_snr": 3.159529363755876,
+      "mes_pink": 11.340208264558273,
+      "n_events": 62,
+      "n_strong_events": 2,
+      "period_days": 0.5441735695545795,
+      "sde": 19.71850825104352,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": 0.07218238401429655,
+      "status": "demoted",
+      "t0_btjd": 3937.518571310167,
+      "tier": "A",
+      "v_ratio": 0.620733979836435
+     }
+    }
+   }
+  },
+  "300939631": {
+   "final_rows": 0,
+   "kind": "re-screen",
+   "pass1_status": "demoted",
+   "pass1_tier": "A",
+   "pass2_carried_from": null,
+   "pass2_status": "demoted",
+   "sectors": {
+    "95": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.14498698051178532,
+      "depth_percent": 0.2513876018482859,
+      "duration_hours": 6.048,
+      "flags": [
+       "HARMONIC_P2_SUSPECT"
+      ],
+      "gate_reason": null,
+      "max_event_snr": 6.007081094351598,
+      "mes_pink": 8.078511623655984,
+      "n_events": 18,
+      "n_strong_events": 3,
+      "period_days": 0.9839560791002613,
+      "sde": 12.00065301184355,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": 0.15334198335537064,
+      "status": "demoted",
+      "t0_btjd": 3883.890822505335,
+      "tier": null,
+      "v_ratio": 0.7092301268631114
+     }
+    },
+    "96": {
+     "m2_eligible": false,
+     "m2_reason": "not-confirmed",
+     "pass1": {
+      "cdpp_pct": 0.12042634939056207,
+      "depth_percent": 0.1813466850436515,
+      "duration_hours": 6.048,
+      "flags": [
+       "DURATION_EB"
+      ],
+      "gate_reason": null,
+      "max_event_snr": 4.0163625684910915,
+      "mes_pink": 7.753675080755733,
+      "n_events": 33,
+      "n_strong_events": 3,
+      "period_days": 0.5080081457427487,
+      "sde": 10.417360821518917,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": 0.0,
+      "status": "demoted",
+      "t0_btjd": 3910.3243689377027,
+      "tier": null,
+      "v_ratio": 0.7487008317218113
+     }
+    },
+    "97": {
+     "m2_eligible": true,
+     "m2_reason": "confirmed-contaminant",
+     "pass1": {
+      "cdpp_pct": 0.3234339489055868,
+      "depth_percent": 1.2999931025061908,
+      "duration_hours": 3.168,
+      "flags": [
+       "ODD_EVEN_EB"
+      ],
+      "gate_reason": null,
+      "max_event_snr": 1.9120072342231365,
+      "mes_pink": 1.9120072342231365,
+      "n_events": 1,
+      "n_strong_events": 0,
+      "period_days": 14.05940594059406,
+      "sde": 11.332715264939017,
+      "search_health": "VALID_DETECTION",
+      "secondary_depth_percent": -0.06478422899180991,
+      "status": "demoted",
+      "t0_btjd": 3950.920847479444,
+      "tier": null,
+      "v_ratio": 0.5599609029239659
+     }
+    }
+   }
+  }
+ }
+}

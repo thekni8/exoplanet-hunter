@@ -187,6 +187,57 @@ def mask_gate_allows(record):
     return period >= gate_period
 
 
+def mask_eligibility(record):
+    """Whether a pass-1 record is eligible for the K=2/K=3 mask gate.
+
+    ELIGFIX-20261121 (E1-E3, RATIFIED 2026-11-22): the P4-3
+    eligibility pre-filter (depth > 1% OR status survivor) ran
+    BEFORE the gate in the stitched path, so shallow demoted
+    EB-flagged records never reached it -- 1,065/1,552 flagged
+    records (68.6%) starved across 890 M2 trials, and the gate's
+    EB-flag clause was never decisive (a flag demotes, so the
+    survivor disjunct cannot hold for a flagged record; a flagged
+    record was eligible only when deep, where the gate's depth
+    clause already allows). The fix adds a third disjunct: an
+    EB-family flag makes the record eligible, so the gate finally
+    sees it. The pre-filter stays in place for unflagged records
+    (no leak into gate-first).
+
+    ONE shared predicate (E2): both the p43 null leg and the
+    shared campaign helper's fresh path call this function, so
+    the measurement and production paths cannot drift apart
+    again. The frozen path does not call it (its fold test is a
+    confirmation test, not the depth/status rule).
+
+    Returns (eligible, via): via is "depth", "survivor", or
+    "eb-flag" when eligible, in that precedence -- "eb-flag"
+    means eligible ONLY via the bypass, which is the auditable
+    diff (callers write eligible_via on the record only then);
+    None when ineligible. The depth threshold is the P4-3
+    literal 1.0%, not the gate's calibrated depth -- the fix
+    must not change the old rule's behaviour, only add the
+    third disjunct.
+
+    The bypass is active only when the mask gate is enabled
+    (E3): with the gate OFF the rule is exactly the P4-3 rule,
+    so frozen-profile reproductions stay bit-identical. A
+    record of None is ineligible (nothing to gate on) -- unlike
+    mask_gate_allows, which fails open; eligibility is a
+    precondition, not the mask decision itself.
+    """
+    if record is None:
+        return False, None
+    depth = record.get("depth_percent")
+    if depth is not None and depth > 1.0:
+        return True, "depth"
+    if record.get("status") == "survivor":
+        return True, "survivor"
+    if getattr(bs, "MASK_GATE_ENABLED", False) and any(
+            is_eb_flag(f) for f in (record.get("flags") or [])):
+        return True, "eb-flag"
+    return False, None
+
+
 def gated_off_mask_stats():
     """The k2_mask record for a gated-off trial (no mask was
     built). Shape-safe for every k2_mask consumer (all read

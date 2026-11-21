@@ -50,8 +50,9 @@ takes seed_mode="fresh"/"frozen" per sector.
 P4-3c agreement-only rule (Phase 4.1, item 4.1-4;
 PHASE41_PREREG.md section 2.4; behind the --agreement-only
 flag): in NON-ORIGINAL sectors, mask ONLY when the fresh peak
-agrees with the frozen record (P4-3's rule: mask iff fresh depth
-> 1% OR fresh status == survivor); mask NOTHING on disagreement.
+agrees with the frozen record (the fresh rule: mask iff fresh
+depth > 1% OR fresh status == survivor OR an EB flag -- the
+ELIGFIX bypass, bulk_v6 only); mask NOTHING on disagreement.
 This removes the frozen-seed mask path on disagreement -- the
 P4-3b behavior that cost the 3 right165 trials (the frozen seed
 was the planet there). Agreement is pre-registered: period
@@ -258,8 +259,12 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode,
     build_k2_mask), and epoch_delta_d (the wrapped epoch
     difference, or None unless the P4-3c epoch test ran).
 
-    Fresh path (unchanged from P4-3): seed = the fresh pass-1 peak;
-    eligible iff fresh depth > 1% OR fresh status == "survivor".
+    Fresh path (P4-3 rule + ELIGFIX flag bypass, E1-E3): seed =
+    the fresh pass-1 peak; eligible iff fresh depth > 1% OR
+    fresh status == "survivor" OR the fresh record carries an
+    EB-family flag (the bypass, active only when the mask gate
+    is enabled). The shared predicate lives in k2_prototype
+    (mask_eligibility); the null leg calls the same function.
 
     Frozen path (P43B_PREREG sections 0.4 + 0.4a): seed = the
     FROZEN recorded period; the ephemeris is estimated per sector
@@ -394,13 +399,16 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode,
         out["reason"] = ("frozen-contaminant" if eligible
                          else "frozen-not-confirmed")
     else:
-        depth_pct = p1.get("depth_percent")
-        eligible = bool(
-            (depth_pct is not None and depth_pct > 1.0)
-            or p1.get("status") == "survivor")
+        # ELIGFIX-20261121 (E1-E2): the fresh rule is the shared
+        # predicate -- an EB flag bypasses the pre-filter so the
+        # gate sees the record. eligible_via is written only
+        # when the bypass fires (the auditable diff).
+        eligible, eligible_via = k2.mask_eligibility(p1)
         out["eligible"] = eligible
         out["reason"] = ("confirmed-contaminant" if eligible
                          else "not-confirmed")
+        if eligible_via == "eb-flag":
+            out["eligible_via"] = eligible_via
     return out
 
 
@@ -486,6 +494,8 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
     rec["seconds_est"] = sec_est
     rec["eligible"] = seed["eligible"]
     rec["reason"] = seed["reason"]
+    if seed.get("eligible_via") is not None:
+        rec["eligible_via"] = seed["eligible_via"]
     if not seed["eligible"]:
         rec["k2_mask"] = None
         return rec, (t, f_inj, q, np.ones(len(t), dtype=bool), sigma)
@@ -1185,12 +1195,16 @@ def run_host_null_p43(job):
                                      "depth_frac": secondary[1],
                                      "snr": secondary[2]}
             depth_pct = p1.get("depth_percent")
-            eligible = bool(
-                (depth_pct is not None and depth_pct > 1.0)
-                or p1.get("status") == "survivor")
+            # ELIGFIX-20261121 (E1-E2): the shared predicate --
+            # an EB flag bypasses the pre-filter so the gate
+            # sees the record. eligible_via is written only
+            # when the bypass fires (the auditable diff).
+            eligible, eligible_via = k2.mask_eligibility(p1)
             rec["eligible"] = eligible
             rec["reason"] = ("confirmed-contaminant" if eligible
                              else "not-confirmed")
+            if eligible_via == "eb-flag":
+                rec["eligible_via"] = eligible_via
             if not eligible:
                 rec["k2_mask"] = None
                 keep = np.ones(len(t), dtype=bool)
