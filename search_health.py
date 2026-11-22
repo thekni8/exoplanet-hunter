@@ -86,11 +86,24 @@ DEMOTED_SECTOR_EPOCH_CLUSTER = "DEMOTED_SECTOR_EPOCH_CLUSTER"
 # on the pass-1 set; F-1 runs on the post-veto kept set plus
 # the K=3 join), so no precedence rule is needed between them.
 DEMOTED_T0_CLUSTER = "DEMOTED_T0_CLUSTER"
+# Demoted by the nearby-eclipsing VSX filter (5.2 null
+# diagnosis fix #2): the host has a VSX variable of type E
+# (eclipsing binary) at separation 2-30 arcsec — a nearby
+# blend, not the target itself. Same demote-not-delete
+# reversibility as the T0 veto: the row keeps this
+# disposition and stays queryable; the triggering VSX entry
+# (name, vartype, period, separation) is recorded in the
+# host record's `vsx_filter` audit key. Measured trade-off:
+# 5 + 5 rows at 0/170 + 0/144 planet cost (the blend link is
+# solid for only 1 of the 3 triggering hosts — see
+# DIAGNOSIS_5_2_NULL.md section 5).
+DEMOTED_VSX_NEARBY_E = "DEMOTED_VSX_NEARBY_E"
 
 DISPOSITION_VALUES = frozenset({
     PERIODIC_CANDIDATE, SINGLE_EVENT, BELOW_THRESHOLD,
     SINGLE_TRANSIT_POOL, GRID_EDGE_REJECT,
     DEMOTED_SECTOR_EPOCH_CLUSTER, DEMOTED_T0_CLUSTER,
+    DEMOTED_VSX_NEARBY_E,
 })
 
 
