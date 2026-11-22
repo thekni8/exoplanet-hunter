@@ -1,0 +1,1741 @@
+{
+ "provenance": {
+  "note": "Stitched-veto planet-cost case (ELIGFIX follow-up, 2026-11-22): the 170 M4-p43 recovered trials' final rows (pass3 if p3_recovered else pass2, the m4p43_costs.py final_row rule). The few-event T0-cluster veto (tol 0.125 d, bar >=3, n_ev <= 2) removes 0/170: only 2 rows are few-event (both tier B), and neither sits in a >=3 few-event cluster. Without the few-event scope the same veto would remove 145/170.",
+  "source": "science-vet/bulkv6/m4/p43-bulkv6/hosts-p43/*.json + stage5_p43_summary.json (final 170 vs frozen 25, byte-identical to the eligfix re-run)",
+  "source_sha256": {
+   "141909101_p43.json": "d52bd18c6b418c02bd9decc25c36d0b39682d95d467e82d6f8db433d461a3c7c",
+   "149423694_p43.json": "31b7bb58dbe5d1b46fea338744dbc6e036fabd2310e51e69df07c865067e5418",
+   "179240380_p43.json": "e11066759b6aac0739dc1da41b6213e6de0057c4c2fb5284292d0fffd68557d6",
+   "220424523_p43.json": "bd7855fff359fbd411edfe1019a8cd937b26d3bda08326a4e39d8780717e6081",
+   "220518654_p43.json": "9f72c76df28b9b0cf37cdd01e39f3e6f3d693e0f3018cc18ef96eaf87ee803b5",
+   "220538933_p43.json": "8a1a3e5ad7db56f8e3daf873d32e1c5f53427c4cc80f08e3d9c41d3ae0d520e7",
+   "220576424_p43.json": "5e9dfbca315597affc9c6789da7fc6498d1c5f6b9c64998bd71dfc7c29e4fbcb",
+   "220578211_p43.json": "b67e1f356a99e502546b43c5eb976b9038d27db1836d1ca3fad79cf0eb0c5a0d",
+   "260045741_p43.json": "631c502154b20ebee8b6c77f726b725b074d837d427bb11f4e568ca3b579b28c",
+   "260653961_p43.json": "de1e8c2bcf0c1ed31579d561c97504a317d8d0b06b30e229fa8bef9a69119862",
+   "261107054_p43.json": "5837d9256359fd29ff8701c647bd02f29efca0b966d2005a82449b526da05fff",
+   "271906522_p43.json": "1a36c76fe9c7fe3920121f929ae2554b99c2c05107148b6024c2b4b05dc60170",
+   "279510195_p43.json": "c669d4e0c811e9203696168eb8a12b61dd93273fedfffd0ad8e0b610b2c52725",
+   "279637383_p43.json": "d749ad4da7d79a9e588a366265b9ee847ebeeab722526e31b84be6b12e41de27",
+   "279647497_p43.json": "191e8ef8ba5c396f4394859267673a6bd9395d6cd8e56cc6344300787e365349",
+   "279739961_p43.json": "78a5d582aea0262fd9cdd6f81431875a100d00390abdb130685679bab4243761",
+   "287401129_p43.json": "a66dbc3180e0d8e4039fbe2c176a151a65e42353732909d04156dd8129597ec0",
+   "300036332_p43.json": "4ece1ed3867e2c6b3818ee32ceb4bcab22daf8f59aaabdb2e603d22882a0b1a4",
+   "300142336_p43.json": "bfa6cc29fb00bfe6f1f0e8f59922eaadc67482d3396215ad9c948a77867eed5a",
+   "33714920_p43.json": "fe9c52eb0ab5aa7829863b53390d331c521376b49eb8384622c36efebc046940",
+   "340137006_p43.json": "d8a931d52b0541929ad698a64570adf0ed6af3143d847f1e4d77c3347e32d342",
+   "350478353_p43.json": "d906ead3c9ca1fe8f59fa4fcbea5491df533edee3bf8c4c1fa93999371e35c18",
+   "350842933_p43.json": "0e7402f61b48e1ce7898601e99aba1af31a48d0f9912ebb2ad88731f909d4bcf",
+   "372848190_p43.json": "ae336f28b3a76cb6e0cd5551e156632b8e296c841def1d4b0ac6883c1d14ca48",
+   "374945463_p43.json": "1166fa9d82f37ccce62aa38ca2d775b6487ab9d616c971473155b196b383f052",
+   "381977544_p43.json": "0aedb74aa68a5e90780d1a4fca59232ecf8d3a0a9a79a23336045e82c65f0a33",
+   "382573462_p43.json": "44575ef16400cfafae6c70d17d74db7a8a792b506ce8081e5891ca6233875d8f",
+   "382633935_p43.json": "bfc5878fbfe8e630cd538312a091c285c5633a8a7cd04d934056eb33051e625b",
+   "55367907_p43.json": "34003194578a95d0fb9bee42a17f3b79b7c7d31fe9ad791251cf16998bc6cc4f",
+   "55745940_p43.json": "b31b017f3d8caacffd6635f151aee56cfb2cbce2236a42b2431146cb97249e5b"
+  },
+  "summary_sha256": "13e4d9c159faee792a346307af1267259c7642ea1b39bfb9cd7d22165506f668"
+ },
+ "rows": [
+  {
+   "tic": "141909101",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 0.8343879949376244,
+   "t0_btjd": 3884.4795071038693,
+   "n_events": 86,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "141909101",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 2.473536111483318,
+   "t0_btjd": 3884.755507103869,
+   "n_events": 28,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "141909101",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 6.520664076298128,
+   "t0_btjd": 3887.931507103869,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "141909101",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 2.890698402756029,
+   "t0_btjd": 3884.167507103869,
+   "n_events": 27,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "141909101",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 3.2911392405063293,
+   "t0_btjd": 3884.7675071038693,
+   "n_events": 18,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "149423694",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 0.5346695244163819,
+   "t0_btjd": 3884.070480449914,
+   "n_events": 128,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "149423694",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 4.386882129277567,
+   "t0_btjd": 3884.6904804499145,
+   "n_events": 16,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "149423694",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 0.5635608743436318,
+   "t0_btjd": 3883.9184804499146,
+   "n_events": 121,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "149423694",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 2.1323784220861732,
+   "t0_btjd": 3885.5624804499143,
+   "n_events": 32,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "149423694",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 2.999187652315191,
+   "t0_btjd": 3884.9904804499142,
+   "n_events": 20,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "149423694",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 1.5840054916766775,
+   "t0_btjd": 3884.9104804499143,
+   "n_events": 45,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "149423694",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 12.515254237288136,
+   "t0_btjd": 3888.3264804499145,
+   "n_events": 3,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "149423694",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 1.1402100061766522,
+   "t0_btjd": 3883.7464804499145,
+   "n_events": 61,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "179240380",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 1.7189682465778937,
+   "t0_btjd": 3884.531155177228,
+   "n_events": 36,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "179240380",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 1.4599810186649795,
+   "t0_btjd": 3884.179155177228,
+   "n_events": 47,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "179240380",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 0.6313917296576256,
+   "t0_btjd": 3884.235155177228,
+   "n_events": 111,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220424523",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 2.1730429664508537,
+   "t0_btjd": 3885.7267233713455,
+   "n_events": 31,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220424523",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 2.9167325011850216,
+   "t0_btjd": 3884.7667233713455,
+   "n_events": 25,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220424523",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 8.807251908396946,
+   "t0_btjd": 3888.6027233713453,
+   "n_events": 9,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220424523",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 2.324058919803601,
+   "t0_btjd": 3885.2907233713454,
+   "n_events": 30,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220424523",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 1.0359728379819295,
+   "t0_btjd": 3884.1947233713454,
+   "n_events": 68,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220518654",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 1.3233923578751166,
+   "t0_btjd": 3884.6864387882893,
+   "n_events": 53,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220518654",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 1.296075265042477,
+   "t0_btjd": 3884.1384387882895,
+   "n_events": 56,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220518654",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 1.0361472833408174,
+   "t0_btjd": 3883.8344387882894,
+   "n_events": 69,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220518654",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 2.4616615548739835,
+   "t0_btjd": 3884.9104387882894,
+   "n_events": 29,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220518654",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 4.624248496993988,
+   "t0_btjd": 3884.246438788289,
+   "n_events": 15,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220518654",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 7.233542319749216,
+   "t0_btjd": 3889.0264387882894,
+   "n_events": 9,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220538933",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 1.6241421784268872,
+   "t0_btjd": 3884.3109745694237,
+   "n_events": 42,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220538933",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 1.0792166033323591,
+   "t0_btjd": 3884.2349745694237,
+   "n_events": 68,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220538933",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 6.173913043478261,
+   "t0_btjd": 3888.1189745694237,
+   "n_events": 9,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220538933",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 4.172694394213382,
+   "t0_btjd": 3887.5789745694237,
+   "n_events": 16,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220538933",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 1.0575160403299724,
+   "t0_btjd": 3883.9109745694236,
+   "n_events": 68,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220538933",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 8.068181818181818,
+   "t0_btjd": 3890.3909745694236,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220538933",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 6.459062281315606,
+   "t0_btjd": 3888.7669745694234,
+   "n_events": 11,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220538933",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 6.618859806382217,
+   "t0_btjd": 3890.1789745694236,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220576424",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 1.0980905359585986,
+   "t0_btjd": 3883.8525295809113,
+   "n_events": 61,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220576424",
+   "trial_id": "planet02",
+   "pass": "pass3",
+   "period_days": 7.694872863693205,
+   "t0_btjd": 3888.9445295809114,
+   "n_events": 6,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220576424",
+   "trial_id": "planet03",
+   "pass": "pass3",
+   "period_days": 13.129445234708392,
+   "t0_btjd": 3895.3685295809114,
+   "n_events": 1,
+   "tier": "B",
+   "status": "survivor"
+  },
+  {
+   "tic": "220576424",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 2.3579001149572107,
+   "t0_btjd": 3884.8725295809113,
+   "n_events": 28,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220576424",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 0.6711262997164256,
+   "t0_btjd": 3883.724529580911,
+   "n_events": 104,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220576424",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 0.6465170034672364,
+   "t0_btjd": 3883.8725295809113,
+   "n_events": 111,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220576424",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 0.7085284409303754,
+   "t0_btjd": 3884.184529580911,
+   "n_events": 101,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220576424",
+   "trial_id": "planet08",
+   "pass": "pass3",
+   "period_days": 3.8322607432011626,
+   "t0_btjd": 3887.5958873546065,
+   "n_events": 9,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220578211",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 11.33906633906634,
+   "t0_btjd": 3884.148278820439,
+   "n_events": 4,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220578211",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 6.18632707774799,
+   "t0_btjd": 3886.916278820439,
+   "n_events": 12,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220578211",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 10.670520231213873,
+   "t0_btjd": 3884.612278820439,
+   "n_events": 6,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220578211",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 0.8306709265175719,
+   "t0_btjd": 3884.140278820439,
+   "n_events": 84,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220578211",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 9.58961038961039,
+   "t0_btjd": 3888.476278820439,
+   "n_events": 7,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "220578211",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 7.027027027027027,
+   "t0_btjd": 3884.072278820439,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "260045741",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 0.6777794096049348,
+   "t0_btjd": 3884.0417662273994,
+   "n_events": 92,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "260045741",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 0.5315748552999108,
+   "t0_btjd": 3883.9497662273993,
+   "n_events": 120,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "260045741",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 0.7726759030597297,
+   "t0_btjd": 3884.4857662273994,
+   "n_events": 80,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "260653961",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 4.2271582321960155,
+   "t0_btjd": 3884.677991930836,
+   "n_events": 16,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "260653961",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 1.3259589139491452,
+   "t0_btjd": 3884.049991930836,
+   "n_events": 51,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "260653961",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 2.109714285714286,
+   "t0_btjd": 3883.789991930836,
+   "n_events": 32,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "260653961",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 1.318854040151461,
+   "t0_btjd": 3883.869991930836,
+   "n_events": 49,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "260653961",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 2.1053832116788325,
+   "t0_btjd": 3884.5339919308362,
+   "n_events": 27,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "260653961",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 7.191273860537592,
+   "t0_btjd": 3887.529991930836,
+   "n_events": 6,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "260653961",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 1.8196155741744702,
+   "t0_btjd": 3883.845991930836,
+   "n_events": 36,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "261107054",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 2.547260935559542,
+   "t0_btjd": 3885.4758942513968,
+   "n_events": 29,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "261107054",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 7.043113315528424,
+   "t0_btjd": 3890.023894251397,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "261107054",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 0.5072125291935706,
+   "t0_btjd": 3883.911894251397,
+   "n_events": 137,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "261107054",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 1.622429249428722,
+   "t0_btjd": 3885.127894251397,
+   "n_events": 39,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "261107054",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 2.1213514134681684,
+   "t0_btjd": 3883.903894251397,
+   "n_events": 32,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "271906522",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 0.8995224636974953,
+   "t0_btjd": 3884.1030416658236,
+   "n_events": 74,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "271906522",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 0.7951412818745693,
+   "t0_btjd": 3883.9630416658238,
+   "n_events": 86,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "271906522",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 0.7201373176250293,
+   "t0_btjd": 3883.767041665824,
+   "n_events": 99,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "271906522",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 14.421875,
+   "t0_btjd": 3885.9830416658237,
+   "n_events": 7,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "271906522",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 3.0588235294117654,
+   "t0_btjd": 3886.035041665824,
+   "n_events": 23,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279510195",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 1.0805431983142122,
+   "t0_btjd": 3884.3097455003776,
+   "n_events": 66,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279510195",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 9.9140708915145,
+   "t0_btjd": 3893.1337455003777,
+   "n_events": 8,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279510195",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 1.369334619093539,
+   "t0_btjd": 3884.3737455003775,
+   "n_events": 49,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279510195",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 1.3593519882179677,
+   "t0_btjd": 3884.8257455003777,
+   "n_events": 49,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279510195",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 5.163636363636365,
+   "t0_btjd": 3885.4217455003777,
+   "n_events": 13,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279637383",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 2.1228150873965044,
+   "t0_btjd": 3898.6898435433577,
+   "n_events": 28,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279637383",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 6.249153689911983,
+   "t0_btjd": 3901.085843543358,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279637383",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 3.3594176524112833,
+   "t0_btjd": 3900.125843543358,
+   "n_events": 8,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279637383",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 11.014319809069212,
+   "t0_btjd": 3907.857843543358,
+   "n_events": 5,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279637383",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 2.0084865629420086,
+   "t0_btjd": 3897.8218435433578,
+   "n_events": 33,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279637383",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 1.5380769871688054,
+   "t0_btjd": 3897.241843543358,
+   "n_events": 40,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279647497",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 2.2792937399678976,
+   "t0_btjd": 3883.808454162634,
+   "n_events": 30,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279647497",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 8.015631784628745,
+   "t0_btjd": 3885.9964541626337,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279647497",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 2.0889442118365964,
+   "t0_btjd": 3885.192454162634,
+   "n_events": 32,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279647497",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 1.5975768065772393,
+   "t0_btjd": 3885.100454162634,
+   "n_events": 44,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279647497",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 0.904547236377891,
+   "t0_btjd": 3884.5524541626337,
+   "n_events": 74,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279647497",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 0.9749141800897808,
+   "t0_btjd": 3884.256454162634,
+   "n_events": 70,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279647497",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 0.5307037718491261,
+   "t0_btjd": 3883.984454162634,
+   "n_events": 132,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279647497",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 6.2618724559023065,
+   "t0_btjd": 3888.692454162634,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279739961",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 1.1266402197131522,
+   "t0_btjd": 3884.3247485989527,
+   "n_events": 60,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279739961",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 1.647184795217275,
+   "t0_btjd": 3884.800748598953,
+   "n_events": 40,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279739961",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 9.040156709108718,
+   "t0_btjd": 3889.4647485989526,
+   "n_events": 8,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279739961",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 0.9954165543273119,
+   "t0_btjd": 3884.3087485989527,
+   "n_events": 69,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279739961",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 1.0918554444904478,
+   "t0_btjd": 3884.468748598953,
+   "n_events": 66,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279739961",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 0.6014596637560277,
+   "t0_btjd": 3884.2167485989526,
+   "n_events": 117,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "279739961",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 5.862178469355351,
+   "t0_btjd": 3887.1527485989527,
+   "n_events": 13,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "287401129",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 0.5200292974252071,
+   "t0_btjd": 3883.719051110257,
+   "n_events": 130,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "287401129",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 0.9220318665401328,
+   "t0_btjd": 3883.9430804076824,
+   "n_events": 78,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "287401129",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 2.265030674846626,
+   "t0_btjd": 3885.647080407682,
+   "n_events": 31,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "287401129",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 0.5350414468726451,
+   "t0_btjd": 3883.7470804076825,
+   "n_events": 129,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "287401129",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 1.0700208671458382,
+   "t0_btjd": 3884.759080407682,
+   "n_events": 65,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "287401129",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 1.547748805231827,
+   "t0_btjd": 3884.4270804076823,
+   "n_events": 44,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "287401129",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 2.806324110671937,
+   "t0_btjd": 3884.547080407682,
+   "n_events": 23,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "287401129",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 11.03407053197848,
+   "t0_btjd": 3892.0590804076824,
+   "n_events": 5,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "300036332",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 3.0153544593270176,
+   "t0_btjd": 3885.1345469955813,
+   "n_events": 19,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "300036332",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 0.707876370887338,
+   "t0_btjd": 3883.7705469955813,
+   "n_events": 99,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "300142336",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 2.304043934098852,
+   "t0_btjd": 3884.6905785975177,
+   "n_events": 29,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "300142336",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 8.47955902618282,
+   "t0_btjd": 3889.3585785975174,
+   "n_events": 9,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "300142336",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 3.7255297679112007,
+   "t0_btjd": 3884.0745785975178,
+   "n_events": 20,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "300142336",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 3.592837680031141,
+   "t0_btjd": 3885.7225785975174,
+   "n_events": 17,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "300142336",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 0.6678484859447922,
+   "t0_btjd": 3883.9505785975175,
+   "n_events": 100,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "33714920",
+   "trial_id": "planet01",
+   "pass": "pass3",
+   "period_days": 1.167910919903834,
+   "t0_btjd": 3883.7060303010917,
+   "n_events": 51,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "33714920",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 0.6219466999090327,
+   "t0_btjd": 3882.970030301092,
+   "n_events": 117,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "33714920",
+   "trial_id": "planet05",
+   "pass": "pass3",
+   "period_days": 0.6025197467197598,
+   "t0_btjd": 3883.7676825221924,
+   "n_events": 93,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "340137006",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 0.6291966324687277,
+   "t0_btjd": 3884.1936864025733,
+   "n_events": 110,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "340137006",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 3.0603448275862073,
+   "t0_btjd": 3885.1296864025735,
+   "n_events": 23,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "340137006",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 1.2229214971844982,
+   "t0_btjd": 3883.722764905389,
+   "n_events": 59,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "340137006",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 6.094420600858369,
+   "t0_btjd": 3886.737686402573,
+   "n_events": 13,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "340137006",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 0.6446881329887547,
+   "t0_btjd": 3884.317686402573,
+   "n_events": 109,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350478353",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 3.2323586061985643,
+   "t0_btjd": 3886.918203010069,
+   "n_events": 20,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350478353",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 2.5836249125262425,
+   "t0_btjd": 3883.990203010069,
+   "n_events": 27,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350478353",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 10.417607223476299,
+   "t0_btjd": 3890.430203010069,
+   "n_events": 7,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350478353",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 1.1067809820732657,
+   "t0_btjd": 3884.0142030100687,
+   "n_events": 63,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350478353",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 2.053392658509455,
+   "t0_btjd": 3885.290203010069,
+   "n_events": 32,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350478353",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 1.529665230361286,
+   "t0_btjd": 3884.914203010069,
+   "n_events": 44,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350842933",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 2.393672199170125,
+   "t0_btjd": 3884.114259125638,
+   "n_events": 28,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350842933",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 5.725806451612904,
+   "t0_btjd": 3883.926259125638,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350842933",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 7.984429065743945,
+   "t0_btjd": 3883.966259125638,
+   "n_events": 9,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350842933",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 6.862453531598512,
+   "t0_btjd": 3889.3742591256378,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350842933",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 0.5309327274296068,
+   "t0_btjd": 3883.770259125638,
+   "n_events": 131,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350842933",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 0.5769290871019158,
+   "t0_btjd": 3883.978259125638,
+   "n_events": 120,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350842933",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 0.5661534686867448,
+   "t0_btjd": 3883.910259125638,
+   "n_events": 120,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "350842933",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 0.7034256754182068,
+   "t0_btjd": 3884.006259125638,
+   "n_events": 99,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "372848190",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 0.9739882868147525,
+   "t0_btjd": 3883.8549469224345,
+   "n_events": 76,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "372848190",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 2.6010990559391294,
+   "t0_btjd": 3884.0069469224345,
+   "n_events": 28,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "372848190",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 12.4142568930733,
+   "t0_btjd": 3894.3429469224347,
+   "n_events": 5,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "372848190",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 1.7204100652376515,
+   "t0_btjd": 3885.0749469224347,
+   "n_events": 37,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "372848190",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 0.6897067065197086,
+   "t0_btjd": 3884.2469469224347,
+   "n_events": 102,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "372848190",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 8.88354186717998,
+   "t0_btjd": 3888.7549469224346,
+   "n_events": 4,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "374945463",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 5.3945061367621285,
+   "t0_btjd": 3884.462301627662,
+   "n_events": 13,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "374945463",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 10.295593976575573,
+   "t0_btjd": 3888.766301627662,
+   "n_events": 6,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "374945463",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 5.1164079822616415,
+   "t0_btjd": 3884.630301627662,
+   "n_events": 13,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "374945463",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 4.7272727272727275,
+   "t0_btjd": 3885.518301627662,
+   "n_events": 15,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "374945463",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 0.9234155369916462,
+   "t0_btjd": 3884.382301627662,
+   "n_events": 75,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "374945463",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 3.8514500312956397,
+   "t0_btjd": 3884.886301627662,
+   "n_events": 16,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "374945463",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 3.4849915046252598,
+   "t0_btjd": 3885.0103016276616,
+   "n_events": 20,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "381977544",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 3.6224489795918373,
+   "t0_btjd": 3885.2103710851484,
+   "n_events": 18,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "381977544",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 11.053892215568863,
+   "t0_btjd": 3885.706371085148,
+   "n_events": 1,
+   "tier": "B",
+   "status": "survivor"
+  },
+  {
+   "tic": "381977544",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 7.108201771274548,
+   "t0_btjd": 3890.450371085148,
+   "n_events": 10,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "381977544",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 0.7428272504124582,
+   "t0_btjd": 3883.7863710851484,
+   "n_events": 92,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "381977544",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 5.082599118942731,
+   "t0_btjd": 3884.7863710851484,
+   "n_events": 12,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "381977544",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 0.6467888301040609,
+   "t0_btjd": 3883.7463710851484,
+   "n_events": 109,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "381977544",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 0.6452289409297449,
+   "t0_btjd": 3883.858371085148,
+   "n_events": 107,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "382573462",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 0.9939694163256516,
+   "t0_btjd": 3884.3021287213905,
+   "n_events": 68,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "382573462",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 4.535626535626536,
+   "t0_btjd": 3887.6621287213907,
+   "n_events": 17,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "382633935",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 0.6281047975501872,
+   "t0_btjd": 3883.7212599470868,
+   "n_events": 114,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "382633935",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 2.9376193507320183,
+   "t0_btjd": 3884.0612599470865,
+   "n_events": 25,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "382633935",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 2.6356367789834385,
+   "t0_btjd": 3884.373259947087,
+   "n_events": 27,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "382633935",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 3.526939243408483,
+   "t0_btjd": 3884.0012599470865,
+   "n_events": 22,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "382633935",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 0.6660412757973734,
+   "t0_btjd": 3884.2932599470864,
+   "n_events": 106,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "382633935",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 7.723849372384937,
+   "t0_btjd": 3889.2332599470865,
+   "n_events": 9,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "55367907",
+   "trial_id": "planet01",
+   "pass": "pass2",
+   "period_days": 0.8423838641964042,
+   "t0_btjd": 3884.25081901983,
+   "n_events": 79,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "55367907",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 1.095353942918175,
+   "t0_btjd": 3884.77081901983,
+   "n_events": 63,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "55367907",
+   "trial_id": "planet04",
+   "pass": "pass2",
+   "period_days": 1.3524800351674116,
+   "t0_btjd": 3884.01081901983,
+   "n_events": 51,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "55367907",
+   "trial_id": "planet05",
+   "pass": "pass2",
+   "period_days": 1.4679920477137178,
+   "t0_btjd": 3884.08281901983,
+   "n_events": 48,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "55367907",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 0.5576365393910102,
+   "t0_btjd": 3884.23081901983,
+   "n_events": 126,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "55367907",
+   "trial_id": "planet08",
+   "pass": "pass2",
+   "period_days": 12.489851150202979,
+   "t0_btjd": 3891.93881901983,
+   "n_events": 7,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "55745940",
+   "trial_id": "planet02",
+   "pass": "pass2",
+   "period_days": 2.6538240368027606,
+   "t0_btjd": 3886.0069067618406,
+   "n_events": 24,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "55745940",
+   "trial_id": "planet03",
+   "pass": "pass2",
+   "period_days": 1.0429967794790667,
+   "t0_btjd": 3884.7109067618408,
+   "n_events": 67,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "55745940",
+   "trial_id": "planet06",
+   "pass": "pass2",
+   "period_days": 0.7455272404183999,
+   "t0_btjd": 3884.3589067618404,
+   "n_events": 92,
+   "tier": "A",
+   "status": "survivor"
+  },
+  {
+   "tic": "55745940",
+   "trial_id": "planet07",
+   "pass": "pass2",
+   "period_days": 2.4276696475539192,
+   "t0_btjd": 3885.2069067618404,
+   "n_events": 27,
+   "tier": "A",
+   "status": "survivor"
+  }
+ ]
+}

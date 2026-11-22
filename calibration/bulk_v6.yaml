@@ -183,6 +183,37 @@ t0_cluster_tol_t0_d: 0.125   # T0 tolerance, days (3 h)
 t0_cluster_min_size: 21      # clusters of >20 stars
 t0_cluster_max_events: 2     # few-event rows only
 
+# --- bulk_v6: stitched-leg T0-cluster veto (ELIGFIX follow-up) ------------
+# PRE-MERGE AMENDMENT (2026-11-22, Dev approved "Build the
+# veto fix" 2026-11-22 09:29 IST): bulk_v6 has not merged to
+# main, so the profile is amended in place (the GATEFIX
+# precedent, 2026-11-20) rather than bumped to v7. F-1
+# extended to the stitched leg, which had NO T0 veto at all
+# — the scorer removed clusters post-hoc (the
+# diagnosis-style residual), a measurement, not a fix.
+# Merge-time veto for few-event rows (n_events <= 2):
+# cluster the stitched leg's final rows by T0 ALONE within
+# 3 h (union-find linkage); clusters of >= 3 rows are
+# demoted (disposition DEMOTED_T0_CLUSTER, demote-not-
+# delete). The bar is >= 3, not F-1's > 20: the largest
+# few-event cluster in the paired D2 run is 14 rows
+# (scales to ~19 at the full 3,688-host pool), so F-1's bar
+# would never fire on the stitched leg. The few-event scope
+# is LOAD-BEARING: without it, a T0 veto at bar >= 3 would
+# remove 145/170 (85%) of the M4-p43 planets — short-period
+# planets' first transits legitimately pile up within a few
+# days of the baseline start. With the scope the cost is
+# 0/170 and the paired D2st count falls 74 -> 45
+# (ELIGFIX_FOLLOWUP.md §1.3). The criterion values below
+# MUST match replay_matrix's stitched constants;
+# _apply_profile fails loud on a mismatch (the P3-15
+# pattern). Applied in p43_run's merges (both legs), never
+# per-host (clusters span hosts).
+stitched_t0_cluster_veto_enabled: true
+stitched_t0_cluster_tol_t0_d: 0.125   # T0 tolerance, days (3 h)
+stitched_t0_cluster_min_size: 3       # clusters of >= 3 rows
+stitched_t0_cluster_max_events: 2     # few-event rows only
+
 # --- bulk_v6: B-1 K=3 join order (Stage 5 finding B-1) --------------------
 # The K=3 survivors/hits join AFTER the (P, T0) epoch-cluster
 # veto (the F-1 veto runs after the join, §6 order), but

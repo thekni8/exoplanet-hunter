@@ -68,6 +68,29 @@ T0_CLUSTER_TOL_T0_D = 0.125  # T0 within 3 h
 T0_CLUSTER_MIN_SIZE = 21     # clusters of >20 stars
 T0_CLUSTER_MAX_EVENTS = 2    # few-event rows only
 
+# Stitched-leg T0-cluster veto (ELIGFIX follow-up, 2026-11-22):
+# F-1 extended to the stitched leg, which had NO T0 veto at
+# all — the scorer removed clusters post-hoc (the
+# diagnosis-style residual), a measurement, not a fix. Same
+# T0-only union-find linkage within 3 h and the same
+# few-event scope (n_events <= 2), but the bar is >= 3, not
+# > 20: the largest few-event cluster in the paired D2 run
+# is 14 rows (scales to ~19 at the full 3,688-host pool), so
+# F-1's bar would never fire on the stitched leg. The
+# few-event scope is LOAD-BEARING: without it, a T0 veto at
+# bar >= 3 would remove 145/170 (85%) of the M4-p43
+# planets — short-period planets' first transits
+# legitimately pile up within a few days of the baseline
+# start. With the scope the cost is 0/170 and the paired
+# D2st count falls 74 -> 45. The profile must declare these
+# exact values — bulk_screen._apply_profile fails loud on a
+# mismatch (the P3-15 pattern). The criterion is measured
+# (ELIGFIX_FOLLOWUP.md §1.3) and must NOT be tuned on later
+# campaigns.
+STITCHED_T0_CLUSTER_TOL_T0_D = 0.125  # T0 within 3 h
+STITCHED_T0_CLUSTER_MIN_SIZE = 3      # clusters of >= 3 rows
+STITCHED_T0_CLUSTER_MAX_EVENTS = 2    # few-event rows only
+
 # --- pre-registered adoption rule (rule doc §2) ---
 MAX_CAMPAIGN_LOSS = 0.05       # point-estimate loss bar, 1-2-event regime
 MAX_CAMPAIGN_LOSS_UPPER = 0.10  # 95% Wilson upper-bound bar

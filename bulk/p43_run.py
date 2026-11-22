@@ -89,6 +89,15 @@ trial wall / single-sector trial wall (paired per trial);
 production-fair = stitched per-star wall / bulk-screen per-star
 wall (1.175 s/star, P4-1b section 6.3).
 
+Stitched-leg T0-cluster veto (bulk_v6, ELIGFIX follow-up
+2026-11-22): both merges apply the veto to the stitched leg's
+final rows before aggregating — cluster few-event rows by T0
+within 0.125 d, demote rows in clusters of >= 3
+(DEMOTED_T0_CLUSTER, demote-not-delete). Calibration comes
+from the stitched host records' stamps; v1-v5 records are
+untouched. Never re-merge a frozen run dir: the veto would
+rewrite its host files.
+
 Offline on the Mac (cached FITS only). No S98 data is read at any
 point. No new dependencies. No push / merge / PR -- the parent
 does those.
@@ -108,6 +117,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import bulk_screen as bs  # noqa: E402
 import injection_harness as ih  # noqa: E402
+import search_health as _search_health  # noqa: E402
 from bulk import k2_prototype as k2  # noqa: E402
 from bulk import k3_prototype as k3  # noqa: E402
 from bulk import k3_run  # noqa: E402
@@ -1429,6 +1439,220 @@ def _dropped_frac_stats(stitched):
             "max": float(np.max(vals))}
 
 
+# --- stitched-leg T0-cluster veto (bulk_v6 / ELIGFIX follow-up) -----------
+
+def _veto_row_copy(tic, pk, row):
+    """The veto's view of one final row: a fresh dict carrying
+    the row's identity (tic, pass) and the veto inputs (T0,
+    event count), plus a fresh flags list — so the veto's flag
+    append never mutates the live record's flags. Pass records
+    carry no tic, so the merge supplies it here; the demotion
+    is copied back onto the live record by the binding's
+    demote()."""
+    return {"tic": str(tic), "pass": pk,
+            "t0_btjd": row.get("t0_btjd"),
+            "n_events": row.get("n_events"),
+            "tier": row.get("tier"),
+            "status": row.get("status"),
+            "flags": list(row.get("flags") or [])}
+
+
+def _apply_veto_demotion(row, copy):
+    """Copy a vetoed copy's demotion onto the live row."""
+    row["status"] = copy["status"]
+    row["disposition"] = copy["disposition"]
+    row["flags"] = copy["flags"]
+
+
+def _null_veto_bindings(rec):
+    """(copy, demote) bindings for one null-leg host record's
+    final rows. A binding's demote() applies the copy's
+    demotion to the live pass record and recomputes the
+    host's survivor flags (the N6 rule: final_rows is the
+    pass-2 + pass-3 survivor count, final_survivor its OR)."""
+    bindings = []
+    for pk in ("pass2", "pass3"):
+        row = rec.get(pk)
+        if not isinstance(row, dict):
+            continue
+        if rec.get(f"{pk}_survivor") is not True:
+            continue
+        copy = _veto_row_copy(rec.get("tic"), pk, row)
+
+        def _demote(copy=copy, row=row, rec=rec, pk=pk):
+            _apply_veto_demotion(row, copy)
+            rec[f"{pk}_survivor"] = False
+            rec["final_rows"] = (
+                int(rec.get("pass2_survivor") is True)
+                + int(rec.get("pass3_survivor") is True))
+            rec["final_survivor"] = bool(rec["final_rows"])
+
+        bindings.append((copy, _demote))
+    return bindings
+
+
+def _null_veto_demoted_count(rec):
+    """Rows in one null-leg host record already carrying a
+    T0-cluster demotion (from this or an earlier merge)."""
+    return sum(1 for pk in ("pass2", "pass3")
+               if isinstance(rec.get(pk), dict)
+               and rec[pk].get("disposition")
+               == _search_health.DEMOTED_T0_CLUSTER)
+
+
+def _campaign_veto_bindings(rec):
+    """(copy, demote) bindings for one campaign-leg host
+    record's final rows. A binding's demote() applies the
+    copy's demotion to the live pass record, clears the
+    trial's p2/p3_recovered + p2/p3_genuine, and recomputes
+    final_recovered/final_genuine (the OR rule at the
+    driver's final_recovered derivation)."""
+    bindings = []
+    for tr in rec.get("trials", []):
+        for pk, stem in (("pass2", "p2"), ("pass3", "p3")):
+            row = tr.get(pk)
+            if not isinstance(row, dict):
+                continue
+            if tr.get(f"{stem}_recovered") is not True:
+                continue
+            copy = _veto_row_copy(tr.get("tic"), pk, row)
+
+            def _demote(copy=copy, row=row, tr=tr, stem=stem):
+                _apply_veto_demotion(row, copy)
+                tr[f"{stem}_recovered"] = False
+                tr[f"{stem}_genuine"] = False
+                tr["final_recovered"] = bool(
+                    tr.get("p2_recovered")
+                    or tr.get("p3_recovered"))
+                tr["final_genuine"] = bool(
+                    tr.get("p2_genuine")
+                    or tr.get("p3_genuine"))
+
+            bindings.append((copy, _demote))
+    return bindings
+
+
+def _campaign_veto_demoted_count(rec):
+    """Rows in one campaign-leg host record already carrying
+    a T0-cluster demotion (from this or an earlier merge)."""
+    return sum(1 for tr in rec.get("trials", [])
+               for pk in ("pass2", "pass3")
+               if isinstance(tr.get(pk), dict)
+               and tr[pk].get("disposition")
+               == _search_health.DEMOTED_T0_CLUSTER)
+
+
+def _apply_stitched_t0_veto(host_files, gather, count_demoted):
+    """Apply the stitched-leg T0-cluster veto to one merge's
+    stitched host records, and return the summary section
+    dict. host_files: [(path, rec)] for the stitched leg's
+    complete host records. gather(rec) returns the (copy,
+    demote) bindings for that record's final rows;
+    count_demoted(rec) counts the rows already carrying a
+    T0-cluster demotion.
+
+    Calibration comes from the stitched host records'
+    `calibration` stamps — the single source of truth, so a
+    fresh run and --merge-only (where args.calibration
+    defaults to bulk_v4) agree. The veto fails closed: a
+    missing, mixed, or unloadable calibration skips the veto
+    with a recorded reason, and a profile with the veto off
+    (v1-v5) leaves every record untouched.
+
+    Demotions land in the host files (atomically rewritten,
+    tmp + replace — the driver's pattern — only for files
+    that had a demotion), so scorers reading the host files
+    see the veto; the merge's counts are computed after the
+    veto, so the summary reflects it too. Re-merging is
+    idempotent: vetoed rows are no longer survivors, so a
+    second merge demotes 0 while demoted_total stays stable.
+
+    Frozen-dir hazard: re-merging an old bulk_v6 run dir
+    applies the veto and rewrites its host files — correct
+    per the calibration, but frozen baselines (M2's run_d2,
+    the M4 run dir) are protected procedurally: never
+    re-merge a frozen dir.
+    """
+    stamps = {rec.get("calibration") for _, rec in host_files}
+    section = {"applied": False, "reason": None, "demoted": 0,
+               "demoted_total": sum(count_demoted(rec)
+                                    for _, rec in host_files),
+               "demoted_pass2": 0, "demoted_pass3": 0,
+               "n_clusters": 0, "cluster_sizes": [],
+               "clusters": [], "demoted_tics": []}
+    if not host_files:
+        section["reason"] = "no stitched host records"
+        return section
+    if len(stamps) != 1 or next(iter(stamps)) is None:
+        section["reason"] = (
+            "stitched calibration undetermined "
+            f"(stamps: {sorted(str(s) for s in stamps)})")
+        return section
+    cal = next(iter(stamps))
+    section["calibration"] = cal
+    previous = bs.CALIBRATION_VERSION
+    try:
+        bs.set_calibration(cal)
+    except Exception as exc:  # noqa: BLE001
+        # _apply_profile may have partially mutated the
+        # globals before failing — restore the previous
+        # calibration before returning.
+        bs.set_calibration(previous)
+        section["reason"] = (f"calibration {cal!r} unloadable: "
+                             f"{exc}")
+        return section
+    try:
+        if not bs.STITCHED_T0_CLUSTER_VETO_ENABLED:
+            section["reason"] = (
+                f"stitched T0-cluster veto off under {cal}")
+            return section
+        bindings = []
+        for path, rec in host_files:
+            for copy, demote in gather(rec):
+                bindings.append((path, copy, demote))
+        copies = [copy for _, copy, _ in bindings]
+        _, veto = bs.apply_stitched_t0_veto(copies)
+        dirty = set()
+        for path, copy, demote in bindings:
+            if copy.get("status") == "demoted":
+                demote()
+                dirty.add(path)
+        for path, rec in host_files:
+            if path in dirty:
+                tmp = path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(_json_safe(rec)))
+                tmp.replace(path)
+        section["applied"] = True
+        section["demoted"] = veto["demoted"]
+        section["demoted_total"] = sum(
+            count_demoted(rec) for _, rec in host_files)
+        section["demoted_pass2"] = veto["demoted_pass2"]
+        section["demoted_pass3"] = veto["demoted_pass3"]
+        section["n_clusters"] = veto["n_clusters"]
+        section["cluster_sizes"] = veto["cluster_sizes"]
+        section["clusters"] = veto["clusters"]
+        section["demoted_tics"] = veto["demoted_tics"]
+        return section
+    finally:
+        bs.set_calibration(previous)
+
+
+def _print_stitched_veto(summary):
+    """One log line for the merge's stitched T0-cluster veto."""
+    veto = summary.get("stitched_t0_cluster_veto") or {}
+    if veto.get("applied"):
+        print(f"[p43] stitched T0-cluster veto: "
+              f"{veto['demoted']} demoted this merge "
+              f"({veto['demoted_pass2']} pass-2, "
+              f"{veto['demoted_pass3']} pass-3; "
+              f"{veto['n_clusters']} clusters, sizes "
+              f"{veto['cluster_sizes']}), "
+              f"{veto['demoted_total']} total", flush=True)
+    else:
+        print(f"[p43] stitched T0-cluster veto: not applied "
+              f"({veto.get('reason')})", flush=True)
+
+
 def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
                        prereg="P43_PREREG.md section 0.7"):
     """Aggregate the paired legs into p43_summary.json and apply
@@ -1463,15 +1687,26 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
                 single[(tr["tic"], tr["sector"],
                         tr["trial_id"])] = tr
     stitched = {}
+    stitched_host_files = []
     for p in sorted((out_dir / "hosts-p43").glob("*.json")):
         try:
             rec = json.loads(p.read_text())
         except ValueError:
             continue
         if rec.get("complete") is True and rec.get("arm") == ARM:
+            stitched_host_files.append((p, rec))
             for tr in rec.get("trials", []):
                 stitched[(tr["tic"], tr["sector"],
                           tr["trial_id"])] = tr
+    # Stitched-leg T0-cluster veto (bulk_v6 / ELIGFIX
+    # follow-up): merge-time, before the paired list is
+    # built — the trial dicts in `stitched` are the same
+    # objects as in the host records, so the demotions land
+    # in the paired stats. Demoted rows are also written
+    # back to the host files (atomically).
+    veto_section = _apply_stitched_t0_veto(
+        stitched_host_files, _campaign_veto_bindings,
+        _campaign_veto_demoted_count)
     keys = sorted(set(single) & set(stitched))
     not_in_manifest = [k for k in keys if k not in man_trials]
     all_hosts = sorted({tr["tic"] for tr in manifest["trials"]})
@@ -1714,6 +1949,7 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
         "checks": checks,
         "failing_checks": failing,
         "verdict": verdict,
+        "stitched_t0_cluster_veto": veto_section,
         "note": ("Verdict rule pre-registered in " + prereg
                  + "; A18 is reported, not part of the "
                  "verdict."),
@@ -1729,6 +1965,7 @@ def merge_null_p43(out_dir):
     bound = ceil(1.25 x pass-1 rows) (A2-style, per ROW)."""
     out_dir = Path(out_dir)
     stitched = []
+    stitched_host_files = []
     for p in sorted((out_dir / "null-p43").glob("*.json")):
         try:
             rec = json.loads(p.read_text())
@@ -1736,6 +1973,7 @@ def merge_null_p43(out_dir):
             continue
         if rec.get("complete") is True and rec.get("arm") == ARM:
             stitched.append(rec)
+            stitched_host_files.append((p, rec))
     single = []
     for p in sorted((out_dir / "null_hosts").glob("*.json")):
         try:
@@ -1744,6 +1982,16 @@ def merge_null_p43(out_dir):
             continue
         if rec.get("complete") is True and rec.get("arm") == ARM:
             single.append(rec)
+
+    # Stitched-leg T0-cluster veto (bulk_v6 / ELIGFIX
+    # follow-up): merge-time, before the aggregation — the
+    # host records in `stitched` are the same objects the
+    # veto demotes, so the headline counts reflect it.
+    # Demoted rows are also written back to the host files
+    # (atomically).
+    veto_section = _apply_stitched_t0_veto(
+        stitched_host_files, _null_veto_bindings,
+        _null_veto_demoted_count)
 
     def _agg(recs):
         n = len(recs)
@@ -1767,6 +2015,7 @@ def merge_null_p43(out_dir):
     s1 = _agg(single)
     summary = {"tool": "p43_run", "mode": "null", "arm": ARM,
                "stitched": s, "single": s1,
+               "stitched_t0_cluster_veto": veto_section,
                "note": ("Stitched pass-1 baseline = the stitched "
                         "UNMASKED screen (pre-registered). Small-n "
                         "caveat: 34 hosts. Bound = ceil(1.25 x "
@@ -1916,6 +2165,7 @@ def main(argv=None):
             summary = merge_campaign_p43(out_dir, manifest,
                                          args.p41b_dir,
                                          args.prereg_ref)
+            _print_stitched_veto(summary)
             print(f"[p43] merged {summary['n_trials_paired']} "
                   f"paired trials; verdict "
                   f"{summary['verdict']} "
@@ -1974,6 +2224,7 @@ def main(argv=None):
         summary = merge_campaign_p43(out_dir, manifest,
                                      args.p41b_dir,
                                      args.prereg_ref)
+        _print_stitched_veto(summary)
         if not summary["null"]["present"]:
             print("[p43] NOTE: null leg not run yet -- the verdict "
                   "above is PENDING the null element (section 0.7 "
@@ -1997,6 +2248,7 @@ def main(argv=None):
     # --- null mode ---
     if args.merge_only:
         summary = merge_null_p43(out_dir)
+        _print_stitched_veto(summary)
         print(f"[p43] null merged: stitched "
               f"{summary['stitched']['pass1_survivors']} -> "
               f"{summary['stitched']['final_rows']} rows "
@@ -2051,6 +2303,7 @@ def main(argv=None):
         print(f"[p43] ERROR TIC {r['tic']}: {r.get('error')}",
               flush=True)
     summary = merge_null_p43(out_dir)
+    _print_stitched_veto(summary)
     print(f"[p43] null done: {done} run, {skipped} skipped, "
           f"{len(failures)} failed; stitched "
           f"{summary['stitched']['pass1_survivors']} -> "

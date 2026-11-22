@@ -176,6 +176,12 @@ from bulk.replay_matrix import (T0_CLUSTER_MIN_SIZE as
                                 _RM_T0_CLUSTER_MIN_SIZE)
 from bulk.replay_matrix import (T0_CLUSTER_TOL_T0_D as
                                 _RM_T0_CLUSTER_TOL_T0_D)
+from bulk.replay_matrix import (STITCHED_T0_CLUSTER_MAX_EVENTS as
+                                _RM_STITCHED_T0_CLUSTER_MAX_EVENTS)
+from bulk.replay_matrix import (STITCHED_T0_CLUSTER_MIN_SIZE as
+                                _RM_STITCHED_T0_CLUSTER_MIN_SIZE)
+from bulk.replay_matrix import (STITCHED_T0_CLUSTER_TOL_T0_D as
+                                _RM_STITCHED_T0_CLUSTER_TOL_T0_D)
 from bulk.replay_matrix import (sector_epoch_cluster_tics as
                                 _sector_epoch_cluster_tics)
 from bulk.replay_matrix import t0_cluster_rows as _t0_cluster_rows
@@ -214,6 +220,10 @@ def _apply_profile(prof):
     global T0_CLUSTER_VETO_ENABLED
     global T0_CLUSTER_TOL_T0_D, T0_CLUSTER_MIN_SIZE
     global T0_CLUSTER_MAX_EVENTS
+    global STITCHED_T0_CLUSTER_VETO_ENABLED
+    global STITCHED_T0_CLUSTER_TOL_T0_D
+    global STITCHED_T0_CLUSTER_MIN_SIZE
+    global STITCHED_T0_CLUSTER_MAX_EVENTS
     global K3_JOIN_AFTER_VETO
     global MASK_GATE_ENABLED, MASK_GATE_DEPTH_PCT
     global MASK_GATE_PERIOD_D
@@ -344,6 +354,43 @@ def _apply_profile(prof):
             f"— expected the F-1 criterion "
             f"({_RM_T0_CLUSTER_TOL_T0_D}, {_RM_T0_CLUSTER_MIN_SIZE}, "
             f"{_RM_T0_CLUSTER_MAX_EVENTS}) from bulk/replay_matrix.py")
+    # Stitched-leg T0-cluster veto (bulk_v6, ELIGFIX
+    # follow-up 2026-11-22): F-1 extended to the stitched
+    # leg. Profiles that predate the keys mean the veto OFF
+    # — a frozen profile's behaviour must not change. The
+    # criterion defaults to the stitched values (inert
+    # while the veto is off). A profile that declares
+    # criterion values MUST match replay_matrix's stitched
+    # constants: the criterion is measured and frozen —
+    # fail loud here, never silently at merge time.
+    STITCHED_T0_CLUSTER_VETO_ENABLED = bool(prof.get(
+        "stitched_t0_cluster_veto_enabled", False))
+    STITCHED_T0_CLUSTER_TOL_T0_D = float(prof.get(
+        "stitched_t0_cluster_tol_t0_d",
+        _RM_STITCHED_T0_CLUSTER_TOL_T0_D))
+    STITCHED_T0_CLUSTER_MIN_SIZE = int(prof.get(
+        "stitched_t0_cluster_min_size",
+        _RM_STITCHED_T0_CLUSTER_MIN_SIZE))
+    STITCHED_T0_CLUSTER_MAX_EVENTS = int(prof.get(
+        "stitched_t0_cluster_max_events",
+        _RM_STITCHED_T0_CLUSTER_MAX_EVENTS))
+    if (STITCHED_T0_CLUSTER_TOL_T0_D
+            != _RM_STITCHED_T0_CLUSTER_TOL_T0_D
+            or STITCHED_T0_CLUSTER_MIN_SIZE
+            != _RM_STITCHED_T0_CLUSTER_MIN_SIZE
+            or STITCHED_T0_CLUSTER_MAX_EVENTS
+            != _RM_STITCHED_T0_CLUSTER_MAX_EVENTS):
+        raise _CalibrationError(
+            f"calibration profile {prof['version']!r} declares "
+            f"stitched T0-cluster criterion "
+            f"({STITCHED_T0_CLUSTER_TOL_T0_D}, "
+            f"{STITCHED_T0_CLUSTER_MIN_SIZE}, "
+            f"{STITCHED_T0_CLUSTER_MAX_EVENTS}) "
+            f"— expected the stitched criterion "
+            f"({_RM_STITCHED_T0_CLUSTER_TOL_T0_D}, "
+            f"{_RM_STITCHED_T0_CLUSTER_MIN_SIZE}, "
+            f"{_RM_STITCHED_T0_CLUSTER_MAX_EVENTS}) "
+            f"from bulk/replay_matrix.py")
     # B-1 K=3 join order (bulk_v6): profiles that predate the
     # key mean False (join before the veto) — a frozen
     # profile's behaviour must not change.
@@ -2245,6 +2292,145 @@ def apply_t0_cluster_veto(survivors, hits=None, tol_t0_d=None,
         "demoted_pass1": demoted_pass1,
         "demoted_k3": demoted_k3,
         # A TIC can lose two rows (pass-1 + K=3); the TIC
+        # list is deduplicated, the demoted count is in rows.
+        "demoted_tics": sorted(set(demoted_tics)),
+    }
+    return kept, summary
+
+
+# --- Stitched-leg T0-cluster veto (bulk_v6 / ELIGFIX follow-up) -----------
+
+def apply_stitched_t0_veto(survivors, hits=None, tol_t0_d=None,
+                           min_size=None, max_events=None):
+    """Apply the stitched-leg T0-cluster veto (bulk_v6) to a
+    campaign's stitched final rows. Returns
+    (kept_rows, summary).
+
+    `survivors`: the stitched leg's final rows (pass-2/pass-3
+    survivors across all hosts of one merge). `hits`: the full
+    stitched records, or None; when given, the veto updates
+    the hit copies in place (keyed by (tic, pass)), so a
+    caller that keeps a separate record set stays consistent.
+    Tolerances default to the profile-derived module globals
+    (the stitched criterion).
+
+    Criterion (ELIGFIX follow-up 2026-11-22, option #1;
+    implemented by replay_matrix's t0_cluster_rows — called
+    here, not re-implemented): cluster few-event rows by T0
+    ALONE within 3 h (union-find LINKAGE — transitive
+    chaining, not fixed bins); clusters of >= 3 rows are
+    T0-CLUSTER. Members are DEMOTED (status "demoted",
+    disposition DEMOTED_T0_CLUSTER, flag T0_CLUSTER) and
+    removed from the kept rows.
+
+    Why the stitched leg needs its own veto: F-1 covers the
+    single leg only. The stitched leg had NO T0 veto — the
+    scorer removed clusters post-hoc (the diagnosis-style
+    residual), which measures the contamination but leaves
+    the rows in the queue. The ELIGFIX follow-up measured
+    the paired D2st count at 74 rows, of which 29 fall in
+    few-event T0 clusters (14/9/3/3) — and 7 of the 12
+    rows the ELIGFIX re-screens gained were 0-event BLS
+    phantoms sitting in exactly those clusters.
+
+    The bar is >= 3, not F-1's > 20: the largest few-event
+    cluster in the paired D2 run is 14 rows (scales to ~19
+    at the full 3,688-host pool), so F-1's bar would never
+    fire on the stitched leg. The few-event scope is
+    LOAD-BEARING: without it, a T0 veto at bar >= 3 would
+    remove 145/170 (85%) of the M4-p43 planets —
+    short-period planets' first transits legitimately pile
+    up within a few days of the baseline start. With the
+    scope the cost is 0/170. Multi-event rows are never
+    veto targets: the exclusion operates through the
+    event-count filter, not a tier check (tier A requires
+    >= 3 events, so no tier-A row can be in the input).
+    Rows without a T0 stay unclustered (kept); rows without
+    an event count are not shown to be few-event and stay
+    kept too.
+
+    The D-F1K3 counting rule does NOT apply here: stitched
+    rows have no K=3 join, so the bar counts every
+    few-event row in the cluster. Demotion is ROW-level, not
+    TIC-level: a host's pass-2 row can sit in a cluster
+    while its pass-3 row does not, and the non-clustered
+    row must survive.
+
+    Merge-only, never per-host: clusters span hosts, so a
+    per-host veto would under-demote. The callers are
+    p43_run's merges (merge_null_p43 and
+    merge_campaign_p43), gated on the profile's
+    stitched_t0_cluster_veto_enabled as stamped on the
+    stitched host records. Demotion is reversible: demoted
+    rows keep their disposition and stay queryable in the
+    host files. Nothing is deleted anywhere. Re-merging is
+    idempotent: vetoed rows are no longer survivors, so a
+    second merge finds nothing new to demote.
+    """
+    if tol_t0_d is None:
+        tol_t0_d = STITCHED_T0_CLUSTER_TOL_T0_D
+    if min_size is None:
+        min_size = STITCHED_T0_CLUSTER_MIN_SIZE
+    if max_events is None:
+        max_events = STITCHED_T0_CLUSTER_MAX_EVENTS
+    clusterable = [r for r in survivors
+                   if r.get("n_events") is not None
+                   and r["n_events"] <= max_events
+                   and r.get("t0_btjd") is not None]
+    qualifying = _t0_cluster_rows(
+        clusterable, tol_t0_d=tol_t0_d, min_size=min_size)
+    # Row-level demotion targets: the indices (into
+    # `clusterable`) of every row in a qualifying cluster.
+    demote_idx = {i for c in qualifying for i in c}
+    hits_by_key = {}
+    if hits is not None:
+        for r in hits:
+            hits_by_key.setdefault((r["tic"], r.get("pass")), r)
+    kept = []
+    demoted_tics = []
+    demoted_pass2 = 0
+    demoted_pass3 = 0
+
+    def _demote(r):
+        hit = hits_by_key.get((r["tic"], r.get("pass")))
+        target = hit if hit is not None else r
+        target["status"] = "demoted"
+        target["disposition"] = _search_health.DEMOTED_T0_CLUSTER
+        _append_flag(target, T0_CLUSTER_FLAG)
+
+    for i, r in enumerate(clusterable):
+        if i not in demote_idx:
+            continue
+        _demote(r)
+        demoted_tics.append(r["tic"])
+        if r.get("pass") == "pass3":
+            demoted_pass3 += 1
+        else:
+            demoted_pass2 += 1
+    demoted_ids = {id(clusterable[i]) for i in demote_idx}
+    for r in survivors:
+        if id(r) not in demoted_ids:
+            kept.append(r)
+    summary = {
+        "n_clusters": len(qualifying),
+        "cluster_sizes": sorted((len(c) for c in qualifying),
+                                reverse=True),
+        # Cluster identity + membership (the P4-2 pattern):
+        # cluster_id is the rank in largest-first order
+        # (0 = largest); members are the cluster's TICs,
+        # sorted; size is in rows. There is no
+        # n_pass1_counted here — the D-F1K3 rule is
+        # single-leg-only; the bar counts every few-event
+        # row in the cluster.
+        "clusters": [{"cluster_id": i, "size": len(c),
+                      "members": sorted(clusterable[j]["tic"]
+                                        for j in c)}
+                     for i, c in enumerate(qualifying)],
+        "n_clustered": len(demote_idx),
+        "demoted": len(demoted_tics),
+        "demoted_pass2": demoted_pass2,
+        "demoted_pass3": demoted_pass3,
+        # A TIC can lose two rows (pass-2 + pass-3); the TIC
         # list is deduplicated, the demoted count is in rows.
         "demoted_tics": sorted(set(demoted_tics)),
     }
