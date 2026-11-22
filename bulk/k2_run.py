@@ -71,6 +71,7 @@ import numpy as np  # noqa: E402
 import bulk_screen as bs  # noqa: E402
 from bulk import k2_prototype as k2  # noqa: E402
 from bulk import oracle_run as orc  # noqa: E402
+from bulk import pass1_carry as p1c  # noqa: E402
 from bulk.inject_campaign import check_recovery, inject_trial  # noqa: E402
 from bulk.inject_real_s96 import (load_real_fits,  # noqa: E402
                                   write_injected_fits)
@@ -167,6 +168,18 @@ def run_host_campaign(job):
             # the estimation). Same reproduction check as the oracle.
             p1 = _screen(inj_path, tic, sector)
             r["pass1"] = orc._subset(p1)
+            # 5.1 scorer half (S3): the pass-1 epoch delta the
+            # any-stage scorer reads (pass1_recovers) — the K=2
+            # analog of k3_run's PIPE50-9b recording. Without
+            # it, any-stage scoring on K=2 records is vacuous
+            # (the scorer derives it from the stored t0 on old
+            # records, but new runs record it directly).
+            delta1 = k2.epoch_delta(p1.get("t0_btjd"),
+                                    tr["epoch_btjd"],
+                                    tr["period_d"])
+            r["epoch_delta_over_d_pass1"] = (
+                abs(delta1) / tr["duration_d"]
+                if delta1 is not None else None)
             rec = tr["recorded"]
             p_rec = rec.get("period_days")
             s_rec = rec.get("sde")
@@ -183,6 +196,26 @@ def run_host_campaign(job):
             # --- prototype estimation (recorded period + fold only)
             if p_rec is None:
                 r["error"] = "no-recorded-period"
+                # 5.1 design (A) §4.4: no recorded period, no
+                # mask, no veto reference — the pass-1 survivor
+                # is still carried (the veto is skipped, reason
+                # recorded); dropping it would be a silent
+                # deletion of exactly the kind §4.7 forbids.
+                _carry, _audit = p1c.build_carried_row(
+                    r["pass1"],
+                    veto_skipped_reason="no-recorded-period")
+                r["pass1_carried"] = _carry
+                r["alias_veto_carried"] = _audit["alias_veto"]
+                if _carry is not None:
+                    _carry["deduped_with"] = None
+                (r["p1_carried_recovered"],
+                 r["p1_carried_genuine"]) = (
+                    p1c.carried_recovery_verdict(
+                        _carry, _audit["alias_veto"], tr))
+                r["final_recovered"] = bool(
+                    r["p1_carried_recovered"])
+                r["final_genuine"] = bool(
+                    r["p1_carried_genuine"])
                 results.append(r)
                 if not keep_fits:
                     os.remove(inj_path)
@@ -242,6 +275,34 @@ def run_host_campaign(job):
                     r["k2_recovered"] and r["epoch_match"])
                 if not keep_fits:
                     os.remove(mask_path)
+            # 5.1 design (A) §4.4: preserve the pass-1 survivor
+            # as a carried final row — in the stopped branch
+            # too (§4.4.5: the cap stops the masked re-search,
+            # not the preservation; the stopped mask stats
+            # carry the half-width, so the alias veto still
+            # applies). The veto reference is the ephemeris +
+            # mask stats (same as pass-2's veto). No F-2 in
+            # this legacy driver — it implements none anywhere
+            # (adding it only to carried rows would be
+            # inconsistent; adding it to pass-2 would change
+            # the closed P4-1a campaign).
+            _carry, _audit = p1c.build_carried_row(
+                r["pass1"],
+                veto_ref=p1c.veto_ref_from(ephemeris, mstats))
+            r["pass1_carried"] = _carry
+            r["alias_veto_carried"] = _audit["alias_veto"]
+            if _carry is not None:
+                _carry["deduped_with"] = p1c.dedupe_carried(
+                    _carry, r.get("pass2"), None,
+                    tr["duration_d"])
+            (r["p1_carried_recovered"],
+             r["p1_carried_genuine"]) = (
+                p1c.carried_recovery_verdict(
+                    _carry, _audit["alias_veto"], tr))
+            r["final_recovered"] = bool(
+                r["k2_recovered"] or r["p1_carried_recovered"])
+            r["final_genuine"] = bool(
+                r["k2_genuine"] or r["p1_carried_genuine"])
             if not keep_fits:
                 os.remove(inj_path)
         except Exception as exc:  # noqa: BLE001
@@ -327,6 +388,29 @@ def run_host_null(job):
                     p2.get("status") == "survivor")
                 if not keep_fits:
                     os.remove(mask_path)
+        # 5.1 design (A) §4.4: preserve the pass-1 survivor as
+        # a carried final row — in every branch, including
+        # stopped (§4.4.5) and no-pass1-period (no carry is
+        # possible there; the build returns None). The null
+        # leg skips the alias veto (the ephemeris is seeded
+        # from pass-1 itself — degenerate, reason recorded).
+        # No F-2 in this legacy driver. final_survivor is the
+        # carried OR pass-2 survivor; final_rows counts
+        # distinct final rows (dedupe applied).
+        _carry, _audit = p1c.build_carried_row(
+            r["pass1"],
+            veto_skipped_reason="null-leg-no-independent-reference")
+        r["pass1_carried"] = _carry
+        r["alias_veto_carried"] = _audit["alias_veto"]
+        _dur = ((_carry or {}).get("duration_hours") or 0) / 24.0
+        if _carry is not None:
+            _carry["deduped_with"] = p1c.dedupe_carried(
+                _carry, r.get("pass2"), None, _dur)
+        r["pass1_carried_survivor"] = p1c.carried_survivor(_carry)
+        r["final_rows"] = p1c.count_final_rows(
+            _carry, r.get("pass2"), None, _dur)
+        r["final_survivor"] = bool(
+            r["pass1_carried_survivor"] or r["pass2_survivor"])
         if not keep_fits:
             os.remove(raw_path)
     except Exception as exc:  # noqa: BLE001
@@ -378,6 +462,14 @@ def merge_campaign(out_dir, manifest):
                 if tr.get("k2_recovered") is True)
     genuine = sum(1 for tr in k2_trials
                   if tr.get("k2_genuine") is True)
+    # 5.1: the carried pass-1 row joins the final list, so the
+    # final counts (carried OR pass-2) are reported alongside
+    # the pre-registered k2 counts — the P4-1a gate still uses
+    # k2_recovered only.
+    final_recov = sum(1 for tr in k2_trials
+                      if tr.get("final_recovered") is True)
+    final_genuine = sum(1 for tr in k2_trials
+                        if tr.get("final_genuine") is True)
     by_g = {g: {"n": len(by_group.get(g, [])),
                 "recovered": sum(
                     1 for tr in by_group.get(g, [])
@@ -523,6 +615,8 @@ def merge_campaign(out_dir, manifest):
             "oracle_genuine": ORACLE_GENUINE,
             "k2_recovered": recov,
             "k2_genuine": genuine,
+            "final_recovered": final_recov,
+            "final_genuine": final_genuine,
             "fraction_of_oracle_bound": (
                 recov / ORACLE_RECOVERED if ORACLE_RECOVERED
                 else None)},
@@ -588,6 +682,12 @@ def merge_null(out_dir):
     n = len(records)
     p1_s = sum(1 for r in records if r.get("pass1_survivor") is True)
     p2_s = sum(1 for r in records if r.get("pass2_survivor") is True)
+    # 5.1: the carried pass-1 row joins the final list.
+    p1c_s = sum(1 for r in records
+                if r.get("pass1_carried_survivor") is True)
+    fin_s = sum(1 for r in records
+                if r.get("final_survivor") is True)
+    fin_rows = sum(int(r.get("final_rows") or 0) for r in records)
     stopped = sum(1 for r in records
                   if (r.get("k2_mask") or {}).get("stopped") is True)
     no_p1 = sum(1 for r in records
@@ -597,8 +697,12 @@ def merge_null(out_dir):
         "n_hosts": n,
         "pass1_survivors": p1_s,
         "pass2_survivors": p2_s,
+        "pass1_carried_survivors": p1c_s,
+        "final_survivors": fin_s,
+        "final_rows": fin_rows,
         "pass1_per_1000": (1000.0 * p1_s / n if n else None),
         "pass2_per_1000": (1000.0 * p2_s / n if n else None),
+        "final_per_1000": (1000.0 * fin_rows / n if n else None),
         "delta_per_1000": (1000.0 * (p2_s - p1_s) / n if n else None),
         "n_stopped_duty_cycle": stopped,
         "n_no_pass1_period": no_p1,

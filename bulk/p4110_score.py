@@ -217,9 +217,37 @@ def leg_recovers(leg, trial, vetoed, epoch_over_d, bars,
     return tier_a_at_gate(leg, bars)
 
 
+def carried_recovers(rec, trial, bars, epoch_tol_dur=1.0):
+    """The 5.1 carried row recovers the trial at gate
+    bars.mes_gate. The carried row IS the pass-1 screen (a
+    copy), so its epoch delta is the pass-1 delta (recorded,
+    or derived from the stored t0 as for pass1_recovers);
+    the alias veto is the driver's alias_veto_carried. F-2
+    demotion is handled by tier_a_at_gate (demoted rows never
+    recover). Returns False on pre-5.1 records (no
+    pass1_carried key) — the final-only rule is unchanged
+    for them."""
+    vetoed = bool((rec.get("alias_veto_carried") or {}).get(
+        "vetoed"))
+    od = rec.get("epoch_delta_over_d_pass1")
+    if od is None:
+        od = _derive_epoch_delta_over_d_pass1(rec, trial)
+    if od is None:
+        # No pass-1 record at all — the carried row carries
+        # the same t0; derive from it.
+        carried = rec.get("pass1_carried") or {}
+        od = _derive_epoch_delta_over_d_pass1(
+            {"pass1": carried}, trial)
+    return leg_recovers(
+        rec.get("pass1_carried"), trial, vetoed, od, bars,
+        epoch_tol_dur)
+
+
 def trial_recovers(trial_rec, trial, bars, epoch_tol_dur=1.0):
     """A campaign trial record (stitched or single leg shape)
-    recovers iff pass 2 OR pass 3 recovers."""
+    recovers iff pass 2 OR pass 3 OR the 5.1 carried pass-1
+    row recovers. Pre-5.1 records carry no pass1_carried key,
+    so the rule is unchanged for them."""
     p2 = leg_recovers(
         trial_rec.get("pass2"), trial,
         bool((trial_rec.get("alias_veto") or {}).get("vetoed")),
@@ -231,16 +259,21 @@ def trial_recovers(trial_rec, trial, bars, epoch_tol_dur=1.0):
             "vetoed")),
         trial_rec.get("epoch_delta_over_d_pass3"), bars,
         epoch_tol_dur)
-    return bool(p2 or p3)
+    pc = carried_recovers(trial_rec, trial, bars, epoch_tol_dur)
+    return bool(p2 or p3 or pc)
 
 
 def null_survivor_at_gate(null_rec, bars):
     """A null host record (stitched or single shape) is a false
-    survivor at the gate iff its pass-2 OR pass-3 screen record
-    is tier-A at the gate. (No period/epoch match -- nothing
-    was injected.)"""
+    survivor at the gate iff its pass-2 OR pass-3 OR 5.1
+    carried screen record is tier-A at the gate. (No
+    period/epoch match -- nothing was injected.) Pre-5.1
+    records carry no pass1_carried key, so the rule is
+    unchanged for them."""
     return bool(tier_a_at_gate(null_rec.get("pass2"), bars)
-                or tier_a_at_gate(null_rec.get("pass3"), bars))
+                or tier_a_at_gate(null_rec.get("pass3"), bars)
+                or tier_a_at_gate(null_rec.get("pass1_carried"),
+                                  bars))
 
 
 # ---------------------------------------------------------------------------
@@ -248,23 +281,56 @@ def null_survivor_at_gate(null_rec, bars):
 # ---------------------------------------------------------------------------
 # The section 0.4 rule is stage-agnostic: a trial is recovered
 # iff ANY pass (1, 2, or 3) finds it. trial_recovers above
-# (final-only: pass 2 OR pass 3) stays for comparability (the
-# 4.1-10 curve is published final-only), but it understates
+# (final-only) stays for comparability (the 4.1-10 curve is
+# published final-only), but on pre-5.1 records it understates
 # sensitivity 4-8x — the K=2 mask deletes what pass 1 found,
-# so final-only and pass-1 recovery are DISJOINT. Promoted
-# here from p413_score.py (which re-exports them) so every
-# scorer shares the rule.
+# so final-only and pass-1 recovery are DISJOINT there. On
+# 5.1 records the final list includes the carried pass-1 row,
+# so final-only and any-stage agree except where a named
+# downstream gate (F-1/F-2/alias/tier/MES) removes the carry.
+# Promoted here from p413_score.py (which re-exports them) so
+# every scorer shares the rule.
+
+def _derive_epoch_delta_over_d_pass1(rec, trial):
+    """|wrapped T0 delta| / duration for the pass-1 screen,
+    from the stored pass-1 t0 — the driver's own computation
+    (k3_run/p43_run record this as epoch_delta_over_d_pass1).
+    None when the pass-1 t0 or the trial ephemeris is missing.
+    The import is lazy: k2_prototype pulls the campaign stack,
+    and the scorer stays light (it runs on frozen JSONs)."""
+    p1 = rec.get("pass1") or {}
+    t0 = p1.get("t0_btjd")
+    epoch = trial.get("epoch_btjd")
+    period = trial.get("period_d")
+    duration = trial.get("duration_d")
+    if (t0 is None or epoch is None or period is None
+            or duration is None or not duration):
+        return None
+    from bulk import k2_prototype as k2  # noqa: E402
+    delta = k2.epoch_delta(t0, epoch, period)
+    if delta is None:
+        return None
+    return abs(delta) / float(duration)
+
 
 def pass1_recovers(rec, trial, bars, epoch_tol_dur=1.0):
     """The pass-1 (unmasked) screen recovers the trial at gate
     bars.mes_gate. No alias veto is recorded for pass 1, so
     none is applied (the PIPE50 section 7.3 precedent -- the
     official scorer applies the veto only to pass 2/3; vetoed
-    trials are few). Returns False when the record carries no
-    pass-1 screen or no pass-1 epoch delta (old runs)."""
+    trials are few). When the record carries no pass-1 epoch
+    delta (pre-PIPE50-9b runs -- notably the bright-star
+    single leg, bulk_v5), the delta is derived from the stored
+    pass-1 t0 (5.1 scorer half, S3): the t0 is stored, so the
+    derivation is exact -- bit-identical to the recorded value
+    where both exist (see tests/test_pass1_carry.py). Returns
+    False when the record carries no pass-1 screen at all (old
+    runs without record_pass1_stitched)."""
+    od = rec.get("epoch_delta_over_d_pass1")
+    if od is None:
+        od = _derive_epoch_delta_over_d_pass1(rec, trial)
     return leg_recovers(
-        rec.get("pass1"), trial, False,
-        rec.get("epoch_delta_over_d_pass1"), bars, epoch_tol_dur)
+        rec.get("pass1"), trial, False, od, bars, epoch_tol_dur)
 
 
 def trial_recovers_anystage(rec, trial, bars, epoch_tol_dur=1.0):
@@ -286,11 +352,15 @@ def null_survivor_anystage(null_rec, bars):
 
 def null_survivor_finalonly(null_rec, bars):
     """A null host record is a false survivor (final-only)
-    iff its pass-2 OR pass-3 screen record is tier-A at the
-    gate -- the 4.1-10 comparability definition (identical to
-    null_survivor_at_gate above)."""
+    iff its pass-2 OR pass-3 OR 5.1 carried screen record is
+    tier-A at the gate -- the 4.1-10 comparability definition
+    (identical to null_survivor_at_gate above). Pre-5.1
+    records carry no pass1_carried key, so the rule is
+    unchanged for them."""
     return bool(tier_a_at_gate(null_rec.get("pass2"), bars)
-                or tier_a_at_gate(null_rec.get("pass3"), bars))
+                or tier_a_at_gate(null_rec.get("pass3"), bars)
+                or tier_a_at_gate(null_rec.get("pass1_carried"),
+                                  bars))
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +504,14 @@ def score_campaign(manifest, run_dir, bars, run_gate, partial=False):
                                      1.0)
                             and sub.get("status") == "survivor"):
                         ok = True
+                # 5.1: the carried row is a final leg too — a
+                # carry-only recovery must pass the same check
+                # (carried_recovers handles the epoch-delta
+                # derivation for old records).
+                if (carried_recovers(rec, m_tr, bars, 1.0)
+                        and (rec.get("pass1_carried") or {}).get(
+                            "status") == "survivor"):
+                    ok = True
                 if not ok:
                     cross_mismatch += 1
             rows.append({"key": key, "trial": m_tr,

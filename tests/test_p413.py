@@ -347,9 +347,28 @@ class TestAnyStageScoring(unittest.TestCase):
         self.assertFalse(score.trial_recovers_anystage(
             rec, manifest_trial(), self.bars, 1.0))
 
-    def test_pass1_missing_epoch_does_not_count(self):
+    def test_pass1_missing_epoch_derived_from_t0(self):
+        # 5.1 scorer half (S3, RATIFIED): the pass-1 epoch
+        # delta is DERIVED from the stored t0 when the record
+        # predates PIPE50-9b — the t0 is stored in every
+        # record, so a missing recorded delta no longer means
+        # "unmeasurable". This test formerly asserted False
+        # (no derivation); the ratified rule counts the trial
+        # when the derived delta is within tolerance.
         rec = trial_rec(
             pass1=tier_a_subset(), od1=None,
+            pass2=None, pass3=None)
+        self.assertTrue(score.trial_recovers_anystage(
+            rec, manifest_trial(), self.bars, 1.0))
+
+    def test_pass1_missing_t0_does_not_count(self):
+        # The true "missing epoch" case under 5.1: no
+        # recorded delta AND no stored t0 — nothing to
+        # derive from, so the trial does not count.
+        p1 = tier_a_subset()
+        p1["t0_btjd"] = None
+        rec = trial_rec(
+            pass1=p1, od1=None,
             pass2=None, pass3=None)
         self.assertFalse(score.trial_recovers_anystage(
             rec, manifest_trial(), self.bars, 1.0))

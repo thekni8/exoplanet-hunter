@@ -2390,6 +2390,7 @@ def apply_stitched_t0_veto(survivors, hits=None, tol_t0_d=None,
     demoted_tics = []
     demoted_pass2 = 0
     demoted_pass3 = 0
+    demoted_pass1_carried = 0
 
     def _demote(r):
         hit = hits_by_key.get((r["tic"], r.get("pass")))
@@ -2405,6 +2406,8 @@ def apply_stitched_t0_veto(survivors, hits=None, tol_t0_d=None,
         demoted_tics.append(r["tic"])
         if r.get("pass") == "pass3":
             demoted_pass3 += 1
+        elif r.get("pass") == "pass1_carried":
+            demoted_pass1_carried += 1
         else:
             demoted_pass2 += 1
     demoted_ids = {id(clusterable[i]) for i in demote_idx}
@@ -2430,6 +2433,7 @@ def apply_stitched_t0_veto(survivors, hits=None, tol_t0_d=None,
         "demoted": len(demoted_tics),
         "demoted_pass2": demoted_pass2,
         "demoted_pass3": demoted_pass3,
+        "demoted_pass1_carried": demoted_pass1_carried,
         # A TIC can lose two rows (pass-2 + pass-3); the TIC
         # list is deduplicated, the demoted count is in rows.
         "demoted_tics": sorted(set(demoted_tics)),

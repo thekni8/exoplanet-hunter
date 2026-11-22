@@ -123,6 +123,7 @@ from bulk import k3_prototype as k3  # noqa: E402
 from bulk import k3_run  # noqa: E402
 from bulk import oracle_run as orc  # noqa: E402
 from bulk import p43_stitch as p43  # noqa: E402
+from bulk import pass1_carry as p1c  # noqa: E402
 from bulk.inject_campaign import check_recovery  # noqa: E402
 from bulk.inject_real_s96 import load_real_fits  # noqa: E402
 from bulk.inject_real_s96 import write_injected_fits  # noqa: E402
@@ -860,6 +861,17 @@ def run_host_campaign_p43(job):
             r["inj_check_ok"] = all(
                 v.get("inj_check_ok") is True
                 for v in per_sector.values())
+            # F-2 (bulk_v6): the flagged source for the stitched
+            # leg is the PER-SECTOR pass-1 records (always in
+            # scope; the stitched pass-1 exists only when
+            # record_pass1 is on, so it is not a source —
+            # per-sector only, same in both legs). Computed
+            # here (before the all-sectors-stopped early
+            # continue) so the 5.1 carried row in the stopped
+            # branch sees it too; the pass-2 carry below
+            # reuses it.
+            flagged = orc.flagged_periods(
+                [v.get("pass1") for v in per_sector.values()])
             # Stitched pass-1 screen (PIPE50-9c, flag-gated):
             # screen the UNMASKED stitch -- all sectors, full
             # arrays, no keep mask applied -- and record it per
@@ -927,6 +939,26 @@ def run_host_campaign_p43(job):
                           "final_genuine": False,
                           "total_dropped_frac": None,
                           "sector_consistency": None})
+                # 5.1 design (A) §4.4.5: the cap stops the
+                # masked re-search, not the preservation — a
+                # stitched pass-1 survivor is still carried
+                # (no contaminants exist here: no sector
+                # masked — the veto has no references).
+                _carry, _audit = p1c.build_carried_row(
+                    r.get("pass1"), flagged=flagged,
+                    contaminants=[])
+                r["pass1_carried"] = _carry
+                r["alias_veto_carried"] = _audit["alias_veto"]
+                if _carry is not None:
+                    _carry["deduped_with"] = None
+                (r["p1_carried_recovered"],
+                 r["p1_carried_genuine"]) = (
+                    p1c.carried_recovery_verdict(
+                        _carry, _audit["alias_veto"], tr))
+                r["final_recovered"] = bool(
+                    r["p1_carried_recovered"])
+                r["final_genuine"] = bool(
+                    r["p1_carried_genuine"])
                 r["seconds"] = round(time.time() - t_tr, 2)
                 results.append(r)
                 continue
@@ -938,13 +970,8 @@ def run_host_campaign_p43(job):
             bounds = [(m["sector"], float(np.min(m["t"])),
                        float(np.max(m["t"]))) for m in masked]
             t_p2s = time.time()
-            # F-2 (bulk_v6): the flagged source for the
-            # stitched leg is the PER-SECTOR pass-1 records
-            # (always in scope; the stitched pass-1 exists
-            # only when record_pass1 is on, so it is not a
-            # source — per-sector only, same in both legs).
-            flagged = orc.flagged_periods(
-                [v.get("pass1") for v in per_sector.values()])
+            # `flagged` (F-2 source) was computed above, before
+            # the stopped early-continue — reused here.
             # D-MASK-STITCHED (bulk_v6, design section 5.2): when
             # NO sector masked, the masked stitch IS the
             # unmasked stitch, so the stitched pass-2 screen
@@ -1038,10 +1065,33 @@ def run_host_campaign_p43(job):
                 else:
                     r["sector_consistency"] = _consistency_at(
                         t_s, f_s, q_s, bounds, p2)
+            # 5.1 design (A) §4.4: preserve the stitched pass-1
+            # survivor as a carried final row. The alias-veto
+            # references are the masked contaminants, with
+            # same-period entries excluded (the original-sector
+            # entry is seeded from the fresh pass-1 itself —
+            # vetoing against it would veto the signal by
+            # itself; see bulk/pass1_carry.py). Dedupe against
+            # pass-2/3 (a deduped carry is not a loss).
+            _carry, _audit = p1c.build_carried_row(
+                r.get("pass1"), flagged=flagged,
+                contaminants=contaminants)
+            r["pass1_carried"] = _carry
+            r["alias_veto_carried"] = _audit["alias_veto"]
+            if _carry is not None:
+                _carry["deduped_with"] = p1c.dedupe_carried(
+                    _carry, r.get("pass2"), r.get("pass3"),
+                    tr["duration_d"])
+            (r["p1_carried_recovered"],
+             r["p1_carried_genuine"]) = (
+                p1c.carried_recovery_verdict(
+                    _carry, _audit["alias_veto"], tr))
             r["final_recovered"] = bool(
-                r["p2_recovered"] or r["p3_recovered"])
+                r["p2_recovered"] or r["p3_recovered"]
+                or r["p1_carried_recovered"])
             r["final_genuine"] = bool(
-                r["p2_genuine"] or r["p3_genuine"])
+                r["p2_genuine"] or r["p3_genuine"]
+                or r["p1_carried_genuine"])
             # Total dropped fraction (review 2026-11-18): the
             # pass-3 union cap binds 25% of the STITCHED curve's
             # valid cadences (pre-registration section 0.4 as
@@ -1264,23 +1314,45 @@ def run_host_null_p43(job):
         # the M2 scorer's flag-based D2st host count read 0.00.
         # Same semantics as k3_run: pass-2 OR pass-3 survivor.
         r["final_survivor"] = False
+        # F-2 (bulk_v6): as in the campaign leg — the flagged
+        # source is the per-sector pass-1 records. (The
+        # stitched pass-1 baseline above is always recorded
+        # in this leg, but it is not a source — per-sector
+        # only, same in both legs.) Computed here (before the
+        # all-sectors-stopped branch) so the 5.1 carried row
+        # there sees it too; the pass-2 carry below reuses it.
+        flagged = orc.flagged_periods(
+            [v.get("pass1") for v in per_sector.values()])
         if not masked:
             r.update({"pass2": None, "pass3": None,
                       "note": "all-sectors-stopped",
                       "final_rows": 0})
+            # 5.1 design (A) §4.4.5: the cap stops the masked
+            # re-search, not the preservation — a stitched
+            # pass-1 survivor is still carried (no contaminants
+            # exist here; the null leg skips the alias veto —
+            # no independent reference, see the k3_run null
+            # leg). final_rows / final_survivor follow the
+            # carried row alone.
+            _carry, _audit = p1c.build_carried_row(
+                r["pass1"], flagged=flagged,
+                veto_skipped_reason="null-leg-no-independent-reference")
+            r["pass1_carried"] = _carry
+            r["alias_veto_carried"] = _audit["alias_veto"]
+            if _carry is not None:
+                _carry["deduped_with"] = None
+            r["pass1_carried_survivor"] = p1c.carried_survivor(
+                _carry)
+            r["final_rows"] = int(r["pass1_carried_survivor"])
+            r["final_survivor"] = bool(r["final_rows"])
         else:
             t_s, f_s, q_s, tracking = p43.stitch_weighted(
                 masked, sigmas)
             r["stitch"] = tracking
             r["excluded_sectors"] = sorted(
                 set(sectors) - {m["sector"] for m in masked})
-            # F-2 (bulk_v6): as in the campaign leg — the
-            # flagged source is the per-sector pass-1
-            # records. (The stitched pass-1 baseline above
-            # is always recorded in this leg, but it is not
-            # a source — per-sector only, same in both legs.)
-            flagged = orc.flagged_periods(
-                [v.get("pass1") for v in per_sector.values()])
+            # `flagged` (F-2 source) was computed above, before
+            # the stopped branch — reused here.
             # D-MASK-STITCHED (bulk_v6, design section 5.2): as
             # in the campaign leg — when no sector masked, the
             # masked stitch IS the unmasked stitch, so carry
@@ -1338,14 +1410,34 @@ def run_host_null_p43(job):
                 r["pass3_survivor"] = bool(
                     (rec3.get("pass3") or {}).get("status")
                     == "survivor")
-            r["final_rows"] = (int(r["pass2_survivor"])
-                               + int(r["pass3_survivor"]))
-            # N6: same OR as k3_run's null leg — and identical
-            # to bool(final_rows), the rule the BP-1 extract
-            # builder (nulldiag_extract.py) used to synthesise
-            # this key for stitched records.
+            # 5.1 design (A) §4.4: preserve the stitched
+            # pass-1 survivor as a carried final row (the
+            # null leg skips the alias veto — no independent
+            # reference; the ephemeris is seeded from pass-1
+            # itself). final_rows counts distinct final rows
+            # (dedupe applied); final_survivor is the carried
+            # OR pass-2 OR pass-3 survivor.
+            _carry, _audit = p1c.build_carried_row(
+                r["pass1"], flagged=flagged,
+                veto_skipped_reason="null-leg-no-independent-reference")
+            r["pass1_carried"] = _carry
+            r["alias_veto_carried"] = _audit["alias_veto"]
+            _dur = ((_carry or {}).get("duration_hours") or 0) / 24.0
+            if _carry is not None:
+                _carry["deduped_with"] = p1c.dedupe_carried(
+                    _carry, r.get("pass2"), r.get("pass3"), _dur)
+            r["pass1_carried_survivor"] = p1c.carried_survivor(
+                _carry)
+            r["final_rows"] = p1c.count_final_rows(
+                _carry, r.get("pass2"), r.get("pass3"), _dur)
+            # N6: same OR as k3_run's null leg, extended to the
+            # carried row — and identical to bool(final_rows),
+            # the rule the BP-1 extract builder
+            # (nulldiag_extract.py) used to synthesise this key
+            # for stitched records.
             r["final_survivor"] = bool(
-                r["pass2_survivor"] or r["pass3_survivor"])
+                r["pass1_carried_survivor"] or r["pass2_survivor"]
+                or r["pass3_survivor"])
     except Exception as exc:  # noqa: BLE001
         r["error"] = f"{type(exc).__name__}: {exc}"
     r["complete"] = True
@@ -1468,9 +1560,26 @@ def _null_veto_bindings(rec):
     """(copy, demote) bindings for one null-leg host record's
     final rows. A binding's demote() applies the copy's
     demotion to the live pass record and recomputes the
-    host's survivor flags (the N6 rule: final_rows is the
-    pass-2 + pass-3 survivor count, final_survivor its OR)."""
+    host's survivor flags (the 5.1 rule: final_rows counts
+    distinct final rows — carried + pass-2 + pass-3
+    survivors, minus one on a carry dedupe — final_survivor
+    its OR). Dedupe is against LIVE rows: demoting the
+    partner un-dedupes the carry, so every demote recomputes
+    the dedupe before the counts."""
     bindings = []
+    carried = rec.get("pass1_carried")
+    if not isinstance(carried, dict):
+        carried = None
+    dur = ((carried or {}).get("duration_hours") or 0) / 24.0
+
+    def _recompute():
+        if carried is not None:
+            carried["deduped_with"] = p1c.dedupe_carried(
+                carried, rec.get("pass2"), rec.get("pass3"), dur)
+        rec["final_rows"] = p1c.count_final_rows(
+            carried, rec.get("pass2"), rec.get("pass3"), dur)
+        rec["final_survivor"] = bool(rec["final_rows"])
+
     for pk in ("pass2", "pass3"):
         row = rec.get(pk)
         if not isinstance(row, dict):
@@ -1482,19 +1591,29 @@ def _null_veto_bindings(rec):
         def _demote(copy=copy, row=row, rec=rec, pk=pk):
             _apply_veto_demotion(row, copy)
             rec[f"{pk}_survivor"] = False
-            rec["final_rows"] = (
-                int(rec.get("pass2_survivor") is True)
-                + int(rec.get("pass3_survivor") is True))
-            rec["final_survivor"] = bool(rec["final_rows"])
+            _recompute()
 
         bindings.append((copy, _demote))
+    # 5.1: the carried row is itself a final row — it gets its
+    # own binding (gated on its survivor flag, as pass-2/3 are).
+    if carried is not None \
+            and rec.get("pass1_carried_survivor") is True:
+        copy = _veto_row_copy(rec.get("tic"), "pass1_carried",
+                              carried)
+
+        def _demote_carried(copy=copy, row=carried, rec=rec):
+            _apply_veto_demotion(row, copy)
+            rec["pass1_carried_survivor"] = False
+            _recompute()
+
+        bindings.append((copy, _demote_carried))
     return bindings
 
 
 def _null_veto_demoted_count(rec):
     """Rows in one null-leg host record already carrying a
     T0-cluster demotion (from this or an earlier merge)."""
-    return sum(1 for pk in ("pass2", "pass3")
+    return sum(1 for pk in ("pass2", "pass3", "pass1_carried")
                if isinstance(rec.get(pk), dict)
                and rec[pk].get("disposition")
                == _search_health.DEMOTED_T0_CLUSTER)
@@ -1504,12 +1623,13 @@ def _campaign_veto_bindings(rec):
     """(copy, demote) bindings for one campaign-leg host
     record's final rows. A binding's demote() applies the
     copy's demotion to the live pass record, clears the
-    trial's p2/p3_recovered + p2/p3_genuine, and recomputes
-    final_recovered/final_genuine (the OR rule at the
-    driver's final_recovered derivation)."""
+    trial's p2/p3/p1_carried_recovered + _genuine, and
+    recomputes final_recovered/final_genuine (the OR rule at
+    the driver's final_recovered derivation)."""
     bindings = []
     for tr in rec.get("trials", []):
-        for pk, stem in (("pass2", "p2"), ("pass3", "p3")):
+        for pk, stem in (("pass2", "p2"), ("pass3", "p3"),
+                         ("pass1_carried", "p1_carried")):
             row = tr.get(pk)
             if not isinstance(row, dict):
                 continue
@@ -1523,10 +1643,12 @@ def _campaign_veto_bindings(rec):
                 tr[f"{stem}_genuine"] = False
                 tr["final_recovered"] = bool(
                     tr.get("p2_recovered")
-                    or tr.get("p3_recovered"))
+                    or tr.get("p3_recovered")
+                    or tr.get("p1_carried_recovered"))
                 tr["final_genuine"] = bool(
                     tr.get("p2_genuine")
-                    or tr.get("p3_genuine"))
+                    or tr.get("p3_genuine")
+                    or tr.get("p1_carried_genuine"))
 
             bindings.append((copy, _demote))
     return bindings
@@ -1536,7 +1658,7 @@ def _campaign_veto_demoted_count(rec):
     """Rows in one campaign-leg host record already carrying
     a T0-cluster demotion (from this or an earlier merge)."""
     return sum(1 for tr in rec.get("trials", [])
-               for pk in ("pass2", "pass3")
+               for pk in ("pass2", "pass3", "pass1_carried")
                if isinstance(tr.get(pk), dict)
                and tr[pk].get("disposition")
                == _search_health.DEMOTED_T0_CLUSTER)
@@ -1578,6 +1700,7 @@ def _apply_stitched_t0_veto(host_files, gather, count_demoted):
                "demoted_total": sum(count_demoted(rec)
                                     for _, rec in host_files),
                "demoted_pass2": 0, "demoted_pass3": 0,
+               "demoted_pass1_carried": 0,
                "n_clusters": 0, "cluster_sizes": [],
                "clusters": [], "demoted_tics": []}
     if not host_files:
@@ -1628,6 +1751,8 @@ def _apply_stitched_t0_veto(host_files, gather, count_demoted):
             count_demoted(rec) for _, rec in host_files)
         section["demoted_pass2"] = veto["demoted_pass2"]
         section["demoted_pass3"] = veto["demoted_pass3"]
+        section["demoted_pass1_carried"] = veto[
+            "demoted_pass1_carried"]
         section["n_clusters"] = veto["n_clusters"]
         section["cluster_sizes"] = veto["cluster_sizes"]
         section["clusters"] = veto["clusters"]
@@ -1644,7 +1769,8 @@ def _print_stitched_veto(summary):
         print(f"[p43] stitched T0-cluster veto: "
               f"{veto['demoted']} demoted this merge "
               f"({veto['demoted_pass2']} pass-2, "
-              f"{veto['demoted_pass3']} pass-3; "
+              f"{veto['demoted_pass3']} pass-3, "
+              f"{veto.get('demoted_pass1_carried', 0)} carried; "
               f"{veto['n_clusters']} clusters, sizes "
               f"{veto['cluster_sizes']}), "
               f"{veto['demoted_total']} total", flush=True)

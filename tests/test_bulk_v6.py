@@ -1062,15 +1062,19 @@ class TestN6StitchedNullFinalSurvivor(unittest.TestCase):
     synthesised it as bool(final_rows)
     (nulldiag_extract.py), and BP1_RECORD.md section 5
     already documented the gap at BP-1 time. The driver now
-    writes it with k3_run's semantics: pass-2 OR pass-3
-    survivor. Synthetic-FITS end-to-end: one pure-noise host
+    writes it with k3_run's semantics, EXTENDED by 5.1
+    (PHASE5_PREREG.md §4.4.2, RATIFIED S1–S28): carried OR
+    pass-2 OR pass-3 survivor — the carried pass-1 row is a
+    final row. Synthetic-FITS end-to-end: one pure-noise host
     and one with a coherent signal in every sector; every
     record carries the key, the flag matches the OR (and
     bool(final_rows)) on every record, and the flag-based
     host count matches the OR count — the scorer's
     cross-check (m2_score.py analyse_arm). Fails on unfixed
     code: the key is absent, so the presence assertion fails
-    outright."""
+    outright. (5.1 changed the OR, not the test's intent —
+    the assertion update is the deliberate ratified behavior
+    change, documented here per the runbook.)"""
 
     def setUp(self):
         self.previous = bs.CALIBRATION_VERSION
@@ -1115,10 +1119,12 @@ class TestN6StitchedNullFinalSurvivor(unittest.TestCase):
             for rec in recs:
                 # The key itself (absent pre-fix).
                 self.assertIn("final_survivor", rec)
-                # k3_run semantics: pass-2 OR pass-3.
+                # 5.1 semantics (§4.4.2): carried OR pass-2
+                # OR pass-3.
                 self.assertEqual(
                     rec["final_survivor"],
-                    bool(rec["pass2_survivor"]
+                    bool(rec["pass1_carried_survivor"]
+                         or rec["pass2_survivor"]
                          or rec["pass3_survivor"]))
                 # Identical to the BP-1 extract's synthesis
                 # rule (bool(final_rows)).
@@ -1129,7 +1135,8 @@ class TestN6StitchedNullFinalSurvivor(unittest.TestCase):
             flag_hosts = sum(1 for r in recs
                              if r["final_survivor"] is True)
             or_hosts = sum(1 for r in recs
-                           if r["pass2_survivor"] is True
+                           if r["pass1_carried_survivor"] is True
+                           or r["pass2_survivor"] is True
                            or r["pass3_survivor"] is True)
             self.assertEqual(flag_hosts, or_hosts)
             # The signal host must exercise the True branch

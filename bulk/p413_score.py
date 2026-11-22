@@ -66,6 +66,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bulk.p4110_score import GateBars  # noqa: E402
+from bulk.p4110_score import carried_recovers  # noqa: E402
 from bulk.p4110_score import leg_recovers  # noqa: E402
 from bulk.p4110_score import null_survivor_anystage  # noqa: E402
 from bulk.p4110_score import null_survivor_finalonly  # noqa: E402
@@ -225,6 +226,7 @@ def score_campaign(manifest, run_dir, bars, run_gate, interval,
         p3 = leg_recovers(rec.get("pass3"), m_tr, veto3,
                           rec.get("epoch_delta_over_d_pass3"),
                           bars, 1.0)
+        pc = carried_recovers(rec, m_tr, bars, 1.0)
         if rec.get("final_genuine") is True:
             runner_genuine += 1
         for leg_key, od_key in (("pass2", "epoch_delta_over_d"),
@@ -246,7 +248,8 @@ def score_campaign(manifest, run_dir, bars, run_gate, interval,
             # "survivor". Checked for every pass that recovers.
             for leg_key, recovers in (("pass1", p1),
                                       ("pass2", p2),
-                                      ("pass3", p3)):
+                                      ("pass3", p3),
+                                      ("pass1_carried", pc)):
                 if not recovers:
                     continue
                 sub = rec.get(leg_key)

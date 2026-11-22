@@ -65,6 +65,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bulk.p4110_score import (  # noqa: E402
     GateBars,
+    carried_recovers,
     leg_recovers,
     rate_row,
     score_null,
@@ -211,6 +212,12 @@ def score_campaign(manifest, run_dir, bars, run_gate, partial=False):
                                      1.0)
                             and sub.get("status") == "survivor"):
                         ok = True
+                # 5.1: the carried row is a final leg too — a
+                # carry-only recovery must pass the same check.
+                if (carried_recovers(rec, m_tr, bars, 1.0)
+                        and (rec.get("pass1_carried") or {}).get(
+                            "status") == "survivor"):
+                    ok = True
                 if not ok:
                     cross_mismatch += 1
             rows.append({"key": key, "trial": m_tr,

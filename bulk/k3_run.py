@@ -62,6 +62,7 @@ import bulk_screen as bs  # noqa: E402
 from bulk import k2_prototype as k2  # noqa: E402
 from bulk import k3_prototype as k3  # noqa: E402
 from bulk import oracle_run as orc  # noqa: E402
+from bulk import pass1_carry as p1c  # noqa: E402
 from bulk.inject_campaign import check_recovery, inject_trial  # noqa: E402
 from bulk.inject_real_s96 import (load_real_fits,  # noqa: E402
                                   write_injected_fits)
@@ -427,8 +428,28 @@ def run_host_campaign_k3(job):
                 r["pass3"] = None
                 r["k3_recovered"] = False
                 r["k3_genuine"] = False
-                r["final_recovered"] = False
-                r["final_genuine"] = False
+                # 5.1 design (A) §4.4.5: the duty-cycle cap
+                # stops the MASKED re-search, not the
+                # preservation — a pass-1 survivor is still
+                # carried (the mask stats carry the half-width
+                # even when stopped, so the alias veto still
+                # applies).
+                _carry, _audit = p1c.build_carried_row(
+                    r["pass1"],
+                    flagged=orc.flagged_periods(p1),
+                    veto_ref=p1c.veto_ref_from(ephemeris, mstats))
+                r["pass1_carried"] = _carry
+                r["alias_veto_carried"] = _audit["alias_veto"]
+                if _carry is not None:
+                    _carry["deduped_with"] = None
+                (r["p1_carried_recovered"],
+                 r["p1_carried_genuine"]) = (
+                    p1c.carried_recovery_verdict(
+                        _carry, _audit["alias_veto"], tr))
+                r["final_recovered"] = bool(
+                    r["p1_carried_recovered"])
+                r["final_genuine"] = bool(
+                    r["p1_carried_genuine"])
             else:
                 r["stopped_pass"] = None
                 # F-2 (bulk_v6): re-raise the fresh pass-1
@@ -511,10 +532,35 @@ def run_host_campaign_k3(job):
                         keep_fits, flagged=flagged)
                     r["pass3_eligibility"] = elig
                     r.update(rec3)
+                # 5.1 design (A) §4.4: preserve the pass-1
+                # survivor as a carried final row. The veto
+                # reference is the ephemeris + mask stats (same
+                # as pass-2's veto); in the gated-off branch
+                # there is no mask, so the veto is skipped
+                # (veto_ref_from returns None). Dedupe against
+                # pass-2/3 (a deduped carry is not a loss).
+                _carry, _audit = p1c.build_carried_row(
+                    r["pass1"], flagged=flagged,
+                    veto_ref=p1c.veto_ref_from(ephemeris, mstats),
+                    veto_skipped_reason=(
+                        "no-mask-carry-forward"
+                        if carried_from_pass1 else None))
+                r["pass1_carried"] = _carry
+                r["alias_veto_carried"] = _audit["alias_veto"]
+                if _carry is not None:
+                    _carry["deduped_with"] = p1c.dedupe_carried(
+                        _carry, r.get("pass2"), r.get("pass3"),
+                        tr["duration_d"])
+                (r["p1_carried_recovered"],
+                 r["p1_carried_genuine"]) = (
+                    p1c.carried_recovery_verdict(
+                        _carry, _audit["alias_veto"], tr))
                 r["final_recovered"] = bool(
-                    r["k2_recovered"] or r["k3_recovered"])
+                    r["k2_recovered"] or r["k3_recovered"]
+                    or r["p1_carried_recovered"])
                 r["final_genuine"] = bool(
-                    r["k2_genuine"] or r["k3_genuine"])
+                    r["k2_genuine"] or r["k3_genuine"]
+                    or r["p1_carried_genuine"])
             if not keep_fits:
                 os.remove(inj_path)
         except Exception as exc:  # noqa: BLE001
@@ -572,6 +618,10 @@ def run_host_null_k3(job):
         p1 = _screen(raw_path, tic, sector)
         r["pass1"] = orc._subset(p1)
         r["pass1_survivor"] = bool(p1.get("status") == "survivor")
+        # F-2 source for the leg (pass-2 and the 5.1 carried row
+        # share it — computed once, before the period check, so
+        # the stopped / no-period branches see it too).
+        flagged = orc.flagged_periods(p1)
         p1_p = p1.get("period_days")
         r["pass2_survivor"] = False
         r["pass3_survivor"] = False
@@ -621,8 +671,8 @@ def run_host_null_k3(job):
                 # the subset, the survivor flag, and pass-3
                 # eligibility. Skipped in the no-mask branch
                 # (p2 IS p1 there — its flags are measured,
-                # not carried).
-                flagged = orc.flagged_periods(p1)
+                # not carried). `flagged` was computed above
+                # (shared with the 5.1 carried row).
                 carried = (orc.carried_eb_flags(
                     p2.get("period_days"), flagged)
                     if not carried_from_pass1 else [])
@@ -677,8 +727,32 @@ def run_host_null_k3(job):
                         r["pass3_survivor"] = bool(
                             (rec3.get("pass3") or {}).get("status")
                             == "survivor")
-                r["final_survivor"] = bool(
-                    r["pass2_survivor"] or r["pass3_survivor"])
+        # 5.1 design (A) §4.4: preserve the pass-1 survivor as
+        # a carried final row — in every branch, including
+        # stopped (§4.4.5: the cap stops the masked re-search,
+        # not the preservation) and no-pass1-period (no carry
+        # is possible there; the build returns None). No alias
+        # veto reference exists in the null leg: the ephemeris
+        # is seeded from pass-1 itself, so a veto against it
+        # would be a signal vetoed by itself (degenerate —
+        # skipped with the reason recorded). final_survivor is
+        # the carried OR pass-2 OR pass-3 survivor; final_rows
+        # counts distinct final rows (dedupe applied).
+        _carry, _audit = p1c.build_carried_row(
+            r["pass1"], flagged=flagged,
+            veto_skipped_reason="null-leg-no-independent-reference")
+        r["pass1_carried"] = _carry
+        r["alias_veto_carried"] = _audit["alias_veto"]
+        _dur = ((_carry or {}).get("duration_hours") or 0) / 24.0
+        if _carry is not None:
+            _carry["deduped_with"] = p1c.dedupe_carried(
+                _carry, r.get("pass2"), r.get("pass3"), _dur)
+        r["pass1_carried_survivor"] = p1c.carried_survivor(_carry)
+        r["final_rows"] = p1c.count_final_rows(
+            _carry, r.get("pass2"), r.get("pass3"), _dur)
+        r["final_survivor"] = bool(
+            r["pass1_carried_survivor"] or r["pass2_survivor"]
+            or r["pass3_survivor"])
         if not keep_fits:
             os.remove(raw_path)
     except Exception as exc:  # noqa: BLE001
