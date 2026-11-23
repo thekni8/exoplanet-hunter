@@ -50,6 +50,15 @@ host's VSX result is persisted in the summary's
 runs re-score offline; and the audit key logs BLS P / VSX P
 per dropped pass (logging only — it never changes a
 verdict).
+
+Campaign leg (S12FIX F2 runner wiring): apply_vsx_filter_campaign
+is the same rule for campaign-leg host records (trials
+lists, p43/k3 drivers). The filter acts per host — a
+flagged host loses every final trial in every record that
+carries it — with each tic queried once across the record
+list. The per-pass recovery flags differ by driver
+(p2/p3 on the stitched leg, k2/k3 on the single leg); the
+adapter reads both stem sets.
 """
 import argparse
 import copy
@@ -179,6 +188,17 @@ def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _query_with_retry(query, ra, dec):
+    """One VSX query with the F3 (1c) retry: a failed query is
+    re-queried once before the failure stands. Returns
+    (result, attempts)."""
+    res = query(ra, dec)
+    if res.get("error") is not None:
+        res = query(ra, dec)
+        return res, 2
+    return res, 1
+
+
 def _period_ratio(bls_period_days, vsx_period_days):
     """BLS P / VSX P for the audit key (F3, logging only).
     None when either period is missing, unparseable,
@@ -278,12 +298,8 @@ def apply_vsx_filter(records, coords, query_fn=None):
             new["vsx_filter"] = {"applied": False,
                                  "reason": "no coordinates"}
             continue
-        res = query(c["ra"], c["dec"])
-        attempts = 1
-        if res.get("error") is not None:
-            # F3 (1c): one re-query before the failure stands.
-            res = query(c["ra"], c["dec"])
-            attempts = 2
+        res, attempts = _query_with_retry(query, c["ra"], c["dec"])
+        if attempts == 2:
             summary["query_retries"] += 1
         summary["queried"] += 1
         queried_at = _now_iso()
@@ -338,6 +354,231 @@ def apply_vsx_filter(records, coords, query_fn=None):
                     new[pk].get("period_days"),
                     trigger.get("period_days"))
                 for pk in dropped}}
+    summary["flagged_tics"] = sorted(summary["flagged_tics"])
+    summary["failed_tics"] = sorted(summary["failed_tics"])
+    return out_records, summary
+
+
+# Campaign-leg (p43/k3) trial recovery flags. The stitched
+# leg (p43 driver) records p2/p3_recovered; the single leg
+# (k3 driver) records k2/k3_recovered for the same passes
+# (k2 = pass 2, k3 = pass 3); both record
+# p1_carried_recovered. A pass counts as recovered when any
+# of its stems is True.
+_CAMPAIGN_PASS_STEMS = (
+    ("pass2", ("p2", "k2")),
+    ("pass3", ("p3", "k3")),
+    ("pass1_carried", ("p1_carried",)),
+)
+
+
+def trial_is_final(tr):
+    """A campaign trial counts as final (has final rows the
+    filter can remove) when its final verdict is True or any
+    per-pass recovery flag is True (both driver stem sets).
+    The final-verdict clause covers records whose per-pass
+    flags are absent (pre-5.1 M4 records have no
+    p1_carried_recovered); the per-pass clause covers
+    inconsistent records where the final verdict was never
+    recomputed."""
+    if not isinstance(tr, dict):
+        return False
+    if tr.get("final_recovered") is True:
+        return True
+    return any(tr.get(f"{s}_recovered") is True
+               for _, stems in _CAMPAIGN_PASS_STEMS
+               for s in stems)
+
+
+def _trial_recovered_flags(tr):
+    """{pass: bool} recovered flags for one campaign trial,
+    across both driver stem sets."""
+    return {pk: any(tr.get(f"{s}_recovered") is True
+                    for s in stems)
+            for pk, stems in _CAMPAIGN_PASS_STEMS}
+
+
+def apply_vsx_filter_campaign(records, coords, query_fn=None):
+    """The nearby-E VSX filter for CAMPAIGN-leg host records
+    (trials lists, p43/k3 drivers) — the campaign half of the
+    S12FIX F2 runner wiring. Same rule as apply_vsx_filter
+    (exact vartype "E", 2-30", nearest wins), same fail-open
+    contract, same F3 logging (retry once, persist every
+    queried host's result with a timestamp, BLS P / VSX P
+    per dropped pass).
+
+    The filter acts per HOST: a flagged host loses every
+    final trial in every record that carries it (a host
+    appears in both legs' files, so each tic is queried
+    ONCE across the whole record list). A lost trial has
+    its recovered pass rows demoted (status "demoted",
+    disposition DEMOTED_VSX_NEARBY_E, flag VSX_NEARBY_E),
+    its recovery + genuine flags cleared (all stems), and
+    final_recovered/final_genuine recomputed as the OR of
+    what remains (False — the trial is lost). Non-final
+    trials are untouched: the filter removes final rows,
+    not signals.
+
+    Returns (new_records, summary). Inputs are NOT mutated.
+    Each record that had a final trial carries a `vsx_filter`
+    audit key: {"applied": bool, "hosts": {tic: {"trigger":
+    ...|None, "dropped": [{"trial_id", "pass"}],
+    "lost_trials": [trial_id], "queried_at": ...,
+    "period_ratios": {"trial_id:pass": ratio}}}} (or an
+    error entry when the query failed — rows kept, fail
+    open). Records with no final trial carry no audit key.
+
+    Summary units (the null leg's coincide, the campaign
+    leg's do not — one tic spans two legs' files): "hosts"
+    counts records; "queried" / "no_coords" / "query_failed"
+    / "clean" / "flagged_hosts" count TICS (deduped);
+    "rows_dropped" / "dropped_pass*" count rows;
+    "trials_lost" counts trials whose final_recovered
+    flipped True -> False.
+    """
+    query = query_fn if query_fn is not None else query_vsx_hits
+    summary = {"hosts": len(records), "queried": 0,
+               "no_coords": 0, "query_failed": 0,
+               "query_retries": 0,
+               "clean": 0, "flagged_hosts": 0,
+               "rows_dropped": 0, "trials_lost": 0,
+               "dropped_pass2": 0, "dropped_pass3": 0,
+               "dropped_pass1_carried": 0,
+               "flagged_tics": [], "failed_tics": [],
+               "query_results": {}}
+    # First pass: tics with a final trial anywhere. Query
+    # each tic once (deduped across records and legs).
+    results = {}  # tic -> (res, attempts, queried_at, trigger)
+    for rec in records:
+        for tr in rec.get("trials") or []:
+            if not isinstance(tr, dict):
+                continue
+            tic = str(tr.get("tic")
+                      if tr.get("tic") is not None
+                      else rec.get("tic"))
+            if tic in results:
+                continue
+            if not trial_is_final(tr):
+                continue
+            c = (coords or {}).get(tic)
+            if c is None or c.get("ra") is None \
+                    or c.get("dec") is None:
+                summary["no_coords"] += 1
+                results[tic] = (None, 0, None, None)
+                continue
+            res, attempts = _query_with_retry(query, c["ra"],
+                                              c["dec"])
+            if attempts == 2:
+                summary["query_retries"] += 1
+            summary["queried"] += 1
+            queried_at = _now_iso()
+            if res.get("error") is not None:
+                summary["query_failed"] += 1
+                summary["failed_tics"].append(tic)
+                summary["query_results"][tic] = {
+                    "queried_at": queried_at,
+                    "attempts": attempts, "error": res["error"]}
+                results[tic] = (res, attempts, queried_at, None)
+                continue
+            summary["query_results"][tic] = {
+                "queried_at": queried_at, "attempts": attempts,
+                "hits": res.get("hits")}
+            trigger = find_nearby_eclipsing(res.get("hits"))
+            if trigger is None:
+                summary["clean"] += 1
+            else:
+                summary["flagged_hosts"] += 1
+                summary["flagged_tics"].append(tic)
+            results[tic] = (res, attempts, queried_at, trigger)
+    # Second pass: apply the demotions.
+    out_records = []
+    for rec in records:
+        new = copy.deepcopy(rec)
+        out_records.append(new)
+        tics = sorted(
+            {str(tr.get("tic")
+                 if tr.get("tic") is not None
+                 else rec.get("tic"))
+             for tr in rec.get("trials") or []
+             if isinstance(tr, dict) and trial_is_final(tr)})
+        if not tics:
+            continue  # nothing to filter; no audit key
+        audit_hosts = {}
+        for tic in tics:
+            res, _attempts, queried_at, trigger = results[tic]
+            if res is None:
+                audit_hosts[tic] = {
+                    "applied": False,
+                    "reason": "no coordinates"}
+                continue
+            if res.get("error") is not None:
+                audit_hosts[tic] = {
+                    "applied": False,
+                    "reason": ("VSX query failed: "
+                               f"{res['error']}"),
+                    "queried_at": queried_at}
+                continue
+            if trigger is None:
+                audit_hosts[tic] = {
+                    "applied": True, "trigger": None,
+                    "dropped": [], "lost_trials": [],
+                    "queried_at": queried_at}
+                continue
+            dropped, lost, ratios = [], [], {}
+            for tr in new.get("trials") or []:
+                ttic = str(tr.get("tic")
+                           if tr.get("tic") is not None
+                           else new.get("tic"))
+                if ttic != tic:
+                    continue
+                if not trial_is_final(tr):
+                    continue
+                was_final = tr.get("final_recovered") is True
+                rec_flags = _trial_recovered_flags(tr)
+                for pk, stems in _CAMPAIGN_PASS_STEMS:
+                    if not rec_flags[pk]:
+                        continue
+                    row = tr.get(pk)
+                    if isinstance(row, dict):
+                        row["status"] = "demoted"
+                        row["disposition"] = (
+                            _search_health.DEMOTED_VSX_NEARBY_E)
+                        flags = list(row.get("flags") or [])
+                        if VSX_FILTER_FLAG not in flags:
+                            flags.append(VSX_FILTER_FLAG)
+                        row["flags"] = flags
+                        dropped.append(
+                            {"trial_id": tr.get("trial_id"),
+                             "pass": pk})
+                        ratios[f"{tr.get('trial_id')}:{pk}"] = (
+                            _period_ratio(
+                                row.get("period_days"),
+                                trigger.get("period_days")))
+                        summary[f"dropped_{pk}"] += 1
+                    for s in stems:
+                        if f"{s}_recovered" in tr:
+                            tr[f"{s}_recovered"] = False
+                        if f"{s}_genuine" in tr:
+                            tr[f"{s}_genuine"] = False
+                tr["final_recovered"] = bool(any(
+                    tr.get(f"{s}_recovered") is True
+                    for _, stems in _CAMPAIGN_PASS_STEMS
+                    for s in stems))
+                tr["final_genuine"] = bool(any(
+                    tr.get(f"{s}_genuine") is True
+                    for _, stems in _CAMPAIGN_PASS_STEMS
+                    for s in stems))
+                if was_final and not tr["final_recovered"]:
+                    lost.append(tr.get("trial_id"))
+                    summary["trials_lost"] += 1
+            summary["rows_dropped"] += len(dropped)
+            audit_hosts[tic] = {
+                "applied": True, "trigger": dict(trigger),
+                "dropped": dropped, "lost_trials": lost,
+                "queried_at": queried_at,
+                "period_ratios": ratios}
+        new["vsx_filter"] = {"applied": True,
+                             "hosts": audit_hosts}
     summary["flagged_tics"] = sorted(summary["flagged_tics"])
     summary["failed_tics"] = sorted(summary["failed_tics"])
     return out_records, summary

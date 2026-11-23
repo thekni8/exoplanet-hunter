@@ -14,6 +14,10 @@ caught (both would otherwise fail silently in the trial records):
    manufactured a jaccard_dropped of 0.0 out of an eligibility
    difference, not a seed difference. The diagnostic must return
    "fresh-not-masked" then.
+
+Merge calls here pass vsx_filter=False: the offline suite must
+not touch MAST/VSX (the VSX wiring is pinned in
+test_vsx_wiring.py with mocked queries).
 """
 
 import json
@@ -166,7 +170,8 @@ class TestMergeCellsUseManifest(unittest.TestCase):
                 json.dumps(single))
             (out_dir / "hosts-p43" / "1_p43.json").write_text(
                 json.dumps(stitched))
-            summary = p43_run.merge_campaign_p43(out_dir, manifest)
+            summary = p43_run.merge_campaign_p43(
+                out_dir, manifest, vsx_filter=False)
             self.assertEqual(summary["n_trials_paired"], 2)
             # planet01 is low-event (2 ev) AND long-period (12 d);
             # planet02 is neither. The cells must see that.
@@ -209,7 +214,8 @@ class TestMergeCellsUseManifest(unittest.TestCase):
                 json.dumps({"stitched": {"bound_verdict": "PASS",
                                          "final_rows": 0,
                                          "bound_rows": 0}}))
-            summary2 = p43_run.merge_campaign_p43(out_dir, manifest)
+            summary2 = p43_run.merge_campaign_p43(
+                out_dir, manifest, vsx_filter=False)
             self.assertTrue(summary2["null"]["present"])
             self.assertTrue(summary2["checks"]["null_bound"])
             self.assertFalse(summary2["checks"]["single_leg_repro"])
@@ -219,7 +225,8 @@ class TestMergeCellsUseManifest(unittest.TestCase):
             (p41b / "hosts" / "1_s0095.json").write_text(
                 json.dumps(single))
             summary3 = p43_run.merge_campaign_p43(
-                out_dir, manifest, str(p41b / "hosts"))
+                out_dir, manifest, str(p41b / "hosts"),
+                vsx_filter=False)
             self.assertTrue(
                 summary3["single_leg_repro_vs_p41b"]["all_match"])
             self.assertEqual(

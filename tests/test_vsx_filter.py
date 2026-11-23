@@ -445,5 +445,278 @@ class TestFilterRunDir(unittest.TestCase):
                                   run_dir / "filtered")
 
 
+def _ctrial(tic, trial_id, recovered=(), driver="p43"):
+    """A campaign-leg trial. `recovered`: passes with a
+    recovered row ("pass2"/"pass3"/"pass1_carried").
+    `driver`: "p43" (p2/p3 stems, stitched leg) or "k3"
+    (k2/k3 stems, single leg)."""
+    stem_for = {"p43": {"pass2": "p2", "pass3": "p3"},
+                "k3": {"pass2": "k2", "pass3": "k3"}}[driver]
+    tr = {"tic": str(tic), "trial_id": trial_id, "sector": 96}
+    final = False
+    for pk in ("pass2", "pass3", "pass1_carried"):
+        stem = (stem_for.get(pk) if pk != "pass1_carried"
+                else "p1_carried")
+        got = pk in recovered
+        tr[f"{stem}_recovered"] = got
+        tr[f"{stem}_genuine"] = got
+        if got:
+            final = True
+            tr[pk] = {"period_days": 1.0, "t0_btjd": 3900.0,
+                      "duration_hours": 2.0, "sde": 10.0,
+                      "n_events": 5, "tier": "A",
+                      "status": "survivor", "flags": []}
+    tr["final_recovered"] = final
+    tr["final_genuine"] = final
+    return tr
+
+
+def _crec(tic, trials):
+    """A campaign-leg host record."""
+    return {"tic": str(tic), "calibration": "bulk_v6",
+            "complete": True, "arm": "no-depth-trigger",
+            "trials": trials}
+
+
+def _qfn(hits_by_tic, coords):
+    """A fake query_fn answering from hits_by_tic, keyed by
+    each tic's coords."""
+    rev = {(c["ra"], c["dec"]): t for t, c in coords.items()}
+
+    def q(ra, dec):
+        return {"hits": hits_by_tic.get(rev.get((ra, dec)), [])}
+
+    return q
+
+
+class TestTrialIsFinal(unittest.TestCase):
+    def test_final_verdict_counts(self):
+        self.assertTrue(vf.trial_is_final(
+            {"final_recovered": True}))
+        self.assertTrue(vf.trial_is_final(
+            {"final_recovered": False, "p2_recovered": True}))
+        self.assertTrue(vf.trial_is_final(
+            {"final_recovered": False, "k3_recovered": True}))
+        self.assertFalse(vf.trial_is_final(
+            {"final_recovered": False, "p2_recovered": False}))
+        self.assertFalse(vf.trial_is_final({}))
+        self.assertFalse(vf.trial_is_final(None))
+
+
+class TestApplyVsxFilterCampaign(unittest.TestCase):
+    """Campaign adapter (S12FIX F2 runner wiring): same rule,
+    per-host, across both driver stem sets."""
+
+    def test_flagged_host_loses_all_final_trials(self):
+        recs = [
+            _crec("276788366", [
+                _ctrial("276788366", "t1",
+                        recovered=("pass2", "pass3")),
+                _ctrial("276788366", "t2",
+                        recovered=("pass1_carried",)),
+            ]),
+            _crec("276788366", [
+                _ctrial("276788366", "t1",
+                        recovered=("pass2",), driver="k3"),
+            ]),
+            _crec("999", [
+                _ctrial("999", "t1", recovered=("pass2",)),
+            ]),
+        ]
+        coords = {"276788366": {"ra": 1.0, "dec": -2.0},
+                  "999": {"ra": 3.0, "dec": -4.0}}
+        out, summary = vf.apply_vsx_filter_campaign(
+            recs, coords,
+            query_fn=_qfn(
+                {"276788366": REAL_HITS["276788366"]}, coords))
+        # Every recovered row on the flagged host is demoted
+        # (both legs, both stem sets).
+        for tr in out[0]["trials"] + out[1]["trials"]:
+            self.assertFalse(tr["final_recovered"])
+            self.assertFalse(tr["final_genuine"])
+            for pk in ("pass2", "pass3", "pass1_carried"):
+                if pk in tr:
+                    self.assertEqual(tr[pk]["status"], "demoted")
+                    self.assertEqual(tr[pk]["disposition"],
+                                     _sh.DEMOTED_VSX_NEARBY_E)
+                    self.assertIn(vf.VSX_FILTER_FLAG,
+                                  tr[pk]["flags"])
+        for stem in ("p2", "p3", "p1_carried", "k2"):
+            for tr in out[0]["trials"] + out[1]["trials"]:
+                if f"{stem}_recovered" in tr:
+                    self.assertIs(tr[f"{stem}_recovered"], False)
+        # The clean host is untouched.
+        self.assertTrue(out[2]["trials"][0]["final_recovered"])
+        self.assertEqual(out[2]["trials"][0]["pass2"]["status"],
+                         "survivor")
+        # Summary: 2 records, 2 tics; 4 rows dropped, 3 trials
+        # lost (t1 + t2 stitched, t1 single).
+        self.assertEqual(summary["hosts"], 3)
+        self.assertEqual(summary["queried"], 2)
+        self.assertEqual(summary["flagged_hosts"], 1)
+        self.assertEqual(summary["flagged_tics"], ["276788366"])
+        self.assertEqual(summary["rows_dropped"], 4)
+        self.assertEqual(summary["trials_lost"], 3)
+        self.assertEqual(summary["dropped_pass2"], 2)
+        self.assertEqual(summary["dropped_pass3"], 1)
+        self.assertEqual(summary["dropped_pass1_carried"], 1)
+        # Audit keys: nested per-host shape, trigger + dropped
+        # rows + lost trials + period ratios.
+        audit = out[0]["vsx_filter"]["hosts"]["276788366"]
+        self.assertEqual(audit["trigger"]["sep_arcsec"], 4.9)
+        self.assertEqual(sorted(audit["lost_trials"]),
+                         ["t1", "t2"])
+        self.assertEqual(
+            sorted((d["trial_id"], d["pass"])
+                   for d in audit["dropped"]),
+            [("t1", "pass2"), ("t1", "pass3"),
+             ("t2", "pass1_carried")])
+        self.assertAlmostEqual(
+            audit["period_ratios"]["t1:pass2"], 1.0 / 1.07897)
+        self.assertIsNone(
+            out[2]["vsx_filter"]["hosts"]["999"]["trigger"])
+
+    def test_one_query_per_tic_across_records(self):
+        recs = [
+            _crec("276788366", [
+                _ctrial("276788366", "t1",
+                        recovered=("pass2",))]),
+            _crec("276788366", [
+                _ctrial("276788366", "t1",
+                        recovered=("pass2",), driver="k3")]),
+        ]
+        coords = {"276788366": {"ra": 1.0, "dec": -2.0}}
+        calls = []
+
+        def spy(ra, dec):
+            calls.append((ra, dec))
+            return {"hits": REAL_HITS["276788366"]}
+
+        vf.apply_vsx_filter_campaign(recs, coords, query_fn=spy)
+        self.assertEqual(len(calls), 1)
+
+    def test_clean_host_keeps_trials(self):
+        recs = [_crec("999", [
+            _ctrial("999", "t1", recovered=("pass2",))])]
+        coords = {"999": {"ra": 1.0, "dec": -2.0}}
+        out, summary = vf.apply_vsx_filter_campaign(
+            recs, coords, query_fn=lambda ra, dec: {"hits": []})
+        self.assertTrue(out[0]["trials"][0]["final_recovered"])
+        self.assertEqual(summary["clean"], 1)
+        self.assertEqual(summary["rows_dropped"], 0)
+        self.assertEqual(summary["trials_lost"], 0)
+
+    def test_query_failure_keeps_trials_fail_open(self):
+        recs = [_crec("999", [
+            _ctrial("999", "t1", recovered=("pass2",))])]
+        coords = {"999": {"ra": 1.0, "dec": -2.0}}
+        out, summary = vf.apply_vsx_filter_campaign(
+            recs, coords,
+            query_fn=lambda ra, dec: {"error": "HTTP 500"})
+        self.assertTrue(out[0]["trials"][0]["final_recovered"])
+        audit = out[0]["vsx_filter"]["hosts"]["999"]
+        self.assertFalse(audit["applied"])
+        self.assertIn("HTTP 500", audit["reason"])
+        self.assertEqual(summary["query_failed"], 1)
+        self.assertEqual(summary["failed_tics"], ["999"])
+        self.assertEqual(summary["rows_dropped"], 0)
+
+    def test_retry_succeeds_after_one_failure(self):
+        recs = [_crec("276788366", [
+            _ctrial("276788366", "t1",
+                    recovered=("pass2",))])]
+        coords = {"276788366": {"ra": 1.0, "dec": -2.0}}
+        calls = []
+
+        def flaky(ra, dec):
+            calls.append((ra, dec))
+            if len(calls) == 1:
+                return {"error": "timeout"}
+            return {"hits": REAL_HITS["276788366"]}
+
+        out, summary = vf.apply_vsx_filter_campaign(
+            recs, coords, query_fn=flaky)
+        self.assertFalse(out[0]["trials"][0]["final_recovered"])
+        self.assertEqual(summary["query_retries"], 1)
+        self.assertEqual(summary["query_failed"], 0)
+
+    def test_no_coords_keeps_trials(self):
+        recs = [_crec("999", [
+            _ctrial("999", "t1", recovered=("pass2",))])]
+        out, summary = vf.apply_vsx_filter_campaign(
+            recs, {}, query_fn=lambda ra, dec: {"hits": []})
+        self.assertTrue(out[0]["trials"][0]["final_recovered"])
+        self.assertEqual(
+            out[0]["vsx_filter"]["hosts"]["999"]["reason"],
+            "no coordinates")
+        self.assertEqual(summary["no_coords"], 1)
+        self.assertEqual(summary["queried"], 0)
+
+    def test_non_final_trial_untouched(self):
+        # A non-final trial on a flagged host has no final
+        # rows: untouched, and not counted as lost. The host
+        # is still queried (it has another final trial).
+        dead = _ctrial("276788366", "t0")
+        dead["pass2"] = {"period_days": 1.0, "status": "recorded",
+                         "flags": []}
+        recs = [_crec("276788366", [
+            dead,
+            _ctrial("276788366", "t1",
+                    recovered=("pass2",)),
+        ])]
+        coords = {"276788366": {"ra": 1.0, "dec": -2.0}}
+        out, summary = vf.apply_vsx_filter_campaign(
+            recs, coords,
+            query_fn=_qfn(
+                {"276788366": REAL_HITS["276788366"]}, coords))
+        self.assertEqual(out[0]["trials"][0]["pass2"]["status"],
+                         "recorded")
+        self.assertNotIn("VSX_NEARBY_E",
+                         out[0]["trials"][0]["pass2"]["flags"])
+        self.assertEqual(summary["trials_lost"], 1)
+        self.assertEqual(summary["rows_dropped"], 1)
+
+    def test_record_with_no_final_trial_is_not_queried(self):
+        recs = [_crec("999", [_ctrial("999", "t1")])]
+        called = []
+
+        def spy(ra, dec):
+            called.append((ra, dec))
+            return {"hits": []}
+
+        out, summary = vf.apply_vsx_filter_campaign(
+            recs, {"999": {"ra": 1.0, "dec": -2.0}}, query_fn=spy)
+        self.assertEqual(called, [])
+        self.assertNotIn("vsx_filter", out[0])
+        self.assertEqual(summary["queried"], 0)
+
+    def test_inputs_not_mutated(self):
+        recs = [_crec("276788366", [
+            _ctrial("276788366", "t1",
+                    recovered=("pass2",))])]
+        before = copy.deepcopy(recs)
+        vf.apply_vsx_filter_campaign(
+            recs, {"276788366": {"ra": 1.0, "dec": -2.0}},
+            query_fn=lambda ra, dec: {
+                "hits": REAL_HITS["276788366"]})
+        self.assertEqual(recs, before)
+
+    def test_idempotent(self):
+        recs = [_crec("276788366", [
+            _ctrial("276788366", "t1",
+                    recovered=("pass2", "pass3"))])]
+        coords = {"276788366": {"ra": 1.0, "dec": -2.0}}
+        q = _qfn({"276788366": REAL_HITS["276788366"]}, coords)
+        out, _ = vf.apply_vsx_filter_campaign(recs, coords,
+                                              query_fn=q)
+        out2, summary2 = vf.apply_vsx_filter_campaign(
+            out, coords, query_fn=q)
+        # No final trials remain on the flagged host: nothing
+        # is queried twice, nothing more is dropped.
+        self.assertEqual(summary2["queried"], 0)
+        self.assertEqual(summary2["rows_dropped"], 0)
+        self.assertEqual(out2, out)
+
+
 if __name__ == "__main__":
     unittest.main()

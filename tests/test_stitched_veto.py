@@ -2,6 +2,10 @@
 follow-up, 2026-11-22; Dev approved "Build the veto fix" 2026-11-22
 09:29 IST).
 
+Merge calls here pass vsx_filter=False: the offline suite must
+not touch MAST/VSX (the VSX wiring is pinned in
+test_vsx_wiring.py with mocked queries).
+
 The veto (ELIGFIX_FOLLOWUP.md option #1): F-1 extended to the
 stitched leg. The stitched leg had NO T0 veto at all — the scorer
 removed clusters post-hoc (the diagnosis-style residual), which is
@@ -409,7 +413,7 @@ class TestStitchedVetoMergeNull(unittest.TestCase):
 
     def test_null_merge_applies_veto_and_is_idempotent(self):
         self._write_fixture("bulk_v6")
-        summary = p43run.merge_null_p43(self.out)
+        summary = p43run.merge_null_p43(self.out, vsx_filter=False)
         veto = summary["stitched_t0_cluster_veto"]
         self.assertTrue(veto["applied"])
         self.assertEqual(veto["demoted"], 4)
@@ -440,7 +444,7 @@ class TestStitchedVetoMergeNull(unittest.TestCase):
             self._read_null(1005)["pass2"]["status"], "survivor")
         # Re-merge: idempotent — no new demotions, same counts,
         # same total.
-        summary2 = p43run.merge_null_p43(self.out)
+        summary2 = p43run.merge_null_p43(self.out, vsx_filter=False)
         veto2 = summary2["stitched_t0_cluster_veto"]
         self.assertTrue(veto2["applied"])
         self.assertEqual(veto2["demoted"], 0)
@@ -449,7 +453,7 @@ class TestStitchedVetoMergeNull(unittest.TestCase):
 
     def test_null_merge_v5_gate_off(self):
         self._write_fixture("bulk_v5")
-        summary = p43run.merge_null_p43(self.out)
+        summary = p43run.merge_null_p43(self.out, vsx_filter=False)
         veto = summary["stitched_t0_cluster_veto"]
         self.assertFalse(veto["applied"])
         self.assertEqual(summary["stitched"]["final_rows"], 6)
@@ -466,7 +470,7 @@ class TestStitchedVetoMergeNull(unittest.TestCase):
         # existing test fixtures' shape): the veto fails closed
         # — skipped, counts unchanged.
         self._write_fixture(None)
-        summary = p43run.merge_null_p43(self.out)
+        summary = p43run.merge_null_p43(self.out, vsx_filter=False)
         veto = summary["stitched_t0_cluster_veto"]
         self.assertFalse(veto["applied"])
         self.assertIn("calibration", veto["reason"])
@@ -571,7 +575,8 @@ class TestStitchedVetoMergeCampaign(unittest.TestCase):
 
     def test_campaign_merge_applies_veto(self):
         manifest = self._write_fixture("bulk_v6")
-        summary = p43run.merge_campaign_p43(self.out, manifest)
+        summary = p43run.merge_campaign_p43(self.out, manifest,
+                                  vsx_filter=False)
         veto = summary["stitched_t0_cluster_veto"]
         self.assertTrue(veto["applied"])
         self.assertEqual(veto["demoted"], 3)
@@ -599,14 +604,16 @@ class TestStitchedVetoMergeCampaign(unittest.TestCase):
         self.assertEqual(st2["trials"][0]["pass2"]["status"],
                          "survivor")
         # Re-merge: idempotent.
-        summary2 = p43run.merge_campaign_p43(self.out, manifest)
+        summary2 = p43run.merge_campaign_p43(self.out, manifest,
+                                  vsx_filter=False)
         veto2 = summary2["stitched_t0_cluster_veto"]
         self.assertEqual(veto2["demoted"], 0)
         self.assertEqual(veto2["demoted_total"], 3)
 
     def test_campaign_merge_v5_gate_off(self):
         manifest = self._write_fixture("bulk_v5")
-        summary = p43run.merge_campaign_p43(self.out, manifest)
+        summary = p43run.merge_campaign_p43(self.out, manifest,
+                                  vsx_filter=False)
         veto = summary["stitched_t0_cluster_veto"]
         self.assertFalse(veto["applied"])
         st1 = self._read_stitched("1")

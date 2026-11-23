@@ -1,5 +1,9 @@
 """Tests for the P4-3b frozen-seed fix (bulk/p43_run.py).
 
+Merge calls here pass vsx_filter=False: the offline suite must
+not touch MAST/VSX (the VSX wiring is pinned in
+test_vsx_wiring.py with mocked queries).
+
 P4-3 FAILED on short-period regression because the per-sector
 pre-mask seeded from each sector's FRESH pass-1 peak -- which, on
 an injected curve, is the planet itself in 68% of trials, so the
@@ -338,7 +342,8 @@ class TestMergePreregRef(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out_dir = Path(d)
             manifest = self._fixture(out_dir)
-            summary = p43_run.merge_campaign_p43(out_dir, manifest)
+            summary = p43_run.merge_campaign_p43(
+                out_dir, manifest, vsx_filter=False)
             self.assertIn("P43_PREREG.md", summary["note"])
 
     def test_custom_prereg_ref(self):
@@ -347,7 +352,8 @@ class TestMergePreregRef(unittest.TestCase):
             manifest = self._fixture(out_dir)
             summary = p43_run.merge_campaign_p43(
                 out_dir, manifest, None,
-                "P43B_PREREG.md section 0.7")
+                "P43B_PREREG.md section 0.7",
+                vsx_filter=False)
             self.assertIn("P43B_PREREG.md", summary["note"])
 
 

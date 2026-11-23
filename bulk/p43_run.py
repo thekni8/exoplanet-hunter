@@ -98,9 +98,23 @@ from the stitched host records' stamps; v1-v5 records are
 untouched. Never re-merge a frozen run dir: the veto would
 rewrite its host files.
 
-Offline on the Mac (cached FITS only). No S98 data is read at any
-point. No new dependencies. No push / merge / PR -- the parent
-does those.
+Nearby-E VSX filter (bulk_v6, S12FIX F2 — adopted as built
+2026-11-23): both merges apply the filter to the final rows
+before aggregating — a host with a VSX type-E variable at
+2-30 arcsec loses its final rows (DEMOTED_VSX_NEARBY_E,
+demote-not-delete). The null merge applies it to both legs;
+the campaign merge applies it to both legs' trial records
+(one VSX query per host across legs). Coordinates come from
+MAST TIC (batched lookup, fail open); VSX queries fail open
+too — a failed query or missing coords keeps the rows and
+is recorded in the merge summary. --no-vsx-filter skips it
+(recorded). Never re-merge a frozen run dir: the filter
+would rewrite its host files.
+
+Offline on the Mac (cached FITS only) except for the merge-time
+VSX filter's MAST + VSX queries (fail open when unreachable).
+No S98 data is read at any point. No new dependencies. No push
+/ merge / PR -- the parent does those.
 """
 
 import argparse
@@ -124,6 +138,7 @@ from bulk import k3_run  # noqa: E402
 from bulk import oracle_run as orc  # noqa: E402
 from bulk import p43_stitch as p43  # noqa: E402
 from bulk import pass1_carry as p1c  # noqa: E402
+from bulk import vsx_filter as vf  # noqa: E402
 from bulk.inject_campaign import check_recovery  # noqa: E402
 from bulk.inject_real_s96 import load_real_fits  # noqa: E402
 from bulk.inject_real_s96 import write_injected_fits  # noqa: E402
@@ -1779,8 +1794,239 @@ def _print_stitched_veto(summary):
               f"({veto.get('reason')})", flush=True)
 
 
+# --- nearby-E VSX filter wiring (bulk_v6 / S12FIX F2) -----------------------
+
+_VSX_COORD_BATCH = 500
+
+
+def _fetch_vsx_coords(tics):
+    """Batched MAST TIC RA/Dec for `tics` (bulk_screen._tic_batch,
+    batches of 500). Fail open: a failed batch keeps its TICs
+    out of the coords (the filter records "no coordinates" and
+    keeps those rows). Returns ({tic: {"ra", "dec"}},
+    failed_tics)."""
+    coords, failed = {}, []
+    tics = sorted({str(t) for t in tics})
+    for i in range(0, len(tics), _VSX_COORD_BATCH):
+        batch = tics[i:i + _VSX_COORD_BATCH]
+        try:
+            got = bs._tic_batch(batch)
+        except Exception:  # noqa: BLE001 - fail open
+            failed.extend(batch)
+            continue
+        for tic, m in got.items():
+            if m.get("ra") is not None \
+                    and m.get("dec") is not None:
+                coords[str(tic)] = {"ra": m["ra"],
+                                    "dec": m["dec"]}
+    return coords, failed
+
+
+def _vsx_demoted_count_null(rec):
+    """Rows in one null-leg host record already carrying a
+    nearby-E VSX demotion (from this or an earlier merge)."""
+    return sum(1 for pk in ("pass2", "pass3", "pass1_carried")
+               if isinstance(rec.get(pk), dict)
+               and rec[pk].get("disposition")
+               == _search_health.DEMOTED_VSX_NEARBY_E)
+
+
+def _vsx_demoted_count_campaign(rec):
+    """Rows in one campaign-leg host record already carrying a
+    nearby-E VSX demotion."""
+    return sum(1 for tr in rec.get("trials", [])
+               for pk in ("pass2", "pass3", "pass1_carried")
+               if isinstance(tr.get(pk), dict)
+               and tr[pk].get("disposition")
+               == _search_health.DEMOTED_VSX_NEARBY_E)
+
+
+def _vsx_disabled_section():
+    """The summary section when the filter is switched off."""
+    return {"applied": False,
+            "reason": "disabled (vsx_filter=False)"}
+
+
+def _apply_vsx_filter_null(host_files, query_fn=None, coords=None,
+                           coords_fetcher=None):
+    """Apply the nearby-E VSX filter to one merge's null-leg
+    host records, and return the summary section dict.
+    host_files: [(path, rec)] for the leg's complete host
+    records. query_fn: (ra, dec) -> {"hits": [...]} or
+    {"error": str} (default: the live VSX query); coords:
+    {tic: {"ra", "dec"}} (default: fetched from MAST TIC for
+    the hosts with final rows); coords_fetcher: the seam for
+    tests (defaults to _fetch_vsx_coords).
+
+    Demotions land in the host files (atomically rewritten,
+    tmp + replace — the driver's pattern — only for files
+    that had a demotion), so scorers reading the host files
+    see the filter; the merge's counts are computed after
+    the filter, so the summary reflects it too. Clean audit
+    keys are NOT written to host files — they live in the
+    section's query_results (F3 persistence), so a clean
+    re-merge does not churn files. Re-merging is idempotent:
+    demoted rows are no longer survivors, so a second merge
+    demotes 0 while demoted_total stays stable. FAIL OPEN: a
+    failed VSX query or missing coords keeps the rows and is
+    recorded (failed_tics / no_coords) — the merge never
+    fails because the filter could not run.
+
+    Frozen-dir hazard: re-merging an old bulk_v6 run dir
+    applies the filter and rewrites its host files — never
+    re-merge a frozen dir.
+    """
+    section = {"applied": False, "reason": None, "hosts": 0,
+               "queried": 0, "no_coords": 0, "query_failed": 0,
+               "query_retries": 0, "clean": 0,
+               "flagged_hosts": 0, "rows_dropped": 0,
+               "dropped_pass2": 0, "dropped_pass3": 0,
+               "dropped_pass1_carried": 0,
+               "flagged_tics": [], "failed_tics": [],
+               "coords_failed": [],
+               "demoted_total": 0, "query_results": {}}
+    if not host_files:
+        section["reason"] = "no host records"
+        return section
+    records = [rec for _, rec in host_files]
+    section["hosts"] = len(records)
+    section["demoted_total"] = sum(_vsx_demoted_count_null(rec)
+                                   for rec in records)
+    if coords is None:
+        fetch = (coords_fetcher if coords_fetcher is not None
+                 else _fetch_vsx_coords)
+        want = {str(rec.get("tic")) for rec in records
+                if any(rec.get(f"{pk}_survivor") is True
+                       for pk in ("pass2", "pass3",
+                                  "pass1_carried"))}
+        coords, failed = fetch(sorted(want))
+        section["coords_failed"] = sorted(failed)
+    filtered, summary = vf.apply_vsx_filter(
+        records, coords, query_fn=query_fn)
+    dirty = set()
+    for (path, rec), new in zip(host_files, filtered):
+        # Copy the filtered record back onto the live object
+        # (the merge aggregates from the live objects) and
+        # rewrite the host file — only when the filter
+        # demoted a row here.
+        if new.get("vsx_filter", {}).get("trigger") is not None:
+            rec.clear()
+            rec.update(new)
+            dirty.add(path)
+    for path, rec in host_files:
+        if path in dirty:
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(_json_safe(rec)))
+            tmp.replace(path)
+    section.update({k: summary[k] for k in
+                    ("queried", "no_coords", "query_failed",
+                     "query_retries", "clean", "flagged_hosts",
+                     "rows_dropped", "dropped_pass2",
+                     "dropped_pass3", "dropped_pass1_carried",
+                     "flagged_tics", "failed_tics",
+                     "query_results")})
+    section["applied"] = True
+    section["demoted_total"] = sum(_vsx_demoted_count_null(rec)
+                                   for rec in records)
+    return section
+
+
+def _apply_vsx_filter_campaign(host_files, query_fn=None,
+                               coords=None, coords_fetcher=None):
+    """Apply the nearby-E VSX filter to one merge's campaign-leg
+    host records (both legs' files in ONE call, so each host
+    is queried once), and return the summary section dict.
+    Same contract as _apply_vsx_filter_null (demote-not-delete,
+    atomic rewrite of demoted files only, idempotent re-merge,
+    fail open), with the campaign adapter's trial-level
+    demotions (see bulk.vsx_filter.apply_vsx_filter_campaign).
+    The section additionally carries "trials_lost" (trials
+    whose final_recovered flipped True -> False)."""
+    section = {"applied": False, "reason": None, "hosts": 0,
+               "queried": 0, "no_coords": 0, "query_failed": 0,
+               "query_retries": 0, "clean": 0,
+               "flagged_hosts": 0, "rows_dropped": 0,
+               "trials_lost": 0,
+               "dropped_pass2": 0, "dropped_pass3": 0,
+               "dropped_pass1_carried": 0,
+               "flagged_tics": [], "failed_tics": [],
+               "coords_failed": [],
+               "demoted_total": 0, "query_results": {}}
+    if not host_files:
+        section["reason"] = "no host records"
+        return section
+    records = [rec for _, rec in host_files]
+    section["hosts"] = len(records)
+    section["demoted_total"] = sum(
+        _vsx_demoted_count_campaign(rec) for rec in records)
+    if coords is None:
+        fetch = (coords_fetcher if coords_fetcher is not None
+                 else _fetch_vsx_coords)
+        want = set()
+        for rec in records:
+            for tr in rec.get("trials", []):
+                if vf.trial_is_final(tr):
+                    want.add(str(
+                        tr.get("tic")
+                        if tr.get("tic") is not None
+                        else rec.get("tic")))
+        coords, failed = fetch(sorted(want))
+        section["coords_failed"] = sorted(failed)
+    filtered, summary = vf.apply_vsx_filter_campaign(
+        records, coords, query_fn=query_fn)
+    dirty = set()
+    for (path, rec), new in zip(host_files, filtered):
+        hosts = new.get("vsx_filter", {}).get("hosts") or {}
+        if any(h.get("trigger") is not None
+               for h in hosts.values()):
+            rec.clear()
+            rec.update(new)
+            dirty.add(path)
+    for path, rec in host_files:
+        if path in dirty:
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(_json_safe(rec)))
+            tmp.replace(path)
+    section.update({k: summary[k] for k in
+                    ("queried", "no_coords", "query_failed",
+                     "query_retries", "clean", "flagged_hosts",
+                     "rows_dropped", "trials_lost",
+                     "dropped_pass2", "dropped_pass3",
+                     "dropped_pass1_carried", "flagged_tics",
+                     "failed_tics", "query_results")})
+    section["applied"] = True
+    section["demoted_total"] = sum(
+        _vsx_demoted_count_campaign(rec) for rec in records)
+    return section
+
+
+def _print_vsx_filter(summary):
+    """Log lines for the merge's nearby-E VSX filter."""
+    for key in ("vsx_filter", "vsx_filter_stitched",
+                "vsx_filter_single"):
+        sec = summary.get(key)
+        if not isinstance(sec, dict):
+            continue
+        leg = key.replace("vsx_filter", "").strip("_") or "both"
+        if sec.get("applied"):
+            extra = (f", {sec['trials_lost']} trials lost"
+                     if "trials_lost" in sec else "")
+            print(f"[p43] VSX filter ({leg}): "
+                  f"{sec['rows_dropped']} rows dropped"
+                  f"{extra} ({sec['flagged_hosts']} hosts "
+                  f"flagged, {sec['queried']} queried, "
+                  f"{sec['query_failed']} failed, "
+                  f"{sec['no_coords']} no coords), "
+                  f"{sec['demoted_total']} total", flush=True)
+        else:
+            print(f"[p43] VSX filter ({leg}): not applied "
+                  f"({sec.get('reason')})", flush=True)
+
+
 def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
-                       prereg="P43_PREREG.md section 0.7"):
+                       prereg="P43_PREREG.md section 0.7",
+                       vsx_query_fn=None, vsx_coords=None,
+                       vsx_filter=True):
     """Aggregate the paired legs into p43_summary.json and apply
     the PRE-REGISTERED verdict rule (P43_PREREG.md section 0.7, or
     the prereg named by `prereg` -- the P4-3b fix applies the
@@ -1794,6 +2040,14 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
     validates the single leg against P4-1b Arm D's host files
     (per-trial exact reproduction); a mismatch is recorded and
     blocks the verdict (the paired baseline is invalid).
+
+    The nearby-E VSX filter (bulk_v6 / S12FIX F2) runs at merge
+    time on both legs' trial records, after the stitched T0
+    veto and before the paired list is built (see the module
+    docstring). vsx_query_fn / vsx_coords are the seams for
+    tests and offline re-merges (defaults: the live VSX query
+    and a MAST TIC coords fetch); vsx_filter=False skips it
+    (recorded in the summary).
     """
     out_dir = Path(out_dir)
     # Cell definitions come from the FROZEN MANIFEST (pre-registered
@@ -1802,17 +2056,14 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
     # from the leg would silently empty the low-event cell.
     man_trials = {(tr["tic"], tr["sector"], tr["trial_id"]): tr
                   for tr in manifest.get("trials", [])}
-    single = {}
+    single_host_files = []
     for p in sorted((out_dir / "hosts").glob("*.json")):
         try:
             rec = json.loads(p.read_text())
         except ValueError:
             continue
         if rec.get("complete") is True and rec.get("arm") == ARM:
-            for tr in rec.get("trials", []):
-                single[(tr["tic"], tr["sector"],
-                        tr["trial_id"])] = tr
-    stitched = {}
+            single_host_files.append((p, rec))
     stitched_host_files = []
     for p in sorted((out_dir / "hosts-p43").glob("*.json")):
         try:
@@ -1821,18 +2072,37 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
             continue
         if rec.get("complete") is True and rec.get("arm") == ARM:
             stitched_host_files.append((p, rec))
-            for tr in rec.get("trials", []):
-                stitched[(tr["tic"], tr["sector"],
-                          tr["trial_id"])] = tr
     # Stitched-leg T0-cluster veto (bulk_v6 / ELIGFIX
     # follow-up): merge-time, before the paired list is
-    # built — the trial dicts in `stitched` are the same
-    # objects as in the host records, so the demotions land
-    # in the paired stats. Demoted rows are also written
-    # back to the host files (atomically).
+    # built — the veto demotes live trial dicts in place, so
+    # the demotions land in the paired stats. Demoted rows
+    # are also written back to the host files (atomically).
     veto_section = _apply_stitched_t0_veto(
         stitched_host_files, _campaign_veto_bindings,
         _campaign_veto_demoted_count)
+    # Nearby-E VSX filter (bulk_v6 / S12FIX F2): merge-time,
+    # after the T0 veto, on BOTH legs — one call across both
+    # legs' records, so each host is queried once. Runs
+    # BEFORE the trial dicts below are built: the filter
+    # copies demoted records back in place (clear/update),
+    # which replaces the trial dicts, so the paired list
+    # must be built from the filtered records.
+    if vsx_filter:
+        vsx_section = _apply_vsx_filter_campaign(
+            single_host_files + stitched_host_files,
+            query_fn=vsx_query_fn, coords=vsx_coords)
+    else:
+        vsx_section = _vsx_disabled_section()
+    single = {}
+    for _, rec in single_host_files:
+        for tr in rec.get("trials", []):
+            single[(tr["tic"], tr["sector"],
+                    tr["trial_id"])] = tr
+    stitched = {}
+    for _, rec in stitched_host_files:
+        for tr in rec.get("trials", []):
+            stitched[(tr["tic"], tr["sector"],
+                      tr["trial_id"])] = tr
     keys = sorted(set(single) & set(stitched))
     not_in_manifest = [k for k in keys if k not in man_trials]
     all_hosts = sorted({tr["tic"] for tr in manifest["trials"]})
@@ -2076,6 +2346,7 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
         "failing_checks": failing,
         "verdict": verdict,
         "stitched_t0_cluster_veto": veto_section,
+        "vsx_filter": vsx_section,
         "note": ("Verdict rule pre-registered in " + prereg
                  + "; A18 is reported, not part of the "
                  "verdict."),
@@ -2085,10 +2356,18 @@ def merge_campaign_p43(out_dir, manifest, p41b_dir=None,
     return summary
 
 
-def merge_null_p43(out_dir):
+def merge_null_p43(out_dir, vsx_query_fn=None, vsx_coords=None,
+                   vsx_filter=True):
     """Aggregate the paired null legs into p43_null_summary.json.
     Stitched pass-1 baseline = the stitched UNMASKED screen;
-    bound = ceil(1.25 x pass-1 rows) (A2-style, per ROW)."""
+    bound = ceil(1.25 x pass-1 rows) (A2-style, per ROW).
+
+    The nearby-E VSX filter (bulk_v6 / S12FIX F2) runs at merge
+    time on both legs, after the stitched T0 veto and before
+    the aggregation (see the module docstring). vsx_query_fn /
+    vsx_coords are the seams for tests and offline re-merges
+    (defaults: the live VSX query and a MAST TIC coords fetch);
+    vsx_filter=False skips it (recorded in the summary)."""
     out_dir = Path(out_dir)
     stitched = []
     stitched_host_files = []
@@ -2101,6 +2380,7 @@ def merge_null_p43(out_dir):
             stitched.append(rec)
             stitched_host_files.append((p, rec))
     single = []
+    single_host_files = []
     for p in sorted((out_dir / "null_hosts").glob("*.json")):
         try:
             rec = json.loads(p.read_text())
@@ -2108,6 +2388,7 @@ def merge_null_p43(out_dir):
             continue
         if rec.get("complete") is True and rec.get("arm") == ARM:
             single.append(rec)
+            single_host_files.append((p, rec))
 
     # Stitched-leg T0-cluster veto (bulk_v6 / ELIGFIX
     # follow-up): merge-time, before the aggregation — the
@@ -2118,6 +2399,27 @@ def merge_null_p43(out_dir):
     veto_section = _apply_stitched_t0_veto(
         stitched_host_files, _null_veto_bindings,
         _null_veto_demoted_count)
+
+    # Nearby-E VSX filter (bulk_v6 / S12FIX F2): merge-time,
+    # after the T0 veto, on BOTH legs — the host records in
+    # `stitched`/`single` are the same objects the filter
+    # demotes (copy-back in place), so the headline counts
+    # reflect it. Demoted rows are also written back to the
+    # host files (atomically). The single leg's F-1 veto is
+    # scoring-time, not merge-time: the filter runs pre-F-1
+    # here, which is safe because its rows are tier-A
+    # multi-event and F-1 only takes few-event rows (verified
+    # on the 5.2 finals: 81 -> 76, identical dropped keys).
+    if vsx_filter:
+        vsx_stitched = _apply_vsx_filter_null(
+            stitched_host_files, query_fn=vsx_query_fn,
+            coords=vsx_coords)
+        vsx_single = _apply_vsx_filter_null(
+            single_host_files, query_fn=vsx_query_fn,
+            coords=vsx_coords)
+    else:
+        vsx_stitched = _vsx_disabled_section()
+        vsx_single = _vsx_disabled_section()
 
     def _agg(recs):
         n = len(recs)
@@ -2142,6 +2444,8 @@ def merge_null_p43(out_dir):
     summary = {"tool": "p43_run", "mode": "null", "arm": ARM,
                "stitched": s, "single": s1,
                "stitched_t0_cluster_veto": veto_section,
+               "vsx_filter_stitched": vsx_stitched,
+               "vsx_filter_single": vsx_single,
                "note": ("Stitched pass-1 baseline = the stitched "
                         "UNMASKED screen (pre-registered). Small-n "
                         "caveat: 34 hosts. Bound = ceil(1.25 x "
@@ -2252,6 +2556,10 @@ def main(argv=None):
     ap.add_argument("--limit-hosts", type=int, default=None)
     ap.add_argument("--keep-fits", action="store_true")
     ap.add_argument("--merge-only", action="store_true")
+    ap.add_argument("--no-vsx-filter", action="store_true",
+                    help="Skip the nearby-E VSX filter at merge "
+                         "time (offline re-merges; recorded in "
+                         "the summary).")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--p41b-dir", default=None,
                     help="P4-1b Arm D host files (single-leg "
@@ -2288,10 +2596,12 @@ def main(argv=None):
     manifest = orc._load_manifest(args.manifest)
     if args.mode == "campaign":
         if args.merge_only:
-            summary = merge_campaign_p43(out_dir, manifest,
-                                         args.p41b_dir,
-                                         args.prereg_ref)
+            summary = merge_campaign_p43(
+                out_dir, manifest, args.p41b_dir,
+                args.prereg_ref,
+                vsx_filter=not args.no_vsx_filter)
             _print_stitched_veto(summary)
+            _print_vsx_filter(summary)
             print(f"[p43] merged {summary['n_trials_paired']} "
                   f"paired trials; verdict "
                   f"{summary['verdict']} "
@@ -2349,8 +2659,11 @@ def main(argv=None):
                   f"{r.get('error')}", flush=True)
         summary = merge_campaign_p43(out_dir, manifest,
                                      args.p41b_dir,
-                                     args.prereg_ref)
+                                     args.prereg_ref,
+                                     vsx_filter=(
+                                         not args.no_vsx_filter))
         _print_stitched_veto(summary)
+        _print_vsx_filter(summary)
         if not summary["null"]["present"]:
             print("[p43] NOTE: null leg not run yet -- the verdict "
                   "above is PENDING the null element (section 0.7 "
@@ -2373,8 +2686,10 @@ def main(argv=None):
         return 0 if not failures else 1
     # --- null mode ---
     if args.merge_only:
-        summary = merge_null_p43(out_dir)
+        summary = merge_null_p43(
+            out_dir, vsx_filter=not args.no_vsx_filter)
         _print_stitched_veto(summary)
+        _print_vsx_filter(summary)
         print(f"[p43] null merged: stitched "
               f"{summary['stitched']['pass1_survivors']} -> "
               f"{summary['stitched']['final_rows']} rows "
@@ -2428,8 +2743,10 @@ def main(argv=None):
     for r in failures:
         print(f"[p43] ERROR TIC {r['tic']}: {r.get('error')}",
               flush=True)
-    summary = merge_null_p43(out_dir)
+    summary = merge_null_p43(out_dir,
+                             vsx_filter=not args.no_vsx_filter)
     _print_stitched_veto(summary)
+    _print_vsx_filter(summary)
     print(f"[p43] null done: {done} run, {skipped} skipped, "
           f"{len(failures)} failed; stitched "
           f"{summary['stitched']['pass1_survivors']} -> "
