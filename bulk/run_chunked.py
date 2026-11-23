@@ -954,11 +954,14 @@ def main():
             else:
                 survivors += k3_surv
                 hits += k3_hit
+    # 3.11-compatible: the Mac runs Python 3.11.15 — no multi-line
+    # f-string expressions (PEP 701 is 3.12+). The word is computed
+    # first so the log call stays single-line f-strings.
+    k3_join_word = ("deferred to after the veto"
+                    if (k3d is not None and bs.K3_JOIN_AFTER_VETO)
+                    else "joined")
     log(f"merged: {len(survivors)} pass-1 survivors "
-        f"({n_k3_survivors} K=3 "
-        f"{'deferred to after the veto'
-          if (k3d is not None and bs.K3_JOIN_AFTER_VETO)
-          else 'joined'}), "
+        f"({n_k3_survivors} K=3 {k3_join_word}), "
         f"{agg['zooniverse_known']} zooniverse-known already removed")
     # P3-15 (bulk_v4): SECTOR_EPOCH_CLUSTER veto — merge-only
     # (clusters span slices, so a per-slice veto would
