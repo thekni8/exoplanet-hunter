@@ -21,6 +21,7 @@ Two layers, both driven without the real tool:
 
 The real tool is never imported or installed here.
 """
+import hashlib
 import json
 import os
 import subprocess
@@ -39,6 +40,8 @@ from gauntlet.external_tool import (  # noqa: E402
     ToolConfig, build_tool_input, run_external_tool)
 from gauntlet.stage_result import (  # noqa: E402
     triceratops_disposition, triceratops_result)
+from gauntlet.tools.run_triceratops import (  # noqa: E402
+    freeze_gaia_csv)
 from validation import (  # noqa: E402
     RecordValidationError, validate_stage_result,
     validate_triceratops_output,
@@ -698,6 +701,210 @@ class TestRunTriceratopsWrapper(unittest.TestCase):
             self.assertEqual(out["status"], "completed")
             self.assertEqual(obs["trilegal_fname"],
                              str(csv_path))
+
+    def test_frozen_gaia_csv_seeded_and_reported(self):
+        # M6: a frozen CSV named in the input is seeded
+        # into the workdir and passed as trilegal_fname,
+        # so the tool reuses its bytes exactly; the output
+        # metrics record the source and the byte identity.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            frozen = Path(tmp) / "frozen.csv"
+            frozen.write_text("ID,Tmag\n423498314,13.45\n")
+            inp = _input_dict(tmp)
+            inp["frozen_gaia_csv"] = str(frozen)
+            work, out, obs = self._run_wrapper(
+                tmp, fakevenv, inp, cwd=tmp)
+            self.assertEqual(out["status"], "completed")
+            seeded = work / "423498314_gaia_background.csv"
+            self.assertTrue(seeded.exists())
+            self.assertEqual(seeded.read_bytes(),
+                             frozen.read_bytes())
+            self.assertEqual(obs["trilegal_fname"],
+                             str(seeded))
+            m = out["metrics"]
+            self.assertEqual(m["gaia_csv_source"], "frozen")
+            self.assertEqual(m["gaia_csv_sha256"],
+                             hashlib.sha256(
+                                 frozen.read_bytes()
+                             ).hexdigest())
+            self.assertIsNone(m["gaia_csv_frozen_to"])
+            log = Path(tmp) / "work" / "phase_log.txt"
+            self.assertIn("using frozen Gaia population",
+                          log.read_text())
+            validate_triceratops_output(out)
+
+    def test_frozen_gaia_csv_identical_fpp(self):
+        # M6 regression: the same frozen CSV + seed gives
+        # the same FPP twice. The byte-exact end-to-end
+        # claim is verified on the Mac against the real
+        # tool (M6_RECORD.md); here the fake proves the
+        # plumbing — both runs reuse the same frozen bytes
+        # and produce the same value.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            frozen = Path(tmp) / "frozen.csv"
+            frozen.write_text("ID,Tmag\n423498314,13.45\n")
+            inp1 = _input_dict(tmp)
+            inp1["frozen_gaia_csv"] = str(frozen)
+            _w1, out1, _o1 = self._run_wrapper(
+                tmp, fakevenv, inp1)
+            tmp2 = Path(tmp) / "run2"
+            tmp2.mkdir()
+            inp2 = _input_dict(str(tmp2))
+            inp2["frozen_gaia_csv"] = str(frozen)
+            _w2, out2, _o2 = self._run_wrapper(
+                str(tmp2), fakevenv, inp2)
+            self.assertEqual(out1["value"], out2["value"])
+            self.assertEqual(
+                out1["metrics"]["gaia_csv_sha256"],
+                out2["metrics"]["gaia_csv_sha256"])
+            self.assertEqual(
+                out1["metrics"]["gaia_csv_source"], "frozen")
+            self.assertEqual(
+                out2["metrics"]["gaia_csv_source"], "frozen")
+
+    def test_missing_frozen_gaia_csv_fails_closed(self):
+        # A named frozen CSV that is not there is a config
+        # error: the run fails, it never silently falls
+        # back to a live query.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            inp = _input_dict(tmp)
+            inp["frozen_gaia_csv"] = str(
+                Path(tmp) / "does-not-exist.csv")
+            _w, out, obs = self._run_wrapper(
+                tmp, fakevenv, inp)
+            self.assertEqual(out["status"], "failed")
+            self.assertIsNone(out["value"])
+            self.assertTrue(any("frozen Gaia CSV not found"
+                                in w for w in out["warnings"]))
+            # Target construction never ran: the fake
+            # recorded nothing.
+            self.assertNotIn("trilegal_fname", obs)
+            self.assertIsNone(
+                out["metrics"]["gaia_csv_source"])
+            validate_triceratops_output(out)
+
+    def test_live_query_freezes_csv(self):
+        # A live query (the fake writes the CSV to its cwd
+        # during target construction) freezes the bytes
+        # into gaia_freeze_dir with sha256 provenance.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            freeze_dir = Path(tmp) / "freeze"
+            inp = _input_dict(tmp)
+            inp["gaia_freeze_dir"] = str(freeze_dir)
+            work, out, obs = self._run_wrapper(
+                tmp, fakevenv, inp,
+                behaviour="write_gaia_csv")
+            self.assertEqual(out["status"], "completed")
+            self.assertIsNone(obs["trilegal_fname"])
+            frozen = (freeze_dir
+                      / "423498314_gaia_background.csv")
+            self.assertTrue(frozen.exists())
+            self.assertEqual(
+                frozen.read_bytes(),
+                (work / "423498314_gaia_background.csv"
+                 ).read_bytes())
+            prov = json.loads(
+                (freeze_dir
+                 / "423498314_gaia_background.provenance.json"
+                 ).read_text())
+            digest = hashlib.sha256(
+                frozen.read_bytes()).hexdigest()
+            self.assertEqual(prov["sha256"], digest)
+            self.assertEqual(prov["tic"], "423498314")
+            self.assertEqual(prov["n_stars"], 1)
+            m = out["metrics"]
+            self.assertEqual(m["gaia_csv_source"], "live")
+            self.assertEqual(m["gaia_csv_sha256"], digest)
+            self.assertEqual(m["gaia_csv_frozen_to"],
+                             str(frozen))
+            validate_triceratops_output(out)
+
+    def test_freeze_dir_keeps_existing_different_csv(self):
+        # Immutability: a freeze dir that already holds a
+        # DIFFERENT CSV for this TIC keeps its bytes; the
+        # run still completes (the FPP is unaffected) and
+        # the mismatch is a warning, not a silent swap.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            freeze_dir = Path(tmp) / "freeze"
+            freeze_dir.mkdir()
+            existing = (freeze_dir
+                        / "423498314_gaia_background.csv")
+            existing.write_text("ID,Tmag\n423498314,9.99\n")
+            inp = _input_dict(tmp)
+            inp["gaia_freeze_dir"] = str(freeze_dir)
+            _w, out, _obs = self._run_wrapper(
+                tmp, fakevenv, inp,
+                behaviour="write_gaia_csv")
+            self.assertEqual(out["status"], "completed")
+            self.assertEqual(existing.read_text(),
+                             "ID,Tmag\n423498314,9.99\n")
+            self.assertTrue(any("different Gaia CSV" in w
+                                for w in out["warnings"]))
+            self.assertIsNone(
+                out["metrics"]["gaia_csv_frozen_to"])
+            self.assertEqual(
+                out["metrics"]["gaia_csv_source"], "live")
+            validate_triceratops_output(out)
+
+    def test_no_frozen_csv_live_query_fallback(self):
+        # No frozen fields at all: the wrapper behaves as
+        # before — a live query runs (no trilegal_fname)
+        # and the metrics record the live source.
+        with tempfile.TemporaryDirectory() as tmp:
+            fakevenv = self._fake_tri(tmp)
+            _w, out, obs = self._run_wrapper(
+                tmp, fakevenv, _input_dict(tmp),
+                behaviour="write_gaia_csv")
+            self.assertEqual(out["status"], "completed")
+            self.assertIsNone(obs["trilegal_fname"])
+            m = out["metrics"]
+            self.assertEqual(m["gaia_csv_source"], "live")
+            self.assertIsNotNone(m["gaia_csv_sha256"])
+            self.assertIsNone(m["gaia_csv_frozen_to"])
+            validate_triceratops_output(out)
+
+    def test_freeze_gaia_csv_helper(self):
+        # The freeze helper itself: freezes bytes +
+        # provenance, no-ops on identical bytes, keeps
+        # existing bytes on a mismatch, and fails loud on
+        # a missing or empty source.
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.csv"
+            src.write_text("ID,Tmag\n423498314,13.45\n")
+            freeze_dir = Path(tmp) / "freeze"
+            first = freeze_gaia_csv(str(src), str(freeze_dir),
+                                    "423498314")
+            self.assertEqual(first["status"], "frozen")
+            self.assertEqual(first["n_stars"], 1)
+            dest = (freeze_dir
+                    / "423498314_gaia_background.csv")
+            self.assertEqual(dest.read_bytes(),
+                             src.read_bytes())
+            again = freeze_gaia_csv(str(src), str(freeze_dir),
+                                    "423498314")
+            self.assertEqual(again["status"],
+                             "already-present-identical")
+            other = Path(tmp) / "other.csv"
+            other.write_text("ID,Tmag\n423498314,9.99\n")
+            kept = freeze_gaia_csv(str(other), str(freeze_dir),
+                                   "423498314")
+            self.assertEqual(kept["status"],
+                             "kept-existing-different")
+            self.assertEqual(dest.read_bytes(),
+                             src.read_bytes())
+            with self.assertRaises(FileNotFoundError):
+                freeze_gaia_csv(str(Path(tmp) / "nope.csv"),
+                                str(freeze_dir), "423498314")
+            empty = Path(tmp) / "empty.csv"
+            empty.write_text("")
+            with self.assertRaises(ValueError):
+                freeze_gaia_csv(str(empty), str(freeze_dir),
+                                "423498314")
 
     def test_phase_seconds_and_socket_timeout_recorded(self):
         with tempfile.TemporaryDirectory() as tmp:

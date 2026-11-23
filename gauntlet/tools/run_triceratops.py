@@ -121,6 +121,25 @@ TRICERATOPS specifics, verified against the 1.1.0 source:
   tool itself wrote for this target is already on disk,
   the wrapper passes it as trilegal_fname so a retry
   skips the live Gaia query with identical data.
+* GAIA CSV FREEZING (M6, 2026-11-23 — proven, not
+  hypothesised): a live Gaia TAP query returns the same
+  star set in a different ROW ORDER every time, and the
+  tool's MC draws are order-sensitive, so per-seed FPPs
+  jitter up to ~0.2% between identical runs (M6 vs 4.1-6;
+  a control leg with the Nov-16 cached CSV reproduced
+  4.1-6 to 16 digits). Exact FPP reproduction requires
+  freezing the Gaia CSV BYTES, not just the seed. The
+  input may therefore name `frozen_gaia_csv` (a CSV to
+  seed into the workdir and pass as trilegal_fname — a
+  missing file fails the run closed, it never silently
+  falls back to a live query) and/or `gaia_freeze_dir`
+  (a directory to freeze a live-queried CSV into, with a
+  sha256 provenance file). A frozen CSV is IMMUTABLE:
+  freezing never overwrites an existing frozen CSV with
+  different bytes. metrics records gaia_csv_source
+  ("frozen" | "cached" | "live"), gaia_csv_sha256, and
+  gaia_csv_frozen_to. scripts/freeze_gaia_csv.py adopts
+  an existing CSV into a freeze dir.
 * The per-scenario probability table is saved as
   triceratops_probs.csv in the run workdir (evidence
   artifact). No corner plot in v1.
@@ -132,8 +151,10 @@ writing one.
 """
 import argparse
 import contextlib
+import hashlib
 import json
 import os
+import shutil
 import signal
 import socket
 import sys
@@ -259,6 +280,86 @@ def _env_int(name, default):
         return default
 
 
+def _gaia_csv_name(tic_id):
+    """The filename the tool writes for a target's Gaia
+    background population (funcs.py:840)."""
+    return f"{tic_id}_gaia_background.csv"
+
+
+def _sha256_file(path):
+    """sha256 hex digest of a file's bytes."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def freeze_gaia_csv(csv_path, freeze_dir, tic_id,
+                    source="live Gaia DR3 query"):
+    """Freeze a Gaia background CSV's BYTES into a freeze
+    dir (M6): copy them verbatim to
+    <freeze_dir>/<tic>_gaia_background.csv and write the
+    sha256 provenance file beside it. Returns a dict with
+    status, path, sha256, bytes, n_stars.
+
+    A frozen CSV is IMMUTABLE: if the freeze dir already
+    holds a CSV for this TIC with DIFFERENT bytes, the
+    existing file is kept untouched and the status is
+    "kept-existing-different" (the caller decides whether
+    that is a warning or an error — the run's FPP is
+    unaffected either way). An identical CSV already
+    present is a no-op ("already-present-identical").
+    Raises FileNotFoundError for a missing source and
+    ValueError for an empty one.
+    """
+    if not os.path.isfile(csv_path):
+        raise FileNotFoundError(
+            f"Gaia CSV to freeze not found: {csv_path}")
+    size = os.path.getsize(csv_path)
+    if size == 0:
+        raise ValueError(
+            f"Gaia CSV to freeze is empty: {csv_path}")
+    os.makedirs(freeze_dir, exist_ok=True)
+    name = _gaia_csv_name(tic_id)
+    dest = os.path.join(freeze_dir, name)
+    digest = _sha256_file(csv_path)
+    with open(csv_path, "rb") as fh:
+        n_lines = sum(1 for _ in fh)
+    n_stars = max(0, n_lines - 1)  # header row excluded
+    if os.path.isfile(dest):
+        if _sha256_file(dest) == digest:
+            return {"status": "already-present-identical",
+                    "path": dest, "sha256": digest,
+                    "bytes": size, "n_stars": n_stars}
+        return {"status": "kept-existing-different",
+                "path": dest, "sha256": digest,
+                "bytes": size, "n_stars": n_stars,
+                "existing_sha256": _sha256_file(dest)}
+    shutil.copyfile(csv_path, dest)
+    provenance = {
+        "tic": str(tic_id),
+        "file": name,
+        "sha256": digest,
+        "bytes": size,
+        "n_stars": n_stars,
+        "source": source,
+        "frozen_at_utc": time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "frozen_by": "gauntlet.tools.run_triceratops."
+                     "freeze_gaia_csv",
+    }
+    prov_path = os.path.join(
+        freeze_dir, f"{tic_id}_gaia_background."
+                    f"provenance.json")
+    with open(prov_path, "w") as fh:
+        json.dump(provenance, fh, indent=2)
+    return {"status": "frozen", "path": dest,
+            "sha256": digest, "bytes": size,
+            "n_stars": n_stars,
+            "provenance": prov_path}
+
+
 def _cached_gaia_population(tic_id):
     """A Gaia background CSV the tool itself wrote for
     this target (same defaults every run), if one is on
@@ -267,7 +368,7 @@ def _cached_gaia_population(tic_id):
     directory first, then the repo root (the tool writes
     the file to its cwd, which is the repo root for the
     nightly and panel drivers)."""
-    name = f"{tic_id}_gaia_background.csv"
+    name = _gaia_csv_name(tic_id)
     for path in (os.path.join(os.getcwd(), name),
                  os.path.join(REPO_ROOT, name)):
         if os.path.isfile(path) and os.path.getsize(path) > 0:
@@ -397,6 +498,13 @@ def _null_metrics(dilution_corrected, contrast_curve_used,
         # PM-1: the background-scenario check did not pass
         # (it never ran, or it failed the run).
         "background_scenarios_checked": False,
+        # M6 Gaia freezing: the population source and its
+        # sha256. None on a failed run (the phase log
+        # carries what was used when the run died after
+        # target construction).
+        "gaia_csv_source": None,
+        "gaia_csv_sha256": None,
+        "gaia_csv_frozen_to": None,
     }
 
 
@@ -425,6 +533,18 @@ def run(input_path, output_path):
     n_transits = inp["signal"].get("n_transits")
     dilution_corrected = bool(inp.get("dilution_corrected",
                                       False))
+    # M6 Gaia freezing: a frozen CSV to seed (fail closed
+    # when it is missing) and/or a directory to freeze a
+    # live-queried CSV into. Resolved to absolute paths
+    # HERE — run() chdirs to the workdir before the tool
+    # phases, and relative paths would resolve against
+    # the workdir instead of the caller's cwd.
+    frozen_gaia_csv = inp.get("frozen_gaia_csv") or None
+    if frozen_gaia_csv:
+        frozen_gaia_csv = os.path.abspath(frozen_gaia_csv)
+    gaia_freeze_dir = inp.get("gaia_freeze_dir") or None
+    if gaia_freeze_dir:
+        gaia_freeze_dir = os.path.abspath(gaia_freeze_dir)
     cc = inp.get("contrast_curve") or {}
     cc_path = cc.get("path")
     contrast_curve_used = bool(cc_path)
@@ -456,6 +576,11 @@ def run(input_path, output_path):
     # the run dies before construction.
     sectors_requested = None
     sectors_built = None
+    # M6 Gaia provenance — set once the population source
+    # is known ("frozen" | "cached" | "live").
+    gaia_source = None
+    gaia_csv_sha256 = None
+    gaia_csv_frozen_to = None
 
     def _log_phase(msg):
         line = (f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} "
@@ -564,10 +689,35 @@ def run(input_path, output_path):
                         f"({exc}); the Gaia CSV may land in "
                         f"the repo root")
         _log_phase(f"chdir to workdir failed: {exc}")
+    # M6: seed a frozen Gaia CSV into the workdir before
+    # the cache lookup, so the tool reuses its bytes
+    # exactly. A named frozen CSV that is not there is a
+    # config error — fail closed, never silently query
+    # live (the run would then not be the run that was
+    # asked for). The workdir is per-run scratch, so the
+    # frozen CSV overwrites any CSV already there: the
+    # frozen bytes are the authority.
+    if frozen_gaia_csv:
+        if not os.path.isfile(frozen_gaia_csv):
+            return _failed("frozen Gaia CSV not found: "
+                           f"{frozen_gaia_csv}")
+        frozen_dest = os.path.join(workdir,
+                                   _gaia_csv_name(tic))
+        shutil.copyfile(frozen_gaia_csv, frozen_dest)
+        gaia_csv_sha256 = _sha256_file(frozen_dest)
+        _log_phase("using frozen Gaia population "
+                   f"{frozen_gaia_csv} (sha256 "
+                   f"{gaia_csv_sha256})")
     trilegal_fname = _cached_gaia_population(tic)
     if trilegal_fname:
-        _log_phase("reusing cached Gaia population "
-                   f"{trilegal_fname}")
+        if frozen_gaia_csv:
+            gaia_source = "frozen"
+        else:
+            gaia_source = "cached"
+            if gaia_csv_sha256 is None:
+                gaia_csv_sha256 = _sha256_file(trilegal_fname)
+            _log_phase("reusing cached Gaia population "
+                       f"{trilegal_fname}")
     tgt = None
     last_error = None
     for attempt in range(1, init_attempts + 1):
@@ -644,6 +794,59 @@ def run(input_path, output_path):
                        "(trilegal_missing): the tool skipped "
                        "the background scenarios; the FPP "
                        "would be computed without them")
+    # M6: freeze a LIVE-queried population. The tool wrote
+    # <tic>_gaia_background.csv to the workdir during
+    # target construction; its bytes are this run's
+    # population, and freezing them here (before the
+    # expensive calc_probs) means even a later compute
+    # failure still leaves a frozen population behind.
+    # Frozen/cached runs have nothing to freeze — the
+    # workdir CSV already IS the frozen/cached bytes.
+    # A freeze failure never fails the run: the FPP is
+    # unaffected, only the provenance is thinner.
+    if gaia_source is None:
+        gaia_source = "live"
+        live_csv = os.path.join(workdir, _gaia_csv_name(tic))
+        if os.path.isfile(live_csv):
+            gaia_csv_sha256 = _sha256_file(live_csv)
+            if gaia_freeze_dir:
+                try:
+                    frozen = freeze_gaia_csv(
+                        live_csv, gaia_freeze_dir, tic)
+                except (OSError, ValueError) as exc:
+                    warnings.append("could not freeze the "
+                                    "Gaia CSV "
+                                    f"({exc}); the FPP is "
+                                    "unaffected")
+                    _log_phase(f"Gaia freeze failed: {exc}")
+                else:
+                    fstatus = frozen["status"]
+                    if fstatus == "frozen":
+                        gaia_csv_frozen_to = frozen["path"]
+                        _log_phase("froze live Gaia "
+                                   "population to "
+                                   f"{frozen['path']} "
+                                   "(sha256 "
+                                   f"{frozen['sha256']})")
+                    elif fstatus == "already-present-identical":
+                        gaia_csv_frozen_to = frozen["path"]
+                        _log_phase("frozen Gaia population "
+                                   "already present "
+                                   "(identical): "
+                                   f"{frozen['path']}")
+                    else:  # kept-existing-different
+                        warnings.append(
+                            "freeze dir already holds a "
+                            "different Gaia CSV for this "
+                            "target; kept the existing "
+                            "frozen bytes (live sha256 "
+                            f"{frozen['sha256']})")
+                        _log_phase("Gaia freeze skipped: "
+                                   "existing frozen CSV "
+                                   "differs; kept it")
+        elif gaia_freeze_dir:
+            warnings.append("live Gaia query left no CSV "
+                            "to freeze in the workdir")
     np.random.seed(seed)
     try:
         t_phase = time.monotonic()
@@ -725,6 +928,11 @@ def run(input_path, output_path):
         "sectors_built": sectors_built,
         "background_scenarios_checked":
             background_scenarios_checked,
+        # M6 Gaia freezing: where the background
+        # population came from and its byte identity.
+        "gaia_csv_source": gaia_source,
+        "gaia_csv_sha256": gaia_csv_sha256,
+        "gaia_csv_frozen_to": gaia_csv_frozen_to,
     }
     return _output(tool_version, seed, config_hash, "completed",
                    fpp, metrics, input_hashes, artifacts,
