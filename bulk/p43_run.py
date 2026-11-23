@@ -1558,7 +1558,14 @@ def run_host_null_p43(job):
                 p2, jf_res = _joint_fit_pass2(
                     p2, p2_raw, t_s, f_s, q_s, masked, sigmas)
                 r["pass2_bls"] = p2_bls
-                r["joint_fit"] = jf_res
+                # NOTE (5.6 profile, 2026-11-24): stored under
+                # "joint_fit_record", NOT "joint_fit" — the
+                # end of this function overwrites r["joint_fit"]
+                # with the True flag (resume discriminator), which
+                # silently discarded the timing/diagnostics on the
+                # first profile run. The campaign leg has no such
+                # clash (its result lives on the per-trial dict).
+                r["joint_fit_record"] = jf_res
             r["pass2"] = p2
             r["pass2_survivor"] = bool(
                 p2.get("status") == "survivor")
