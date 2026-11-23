@@ -1538,8 +1538,20 @@ def _attach_grid_edge_disposition(rec, camera=None, ccd=None):
 
 def _screen_one(args):
     """Worker: screen one star's cached QLP file. Returns a record dict
-    (always, with 'status'), so the parent can count every outcome."""
-    tic, path, sector, star = args
+    (always, with 'status'), so the parent can count every outcome.
+
+    args is (tic, path, sector, star), with an optional 5th element:
+    return_periodogram (bool, default False). When True, the record
+    carries the coarse BLS periodogram under "periodogram"
+    (periods/powers/depths/durations/transit_times/med/scale, numpy
+    arrays -- NOT in _EMIT_KEYS, never emitted) for the 5.6 joint fit
+    (DESIGN_5_6.md section 2.2 step 1: re-running the BLS inside the
+    joint fit is forbidden). Default-off: attaching 12,000-point
+    arrays to every record would bloat the pool IPC for the sector
+    screens, which never need them. The exposure does not alter any
+    other output (A8 regression test: tests/test_joint_fit.py)."""
+    tic, path, sector, star = args[:4]
+    return_periodogram = len(args) > 4 and bool(args[4])
     rec = {"tic": tic, "sector": int(sector), "product": PRODUCT,
            "ra": star.get("ra"), "dec": star.get("dec"),
            "tmag": star.get("tmag"), "radius_rsun": star.get("radius"),
@@ -1634,6 +1646,23 @@ def _screen_one(args):
         pw = np.asarray(res.power, dtype=float)
         med_p, scale = _robust_sde(pw, pv)
         sde_all = (pw - med_p) / scale
+        if return_periodogram:
+            # 5.6 (A8): expose the coarse periodogram for the joint
+            # fit's J1 extraction. Attached before every early
+            # return (health / record floor) so a caller that asked
+            # always gets it; numpy arrays, in-memory only, never
+            # emitted (not in _EMIT_KEYS) and never JSON-serialised
+            # (the driver reads it in-process and drops it).
+            rec["periodogram"] = {
+                "periods": pv,
+                "powers": pw,
+                "depths": np.asarray(res.depth, dtype=float),
+                "durations": np.asarray(res.duration, dtype=float),
+                "transit_times": np.asarray(res.transit_time,
+                                            dtype=float),
+                "med": med_p,
+                "scale": scale,
+            }
         i = int(np.argmax(sde_all))
         period = float(pv[i])
         sde = float(sde_all[i])

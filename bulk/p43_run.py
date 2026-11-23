@@ -135,6 +135,7 @@ import search_health as _search_health  # noqa: E402
 from bulk import k2_prototype as k2  # noqa: E402
 from bulk import k3_prototype as k3  # noqa: E402
 from bulk import k3_run  # noqa: E402
+from bulk import joint_fit as jf  # noqa: E402
 from bulk import oracle_run as orc  # noqa: E402
 from bulk import p43_stitch as p43  # noqa: E402
 from bulk import pass1_carry as p1c  # noqa: E402
@@ -605,14 +606,120 @@ def _contaminant_dict(ephemeris, mstats):
 
 
 def _stitched_pass2(t_s, f_s, q_s, fcol, base, tic, sector,
-                    keep_fits):
-    """Screen the stitched curve (pass 2). Returns the subset."""
+                    keep_fits, return_periodogram=False):
+    """Screen the stitched curve (pass 2). Returns the subset + the
+    full record (the full record carries the periodogram when
+    return_periodogram is True -- the 5.6 joint fit's J1 input)."""
     path = str(base) + "_stitched.fits"
     write_injected_fits(path, t_s, f_s, q_s, fcol)
-    p2 = k3_run._screen(path, tic, sector)
+    p2 = k3_run._screen(path, tic, sector,
+                        return_periodogram=return_periodogram)
     if not keep_fits:
         os.remove(path)
     return orc._subset(p2), p2
+
+
+def _joint_fit_pass2(p2, p2_raw, t_s, f_s, q_s, masked, sigmas,
+                     period_inj=None):
+    """5.6 joint fit on a stitched pass-2 result (DESIGN_5_6.md
+    section 2.1: between the stitched BLS pass 2 and the
+    tiering/rescore). p2 is the pass-2 SUBSET (after the F-2 carry);
+    p2_raw is the full _screen_one record carrying the periodogram;
+    (t_s, f_s, q_s) is the stitched masked curve; masked is the
+    per-sector masked list (raw arrays after the K=2 keep); sigmas
+    maps sector -> sector_sigma. period_inj enables the B1
+    diagnostics (None on the null leg).
+
+    Returns (p2_out, joint_record). On a successful fit, p2_out is the
+    joint record: fitted ephemeris + _rescore at the fitted
+    ephemeris on the stitched masked curve (the UNCHANGED rescore,
+    on the preprocessed stitched arrays -- orc.preprocess_arrays
+    replicates _screen_one's front end) + tiering via
+    orc.derive_tier with the UNCHANGED bulk_v6 bars (the SDE is the
+    winning signal's originating BLS SDE; EB-flag demotion from the
+    BLS record carries, since flags don't change under the rescore).
+    On fallback (no usable candidate, or all 3 fits failed), p2_out
+    is the BLS record unchanged -- the joint fit NEVER deletes a
+    baseline result -- with joint_fit_failed set when fits actually
+    failed. The input p2 is never mutated (the caller keeps it as
+    pass2_bls). joint_record is the JSON-safe run_joint_fit result
+    (fitted ephemeris, per-signal fits, diagnostics).
+    """
+    diag = {"entered": False, "no_usable_candidate": True,
+            "no_candidate_reason": None, "n_candidates": 0,
+            "n_fitted": 0, "n_failed": 0, "fallback": True,
+            "joint_fit_failed": False, "hit_max_nfev": 0,
+            "seconds_j1": 0.0, "seconds_j2": 0.0}
+
+    def _early(reason):
+        d = dict(diag)
+        d["no_candidate_reason"] = reason
+        return p2, {"fitted": False, "fallback": True,
+                    "joint_fit_failed": False,
+                    "no_usable_candidate": True,
+                    "no_candidate_reason": reason,
+                    "winner": None, "signals": [],
+                    "seconds_j1": 0.0, "seconds_j2": 0.0,
+                    "diagnostics": d}
+
+    if p2.get("period_days") is None:
+        return _early("no-pass2-period")
+    if p2.get("sde") is not None \
+            and p2["sde"] < bs.RECORD_FLOOR_SDE:
+        return _early("below-floor")
+    periodogram = (p2_raw or {}).get("periodogram")
+    if periodogram is None:
+        return _early("no-periodogram")
+    # Per-sector preprocessed masked arrays (P7: the SAME masked
+    # data the stitched pass 2 sees, per sector, unscaled -- the
+    # fit weights by 1/sigma_s^2 instead of the stitch's scaling).
+    sectors = []
+    for m in masked:
+        t_p, f_p = orc.preprocess_arrays(m["t"], m["f"], m["q"])
+        sectors.append({"sector": m["sector"], "t": t_p, "f": f_p,
+                        "sigma": sigmas.get(m["sector"])})
+    t_sp, f_sp = orc.preprocess_arrays(t_s, f_s, q_s)
+    res = jf.run_joint_fit(periodogram, t_sp, f_sp, sectors,
+                           period_inj=period_inj)
+    if not res["fitted"]:
+        p2_out = dict(p2)
+        if res["joint_fit_failed"]:
+            p2_out["joint_fit_failed"] = True
+        return p2_out, res
+    w = res["winner"]
+    p2_out = dict(p2)
+    p2_out.update({"period_days": float(w["period"]),
+                   "t0_btjd": float(w["t0"]),
+                   "duration_hours": float(w["duration"]) * 24.0,
+                   "depth_percent": float(w["depth"]) * 100.0,
+                   "sde": float(w["origin_sde"])})
+    rs = bs._rescore(t_sp, f_sp, float(w["period"]), float(w["t0"]),
+                     float(w["duration"]))
+    # The subset shape keeps only the rescore keys _subset keeps.
+    if rs is not None:
+        for k in ("mes_pink", "cdpp_pct", "n_events",
+                  "n_strong_events", "max_event_snr", "v_ratio"):
+            p2_out[k] = rs[k]
+    else:
+        for k in ("mes_pink", "cdpp_pct", "n_events",
+                  "n_strong_events", "max_event_snr", "v_ratio"):
+            p2_out[k] = None
+    tier, status, gate = orc.derive_tier(
+        rs, float(w["origin_sde"]), float(w["depth"]) * 100.0)
+    if orc._eb_demoted(p2):
+        # EB-flag demotion carries (flags don't change under the
+        # rescore); the tier is kept, as in _screen_one.
+        status = "demoted"
+        gate = gate or p2.get("gate_reason")
+    elif status == "demoted" and gate == "FAILED_TWO_COMBINED":
+        flags = list(p2_out.get("flags") or [])
+        if "TWO_EVENT_WEAK" not in flags:
+            flags.append("TWO_EVENT_WEAK")
+        p2_out["flags"] = flags
+    p2_out["tier"] = tier
+    p2_out["status"] = status
+    p2_out["gate_reason"] = gate
+    return p2_out, res
 
 
 def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
@@ -747,6 +854,16 @@ def run_host_campaign_p43(job):
     agreement_only = bool(job.get("agreement_only", False))
     seed_mode = job.get("seed_mode", "frozen")
     seed_fix = _seed_fix_for(seed_mode, agreement_only)
+    # 5.6 joint fit (DESIGN_5_6.md): when on, the stitched leg runs
+    # the joint fit between pass 2 and tiering/rescore (the single
+    # leg is UNCHANGED). Flag-gated (the P4-3c precedent): flag-off
+    # records stay byte-identical to the baseline leg's, and the
+    # flag is part of the resume check below, so a host file
+    # written without the joint fit is never resumed by a run
+    # that needs it (and vice versa). The paired A/B campaign runs
+    # the same trial list twice -- once with the flag off
+    # (baseline leg), once with it on (joint leg).
+    joint_fit = bool(job.get("joint_fit", False))
     # PIPE50-9c (4.1-3): record the stitched pass-1 screen per
     # trial (the unmasked stitch screen). Flag-gated (the
     # P4-3c precedent): flag-off records stay byte-identical to
@@ -773,6 +890,7 @@ def run_host_campaign_p43(job):
                 and prev.get("calibration") == calibration
                 and prev.get("seed_fix") == seed_fix
                 and prev.get("mes_gate") == job.get("mes_gate")
+                and prev.get("joint_fit", False) == joint_fit
                 and prev.get("pass1_stitched", False)
                 == record_pass1
                 and not any("error" in tr
@@ -900,6 +1018,11 @@ def run_host_campaign_p43(job):
             # data exists regardless of the masking). A distinct
             # base so the FITS does not collide with the masked
             # pass-2 file (_stitched.fits) when keep_fits is on.
+            # 5.6: p1s_raw carries the pass-1 screen's full record
+            # (with the periodogram when the joint fit is on) for
+            # the D-MASK-STITCHED carry-forward below; None when
+            # the pass-1 screen does not run.
+            p1s_raw = None
             if record_pass1:
                 t_p1s = time.time()
                 unmasked = []
@@ -915,9 +1038,14 @@ def run_host_campaign_p43(job):
                     unmasked, sigmas)
                 base_u = (workdir
                           / f"{tic}_{tr['trial_id']}_unmasked")
-                p1s, _p1s_raw = _stitched_pass2(
+                # 5.6: keep the raw pass-1 record when the joint
+                # fit is on -- the D-MASK-STITCHED carry-forward
+                # below reuses this screen AS pass 2, so its
+                # periodogram is pass 2's periodogram then.
+                p1s, p1s_raw = _stitched_pass2(
                     t_u, f_u, q_u, unmasked[0]["fcol"], base_u,
-                    tic, tr["sector"], keep_fits)
+                    tic, tr["sector"], keep_fits,
+                    return_periodogram=joint_fit)
                 r["pass1"] = p1s
                 delta1 = k2.epoch_delta(
                     p1s.get("t0_btjd"), tr["epoch_btjd"],
@@ -1006,10 +1134,15 @@ def run_host_campaign_p43(job):
                 p2["flags"] = list(p2.get("flags") or [])
                 p2["carried_from"] = "pass1"
                 carried_from_pass1 = True
+                # The carried screen IS pass 2 (same input,
+                # deterministic screen) -- its periodogram is
+                # pass 2's periodogram for the joint fit.
+                p2_raw = p1s_raw
             else:
-                p2, _p2_raw = _stitched_pass2(
+                p2, p2_raw = _stitched_pass2(
                     t_s, f_s, q_s, masked[0]["fcol"], base, tic,
-                    orig, keep_fits)
+                    orig, keep_fits,
+                    return_periodogram=joint_fit)
                 carried_from_pass1 = False
             # The stitched pass-2 record IS the subset
             # (_stitched_pass2 returns it), so the carry
@@ -1020,6 +1153,20 @@ def run_host_campaign_p43(job):
                 p2.get("period_days"), flagged)
             if carried:
                 orc.apply_eb_carry(p2, carried)
+            # 5.6 joint fit (flag-gated): replaces the reported
+            # pass-2 ephemeris with the fitted one on success;
+            # on fallback the BLS record stands unchanged. The
+            # BLS subset is kept as pass2_bls for audit + the
+            # paired g scorer's reference. Pass 3 below seeds
+            # its mask from the JOINT ephemeris (P16) -- p2 is
+            # the joint record from here on.
+            if joint_fit:
+                p2_bls = p2
+                p2, jf_res = _joint_fit_pass2(
+                    p2, p2_raw, t_s, f_s, q_s, masked, sigmas,
+                    period_inj=tr["period_d"])
+                r["pass2_bls"] = p2_bls
+                r["joint_fit"] = jf_res
             sec_p2 = round(time.time() - t_p2s, 2)
             r["pass2"] = p2
             r["pass2_match"] = orc.period_match_class(
@@ -1147,6 +1294,9 @@ def run_host_campaign_p43(job):
         # Flag-on runs only, so flag-off records stay
         # byte-identical to P4-3b's (the P4-3c precedent).
         rec["pass1_stitched"] = True
+    if joint_fit:
+        # 5.6: flag-on runs only (same precedent).
+        rec["joint_fit"] = True
     tmp = out_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(_json_safe(rec)))
     tmp.replace(out_path)
@@ -1207,6 +1357,10 @@ def run_host_null_p43(job):
     manifest_sha = job["manifest_sha"]
     calibration = job["calibration"]
     keep_fits = job.get("keep_fits", False)
+    # 5.6 joint fit (same flag-gating as the campaign leg: the
+    # stitched null leg runs the joint fit; the single leg is
+    # unchanged; flag-off records stay byte-identical).
+    joint_fit = bool(job.get("joint_fit", False))
     out_path = out_dir / "null-p43" / f"{tic}_p43.json"
     if out_path.exists():
         try:
@@ -1218,6 +1372,7 @@ def run_host_null_p43(job):
                 and prev.get("arm") == ARM
                 and prev.get("calibration") == calibration
                 and prev.get("mes_gate") == job.get("mes_gate")
+                and prev.get("joint_fit", False) == joint_fit
                 and "error" not in prev):
             return {"status": "skipped", "tic": tic}
     t_start = time.time()
@@ -1316,8 +1471,13 @@ def run_host_null_p43(job):
         # masked pass-2 file (_stitched.fits) when keep_fits is on.
         t_u, f_u, q_u, tr_u = p43.stitch_weighted(unmasked, sigmas)
         base_u = workdir / f"{tic}_null_unmasked"
-        p1s, _ = _stitched_pass2(t_u, f_u, q_u, unmasked[0]["fcol"],
-                                 base_u, tic, sectors[0], keep_fits)
+        # 5.6: keep the raw pass-1 record when the joint fit is on
+        # (the D-MASK-STITCHED carry-forward below reuses this
+        # screen AS pass 2, so its periodogram is pass 2's then).
+        p1s, p1s_raw = _stitched_pass2(
+            t_u, f_u, q_u, unmasked[0]["fcol"],
+            base_u, tic, sectors[0], keep_fits,
+            return_periodogram=joint_fit)
         r["pass1"] = p1s
         r["pass1_survivor"] = bool(p1s.get("status") == "survivor")
         r["stitch_unmasked"] = tr_u
@@ -1380,15 +1540,25 @@ def run_host_null_p43(job):
                 p2["flags"] = list(p2.get("flags") or [])
                 p2["carried_from"] = "pass1"
                 carried_from_pass1 = True
+                p2_raw = p1s_raw
             else:
-                p2, _ = _stitched_pass2(t_s, f_s, q_s,
-                                        masked[0]["fcol"], base, tic,
-                                        sectors[0], keep_fits)
+                p2, p2_raw = _stitched_pass2(
+                    t_s, f_s, q_s, masked[0]["fcol"], base, tic,
+                    sectors[0], keep_fits,
+                    return_periodogram=joint_fit)
                 carried_from_pass1 = False
             carried = orc.carried_eb_flags(
                 p2.get("period_days"), flagged)
             if carried:
                 orc.apply_eb_carry(p2, carried)
+            # 5.6 joint fit (flag-gated; see the campaign leg).
+            # No period_inj on the null leg: no B1 diagnostics.
+            if joint_fit:
+                p2_bls = p2
+                p2, jf_res = _joint_fit_pass2(
+                    p2, p2_raw, t_s, f_s, q_s, masked, sigmas)
+                r["pass2_bls"] = p2_bls
+                r["joint_fit"] = jf_res
             r["pass2"] = p2
             r["pass2_survivor"] = bool(
                 p2.get("status") == "survivor")
@@ -1458,6 +1628,10 @@ def run_host_null_p43(job):
     r["complete"] = True
     r["manifest_sha"] = manifest_sha
     r["calibration"] = calibration
+    if joint_fit:
+        # 5.6: flag-on runs only (same precedent as the campaign
+        # leg -- flag-off records stay byte-identical).
+        r["joint_fit"] = True
     r["seconds"] = round(time.time() - t_start, 1)
     tmp = out_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(_json_safe(r)))
@@ -2458,7 +2632,7 @@ def merge_null_p43(out_dir, vsx_query_fn=None, vsx_coords=None,
 def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
                 workdir_single, keep_fits, calibration, tics=None,
                 limit_hosts=None, agreement_only=False,
-                seed_mode="frozen", mes_gate=None):
+                seed_mode="frozen", mes_gate=None, joint_fit=False):
     """Build the paired job lists (single + stitched) for the
     manifest's TICs. Returns (single_jobs, stitched_jobs,
     missing). A missing sector FITS skips the TIC ENTIRELY (no
@@ -2470,7 +2644,10 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
     agreement_only (P4-3c) and seed_mode (P4-3 rule arm) are
     carried on the stitched jobs only -- the single leg and the
     null leg never read them (the null leg is unchanged by the
-    flag: no trial record, no frozen seed).
+    flag: no trial record, no frozen seed). joint_fit (5.6) is
+    carried on the stitched jobs only -- the single leg never
+    reads it (the joint fit needs >= 2 sectors); the null leg's
+    stitched jobs carry it too (the null campaign's joint leg).
     Per-host sectors (4.1-10 / 4.1-3): when the manifest
     carries sectors_by_host {tic: [sectors]}, each host's
     stitched stack uses ITS list (the 4.1-10 hosts have 2/3/4
@@ -2529,6 +2706,7 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
              "keep_fits": keep_fits,
              "agreement_only": agreement_only,
              "seed_mode": seed_mode,
+             "joint_fit": joint_fit,
              "manifest_sha": manifest["_sha256"],
              "mes_gate": mes_gate})
     if limit_hosts is not None:
@@ -2588,6 +2766,15 @@ def main(argv=None):
                          "anywhere; defines the P4-3c at-risk "
                          "class on a fresh set). Incompatible "
                          "with --agreement-only.")
+    ap.add_argument("--joint-fit", action="store_true",
+                    help="5.6 joint fit (DESIGN_5_6.md): run the "
+                         "coherent joint multi-sector fit in the "
+                         "STITCHED leg (campaign + null) between "
+                         "pass 2 and tiering/rescore. The single "
+                         "leg is unchanged. The paired A/B "
+                         "campaign runs the same trial list twice "
+                         "-- once without this flag (baseline "
+                         "leg), once with it (joint leg).")
     args = ap.parse_args(argv)
     if args.agreement_only and args.seed_mode != "frozen":
         ap.error("--agreement-only requires --seed-mode frozen")
@@ -2612,12 +2799,13 @@ def main(argv=None):
             out_dir / "injected", args.keep_fits,
             args.calibration, args.tics, args.limit_hosts,
             agreement_only=args.agreement_only,
-            seed_mode=args.seed_mode)
+            seed_mode=args.seed_mode, joint_fit=args.joint_fit)
         print(f"[p43] campaign: {len(single_jobs)} single jobs, "
               f"{len(stitched_jobs)} stitched jobs, "
               f"{len(missing)} missing FITS; "
               f"agreement_only={args.agreement_only} "
-              f"seed_mode={args.seed_mode}", flush=True)
+              f"seed_mode={args.seed_mode} "
+              f"joint_fit={args.joint_fit}", flush=True)
         if args.dry_run:
             return 0
         (out_dir / "hosts").mkdir(parents=True, exist_ok=True)
@@ -2703,7 +2891,8 @@ def main(argv=None):
     single_jobs, stitched_jobs, missing = _build_jobs(
         manifest, cache, out_dir, out_dir / "null_injected-p43",
         out_dir / "null_injected", args.keep_fits,
-        args.calibration, args.tics, args.limit_hosts)
+        args.calibration, args.tics, args.limit_hosts,
+        joint_fit=args.joint_fit)
     # Null jobs carry no trials -- strip them (same job shape minus
     # the trial list).
     for j in single_jobs:
@@ -2712,7 +2901,8 @@ def main(argv=None):
         j.pop("trials", None)
     print(f"[p43] null: {len(single_jobs)} single jobs, "
           f"{len(stitched_jobs)} stitched jobs, "
-          f"{len(missing)} missing FITS", flush=True)
+          f"{len(missing)} missing FITS; "
+          f"joint_fit={args.joint_fit}", flush=True)
     if args.dry_run:
         return 0
     (out_dir / "null_hosts").mkdir(parents=True, exist_ok=True)

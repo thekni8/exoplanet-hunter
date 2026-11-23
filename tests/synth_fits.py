@@ -96,6 +96,14 @@ def make_qlp_fits(path, *, n_points=1296, cadence_min=30.0,
     return path
 
 
-def screen_job(path, tic="999999999", sector=1, meta=None):
-    """The _screen_one job tuple for a synthetic FITS."""
-    return (str(tic), str(path), sector, dict(meta or DEFAULT_META))
+def screen_job(path, tic="999999999", sector=1, meta=None,
+               return_periodogram=False):
+    """The _screen_one job tuple for a synthetic FITS.
+
+    return_periodogram=True appends the 5th tuple element _screen_one
+    reads for the 5.6 periodogram exposure (default False: the tuple
+    stays the 4-tuple every existing caller passes)."""
+    job = (str(tic), str(path), sector, dict(meta or DEFAULT_META))
+    if return_periodogram:
+        job = job + (True,)
+    return job

@@ -80,11 +80,13 @@ K2_BAR = 23  # pre-registered in PB-6: 50% of the oracle bound
 NULL_P1_SURVIVORS = 4  # P4-1a null leg — must reproduce
 
 
-def _screen(path, tic, sector):
+def _screen(path, tic, sector, return_periodogram=False):
     # Calibration is global (set by _init_worker / the serial
     # path via bs.set_calibration); screen_job takes no
-    # calibration argument.
-    return bs._screen_one(screen_job(path, tic, sector))
+    # calibration argument. return_periodogram threads the 5.6
+    # periodogram exposure through (default off).
+    return bs._screen_one(screen_job(
+        path, tic, sector, return_periodogram=return_periodogram))
 
 
 def _load_spans(path):
