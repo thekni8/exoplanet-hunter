@@ -40,6 +40,16 @@ trail (the triggering VSX entry) stays in the record.
 Coordinates come from the caller ({tic: {"ra", "dec"}} —
 the MAST TIC catalog, as the diagnosis did); this module
 does no MAST lookup.
+
+F3 logging conditions (S12FIX, ratified 2026-11-23): the
+per-run summary reports hosts queried / flagged / failed; a
+failed query is re-queried once before the failure stands
+("if failed > 0, re-query before scoring"); every queried
+host's VSX result is persisted in the summary's
+`query_results` (hits or error, with a UTC timestamp) so
+runs re-score offline; and the audit key logs BLS P / VSX P
+per dropped pass (logging only — it never changes a
+verdict).
 """
 import argparse
 import copy
@@ -48,6 +58,7 @@ import math
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -163,6 +174,26 @@ def find_nearby_eclipsing(hits):
     return best
 
 
+def _now_iso():
+    """UTC timestamp for the query log (F3 persistence)."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _period_ratio(bls_period_days, vsx_period_days):
+    """BLS P / VSX P for the audit key (F3, logging only).
+    None when either period is missing, unparseable,
+    non-finite, or the VSX period is zero."""
+    try:
+        bls = float(bls_period_days)
+        vsx = float(vsx_period_days)
+    except (TypeError, ValueError):
+        return None
+    if vsx == 0 or not (math.isfinite(bls)
+                        and math.isfinite(vsx)):
+        return None
+    return bls / vsx
+
+
 def _final_passes(rec):
     """Pass keys with a surviving final row in this record."""
     return [pk for pk in FINAL_PASSES
@@ -211,19 +242,28 @@ def apply_vsx_filter(records, coords, query_fn=None):
     the triggering VSX entry (name, vartype, period,
     separation) when rows were dropped, None when the query
     came back clean, or the failure reason when the query
-    failed (rows kept — fail open). Hosts with no final
+    failed (rows kept — fail open); the audit key also
+    carries the query timestamp (`queried_at`) and, for
+    dropped rows, BLS P / VSX P per dropped pass
+    (`period_ratios`, logging only). Hosts with no final
     rows are not queried (nothing to filter) and carry no
-    audit key.
+    audit key. The summary's `query_results` persists every
+    queried host's VSX result (hits or error) with its
+    timestamp, so a run re-scores offline; a failed query is
+    re-queried once before the failure stands (F3 1c), and
+    `query_retries` counts the retries.
     """
     query = query_fn if query_fn is not None else query_vsx_hits
     out_records = []
     summary = {"hosts": len(records), "queried": 0,
                "no_coords": 0, "query_failed": 0,
+               "query_retries": 0,
                "clean": 0, "flagged_hosts": 0,
                "rows_dropped": 0,
                "dropped_pass2": 0, "dropped_pass3": 0,
                "dropped_pass1_carried": 0,
-               "flagged_tics": [], "failed_tics": []}
+               "flagged_tics": [], "failed_tics": [],
+               "query_results": {}}
     for rec in records:
         new = copy.deepcopy(rec)
         out_records.append(new)
@@ -239,20 +279,35 @@ def apply_vsx_filter(records, coords, query_fn=None):
                                  "reason": "no coordinates"}
             continue
         res = query(c["ra"], c["dec"])
+        attempts = 1
+        if res.get("error") is not None:
+            # F3 (1c): one re-query before the failure stands.
+            res = query(c["ra"], c["dec"])
+            attempts = 2
+            summary["query_retries"] += 1
         summary["queried"] += 1
+        queried_at = _now_iso()
         if res.get("error") is not None:
             summary["query_failed"] += 1
             summary["failed_tics"].append(tic)
+            summary["query_results"][tic] = {
+                "queried_at": queried_at, "attempts": attempts,
+                "error": res["error"]}
             new["vsx_filter"] = {"applied": False,
                                  "reason": ("VSX query failed: "
-                                            f"{res['error']}")}
+                                            f"{res['error']}"),
+                                 "queried_at": queried_at}
             continue
+        summary["query_results"][tic] = {
+            "queried_at": queried_at, "attempts": attempts,
+            "hits": res.get("hits")}
         trigger = find_nearby_eclipsing(res.get("hits"))
         if trigger is None:
             summary["clean"] += 1
             new["vsx_filter"] = {"applied": True,
                                  "trigger": None,
-                                 "dropped_passes": []}
+                                 "dropped_passes": [],
+                                 "queried_at": queried_at}
             continue
         dropped = []
         for pk in final:
@@ -273,9 +328,16 @@ def apply_vsx_filter(records, coords, query_fn=None):
         summary["flagged_hosts"] += 1
         summary["rows_dropped"] += len(dropped)
         summary["flagged_tics"].append(tic)
-        new["vsx_filter"] = {"applied": True,
-                             "trigger": dict(trigger),
-                             "dropped_passes": dropped}
+        new["vsx_filter"] = {
+            "applied": True,
+            "trigger": dict(trigger),
+            "dropped_passes": dropped,
+            "queried_at": queried_at,
+            "period_ratios": {
+                pk: _period_ratio(
+                    new[pk].get("period_days"),
+                    trigger.get("period_days"))
+                for pk in dropped}}
     summary["flagged_tics"] = sorted(summary["flagged_tics"])
     summary["failed_tics"] = sorted(summary["failed_tics"])
     return out_records, summary
@@ -335,7 +397,8 @@ def main(argv=None):
           f"{summary['queried']} | flagged "
           f"{summary['flagged_hosts']} | rows dropped "
           f"{summary['rows_dropped']} | query failures "
-          f"{summary['query_failed']} | no coords "
+          f"{summary['query_failed']} (retries "
+          f"{summary['query_retries']}) | no coords "
           f"{summary['no_coords']}")
     print(f"wrote {args.out_dir}")
     return 0

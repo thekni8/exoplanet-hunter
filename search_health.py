@@ -98,12 +98,26 @@ DEMOTED_T0_CLUSTER = "DEMOTED_T0_CLUSTER"
 # solid for only 1 of the 3 triggering hosts — see
 # DIAGNOSIS_5_2_NULL.md section 5).
 DEMOTED_VSX_NEARBY_E = "DEMOTED_VSX_NEARBY_E"
+# Demoted by the tier-B single-event veto (S12FIX F8, 5.2 null
+# diagnosis fix #3): the final row is tier B with exactly one
+# observed event (n_events == 1) on a SINGLE-SECTOR input.
+# Same demote-not-delete reversibility as the T0 veto: the row
+# keeps this disposition and stays queryable; the trigger
+# (tier B, n_ev 1) is recorded in the host record's
+# `tierb_veto` audit key. Measured trade-off: 48 single-leg
+# rows at 0/144 final-row planet cost. The stitched
+# application is REJECTED (2/170 cost, kills
+# 220576424:planet03) — the veto never touches a record that
+# is not positively single-sector. R10 caveat: the single-leg
+# 0/144 safety is weakly tested (only 1/144 M4 single-leg
+# planets has a tier-B n1 row in its recovery chain).
+DEMOTED_TIERB_N1 = "DEMOTED_TIERB_N1"
 
 DISPOSITION_VALUES = frozenset({
     PERIODIC_CANDIDATE, SINGLE_EVENT, BELOW_THRESHOLD,
     SINGLE_TRANSIT_POOL, GRID_EDGE_REJECT,
     DEMOTED_SECTOR_EPOCH_CLUSTER, DEMOTED_T0_CLUSTER,
-    DEMOTED_VSX_NEARBY_E,
+    DEMOTED_VSX_NEARBY_E, DEMOTED_TIERB_N1,
 })
 
 

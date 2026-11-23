@@ -288,6 +288,120 @@ class TestApplyVsxFilter(unittest.TestCase):
         self.assertEqual(recs, before)
 
 
+class TestF3Logging(unittest.TestCase):
+    """S12FIX F3 (1c/1d): re-query on failure, per-host result
+    persistence with timestamps, BLS P / VSX P in the audit
+    key (logging only)."""
+
+    def test_retry_succeeds_after_one_failure(self):
+        calls = []
+
+        def flaky(ra, dec):
+            calls.append(1)
+            if len(calls) == 1:
+                return {"error": "HTTP 500"}
+            return {"hits": REAL_HITS["31109583"]}
+
+        recs = [_host("31109583")]
+        out, summary = vf.apply_vsx_filter(
+            recs, {"31109583": {"ra": 1.0, "dec": -2.0}},
+            query_fn=flaky)
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(out[0]["pass2_survivor"])
+        self.assertEqual(summary["query_retries"], 1)
+        self.assertEqual(summary["query_failed"], 0)
+        self.assertEqual(summary["queried"], 1)
+        qr = summary["query_results"]["31109583"]
+        self.assertEqual(qr["attempts"], 2)
+        self.assertEqual(len(qr["hits"]), 1)
+
+    def test_retry_fails_twice_keeps_rows_fail_open(self):
+        recs = [_host("999")]
+        out, summary = vf.apply_vsx_filter(
+            recs, {"999": {"ra": 1.0, "dec": -2.0}},
+            query_fn=lambda ra, dec: {"error": "HTTP 500"})
+        self.assertTrue(out[0]["pass2_survivor"])
+        self.assertEqual(summary["query_retries"], 1)
+        self.assertEqual(summary["query_failed"], 1)
+        qr = summary["query_results"]["999"]
+        self.assertEqual(qr["attempts"], 2)
+        self.assertEqual(qr["error"], "HTTP 500")
+
+    def test_query_results_persisted_with_timestamp(self):
+        recs = [_host("999")]
+        _, summary = vf.apply_vsx_filter(
+            recs, {"999": {"ra": 1.0, "dec": -2.0}},
+            query_fn=lambda ra, dec: {
+                "hits": [{"name": "r", "vartype": "ROT",
+                          "period_days": "1.0",
+                          "sep_arcsec": 0.14}]})
+        qr = summary["query_results"]["999"]
+        self.assertEqual(qr["attempts"], 1)
+        self.assertEqual(len(qr["hits"]), 1)
+        # Parseable ISO-8601 UTC timestamp.
+        from datetime import datetime
+        ts = datetime.fromisoformat(qr["queried_at"])
+        self.assertIsNotNone(ts.tzinfo)
+
+    def test_period_ratio_logged_for_dropped_rows(self):
+        # 31109583's trigger period is 1.92511 d; a BLS period
+        # of half that (the half-harmonic the diagnosis found)
+        # logs a ratio of 0.5.
+        rec = _host("31109583")
+        rec["pass2"]["period_days"] = 0.962555
+        out, _ = vf.apply_vsx_filter(
+            [rec], {"31109583": {"ra": 1.0, "dec": -2.0}},
+            query_fn=lambda ra, dec: {
+                "hits": REAL_HITS["31109583"]})
+        ratios = out[0]["vsx_filter"]["period_ratios"]
+        self.assertAlmostEqual(ratios["pass2"], 0.5, places=6)
+
+    def test_period_ratio_none_when_period_missing(self):
+        # Trigger with no period: ratio is None, not an error.
+        rec = _host("999")
+        out, _ = vf.apply_vsx_filter(
+            [rec], {"999": {"ra": 1.0, "dec": -2.0}},
+            query_fn=lambda ra, dec: {
+                "hits": [{"name": "n", "vartype": "E",
+                          "period_days": None,
+                          "sep_arcsec": 5.0}]})
+        self.assertIsNone(
+            out[0]["vsx_filter"]["period_ratios"]["pass2"])
+        # Row with no period: ratio is None too.
+        rec2 = _host("999")
+        del rec2["pass2"]["period_days"]
+        out2, _ = vf.apply_vsx_filter(
+            [rec2], {"999": {"ra": 1.0, "dec": -2.0}},
+            query_fn=lambda ra, dec: {
+                "hits": REAL_HITS["31109583"]})
+        self.assertIsNone(
+            out2[0]["vsx_filter"]["period_ratios"]["pass2"])
+
+    def test_queried_at_on_every_audit_key(self):
+        from datetime import datetime
+        recs = [_host("31109583"), _host("999")]
+        coords = {"31109583": {"ra": 1.0, "dec": -2.0},
+                  "999": {"ra": 3.0, "dec": -4.0}}
+
+        def q(ra, dec):
+            if ra == 1.0:
+                return {"hits": REAL_HITS["31109583"]}
+            return {"hits": []}
+
+        out, _ = vf.apply_vsx_filter(recs, coords, query_fn=q)
+        for rec in out:
+            ts = datetime.fromisoformat(
+                rec["vsx_filter"]["queried_at"])
+            self.assertIsNotNone(ts.tzinfo)
+
+    def test_no_coords_host_has_no_query_result(self):
+        recs = [_host("999")]
+        _, summary = vf.apply_vsx_filter(
+            recs, {}, query_fn=lambda ra, dec: {"hits": []})
+        self.assertNotIn("999", summary["query_results"])
+        self.assertEqual(summary["query_retries"], 0)
+
+
 class TestFilterRunDir(unittest.TestCase):
     def test_writes_new_output_dir_leaves_run_dir_untouched(self):
         with tempfile.TemporaryDirectory() as td:
