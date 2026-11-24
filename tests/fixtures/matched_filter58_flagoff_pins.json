@@ -1,0 +1,275 @@
+{
+  "noise_below_floor": {
+    "fits_kw": {
+      "period_d": null,
+      "seed": 3
+    },
+    "record": {
+      "alt_peaks": [
+        {
+          "depth_percent": 0.4417562446154177,
+          "period_days": 4.127906976744186,
+          "sde": 4.885811089527326
+        },
+        {
+          "depth_percent": 0.6479816391795025,
+          "period_days": 9.741424802110817,
+          "sde": 4.71915076939991
+        }
+      ],
+      "dec": -65.0,
+      "depth_percent": 0.14481923900081228,
+      "duration_hours": 1.44,
+      "input_identity": {
+        "author": "QLP",
+        "bls_input_hash": "9f131530a37fb1f458bb98252a03dd9f8e93ef25f44f69c9d94fbc6163ef5d3d",
+        "product_ids": [
+          "noise_below_floor.fits"
+        ],
+        "sectors": [
+          1
+        ]
+      },
+      "near_systematic": false,
+      "period_days": 0.7513533314339209,
+      "product": "QLP",
+      "ra": 100.0,
+      "radius_rsun": 0.7,
+      "sde": 4.933602680554628,
+      "search_health": "VALID_NO_DETECTION",
+      "search_health_reason": "valid search with no qualifying detection",
+      "sector": 1,
+      "status": "below_floor",
+      "t0_btjd": 1500.05,
+      "tic": "999999999",
+      "tmag": 12.0
+    }
+  },
+  "shallow_p1p7": {
+    "fits_kw": {
+      "depth_frac": 0.0005,
+      "duration_d": 0.09,
+      "noise_pct": 0.001,
+      "period_d": 1.7,
+      "seed": 7
+    },
+    "record": {
+      "alt_peaks": [
+        {
+          "depth_percent": 0.019859519674408316,
+          "period_days": 0.5502563491117205,
+          "sde": 5.0561430722236675
+        },
+        {
+          "depth_percent": 0.03142256233626997,
+          "period_days": 1.001899592944369,
+          "sde": 5.014137532998832
+        }
+      ],
+      "dec": -65.0,
+      "depth_percent": 0.024257230659664876,
+      "duration_hours": 6.048,
+      "input_identity": {
+        "author": "QLP",
+        "bls_input_hash": "6785bf8d89689d7c10e56ef1dc587bee5add4d022ce411dc7f05384c68a06c3b",
+        "product_ids": [
+          "shallow_p1p7.fits"
+        ],
+        "sectors": [
+          1
+        ]
+      },
+      "near_systematic": false,
+      "period_days": 0.7690064569881275,
+      "product": "QLP",
+      "ra": 100.0,
+      "radius_rsun": 0.7,
+      "sde": 5.676003372258737,
+      "search_health": "VALID_NO_DETECTION",
+      "search_health_reason": "valid search with no qualifying detection",
+      "sector": 1,
+      "status": "below_floor",
+      "t0_btjd": 1500.47,
+      "tic": "999999999",
+      "tmag": 12.0
+    }
+  },
+  "short_p0p8": {
+    "fits_kw": {
+      "depth_frac": 0.005,
+      "duration_d": 0.06,
+      "noise_pct": 0.002,
+      "period_d": 0.8,
+      "seed": 11
+    },
+    "record": {
+      "alt_peaks": [
+        {
+          "depth_percent": 0.4629074754903946,
+          "period_days": 1.600069342116668,
+          "sde": 43.631398182501364
+        },
+        {
+          "depth_percent": 0.48436021426555304,
+          "period_days": 2.4002080353660125,
+          "sde": 32.00723576221245
+        }
+      ],
+      "cdpp_pct": 0.1148621359604967,
+      "dec": -65.0,
+      "depth_percent": 0.47129455129204983,
+      "duration_hours": 1.44,
+      "events_dropped": [
+        3.0,
+        8.0,
+        31.0
+      ],
+      "events_kept": [
+        -0.0,
+        1.0,
+        2.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0,
+        17.0,
+        18.0,
+        19.0,
+        20.0,
+        21.0,
+        22.0,
+        23.0,
+        24.0,
+        25.0,
+        26.0,
+        27.0,
+        28.0,
+        29.0,
+        30.0,
+        32.0,
+        33.0
+      ],
+      "flagged_in_transit_frac": 0.0,
+      "flags": [],
+      "input_identity": {
+        "author": "QLP",
+        "bls_input_hash": "53658367d3560690bbbfe4465057e7edd3e7ba277df2d6a90992b639f3fc77c4",
+        "input_file_sha256": "c9143318f480908841a97726291aaa6850e4e7e489e1f3490b9e8a28389b1723",
+        "product_ids": [
+          "short_p0p8.fits"
+        ],
+        "sectors": [
+          1
+        ]
+      },
+      "max_event_snr": 5.642660580678081,
+      "mes_pink": 22.3678099236642,
+      "n_events": 31,
+      "n_events_dropped": 3,
+      "n_in_transit": 99,
+      "n_strong_events": 26,
+      "near_systematic": false,
+      "odd_even_ratio": 0.9718929721225718,
+      "period_days": 0.7998960048531069,
+      "product": "QLP",
+      "ra": 100.0,
+      "radius_rsun": 0.7,
+      "sde": 97.66559670228372,
+      "search_health": "VALID_DETECTION",
+      "search_health_reason": "valid search with a detection",
+      "secondary_depth_percent": -0.007400147665870271,
+      "sector": 1,
+      "status": "survivor",
+      "t0_btjd": 1500.402,
+      "tic": "999999999",
+      "tier": "A",
+      "tmag": 12.0,
+      "unmasked_bits_in_transit": {},
+      "v_ratio": 0.940447836038608
+    }
+  },
+  "transit_p3": {
+    "fits_kw": {
+      "depth_frac": 0.01,
+      "duration_d": 0.1,
+      "noise_pct": 0.003,
+      "period_d": 3.0,
+      "seed": 42
+    },
+    "record": {
+      "alt_peaks": [
+        {
+          "depth_percent": 1.034511202633695,
+          "period_days": 5.999350016249594,
+          "sde": 34.02596904199136
+        },
+        {
+          "depth_percent": 0.5135100275256222,
+          "period_days": 1.5002031694433158,
+          "sde": 29.971850806667717
+        }
+      ],
+      "cdpp_pct": 0.15833038604275462,
+      "dec": -65.0,
+      "depth_percent": 1.0006803136007836,
+      "duration_hours": 2.208,
+      "events_dropped": [],
+      "events_kept": [
+        -0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0
+      ],
+      "flagged_in_transit_frac": 0.0,
+      "flags": [],
+      "input_identity": {
+        "author": "QLP",
+        "bls_input_hash": "ba01ac37d2b5a9503345b6c8368e7e016348088bf4848c607b4fbded85f2d667",
+        "input_file_sha256": "cf505380f396f70a352187ecd54ec7e4d692c56ac9da778177c10a2346058235",
+        "product_ids": [
+          "transit_p3.fits"
+        ],
+        "sectors": [
+          1
+        ]
+      },
+      "max_event_snr": 7.694317868564682,
+      "mes_pink": 19.17511761401314,
+      "n_events": 9,
+      "n_events_dropped": 0,
+      "n_in_transit": 45,
+      "n_strong_events": 9,
+      "near_systematic": false,
+      "odd_even_ratio": 0.8955876806878158,
+      "period_days": 3.000650195058518,
+      "product": "QLP",
+      "ra": 100.0,
+      "radius_rsun": 0.7,
+      "sde": 58.57581391524269,
+      "search_health": "VALID_DETECTION",
+      "search_health_reason": "valid search with a detection",
+      "secondary_depth_percent": 0.025610661390884637,
+      "sector": 1,
+      "status": "survivor",
+      "t0_btjd": 1501.998,
+      "tic": "999999999",
+      "tier": "A",
+      "tmag": 12.0,
+      "unmasked_bits_in_transit": {},
+      "v_ratio": 0.940528957220102
+    }
+  }
+}

@@ -171,6 +171,7 @@ from bulk.replay_matrix import CLUSTER_MIN_SIZE as _RM_CLUSTER_MIN_SIZE
 from bulk.replay_matrix import CLUSTER_TOL_P as _RM_CLUSTER_TOL_P
 from bulk.replay_matrix import CLUSTER_TOL_T0_D as _RM_CLUSTER_TOL_T0_D
 from bulk import detrend as _detrend  # 5.7: no cycle (detrend is standalone)
+from bulk import matched_filter as _mf  # 5.8: no cycle (matched_filter is standalone)
 from bulk.replay_matrix import (T0_CLUSTER_MAX_EVENTS as
                                 _RM_T0_CLUSTER_MAX_EVENTS)
 from bulk.replay_matrix import (T0_CLUSTER_MIN_SIZE as
@@ -1563,6 +1564,20 @@ def _screen_one(args):
     When the second pass is adopted, "periodogram" (if requested)
     is the ADOPTED pass's periodogram — the search behind the
     reported headline, which is what the 5.7 B1 diagnostic reads.
+
+    An optional 7th element selects the search (5.8, M13/M14):
+    "bls" (default) is the current behaviour; "mf" is the
+    whitened matched filter (DESIGN_5_8_AS_VOTED.md) — the BLS
+    searches the whitened curve, and everything downstream
+    (vetoes, rescore, tiering) runs on the UNWHITENED flattened
+    curve at the MF ephemeris (§2.4). Under "mf" the record
+    carries the MF diagnostics (see
+    bulk.matched_filter.MF_RECORD_KEYS, none in _EMIT_KEYS);
+    under "bls" no search key is attached at all, so flag-off
+    output is byte-identical (M14 regression test:
+    tests/test_matched_filter_58.py). A whitening failure falls
+    back to the unwhitened curve for that screen (M15) and is
+    recorded ("mf_whiten_failed") — it never kills the target.
     """
     tic, path, sector, star = args[:4]
     return_periodogram = len(args) > 4 and bool(args[4])
@@ -1576,6 +1591,9 @@ def _screen_one(args):
         if detrend not in (_detrend.DETREND_V6,
                            _detrend.DETREND_V7):
             raise ValueError(f"unknown detrend {detrend!r}")
+        search = (args[6] if len(args) > 6 else _mf.SEARCH_BLS)
+        if search not in (_mf.SEARCH_BLS, _mf.SEARCH_MF):
+            raise ValueError(f"unknown search {search!r}")
         from astropy.io import fits
         from astropy.timeseries import BoxLeastSquares
         with fits.open(path, memmap=True) as hdul:
@@ -1668,16 +1686,38 @@ def _screen_one(args):
         f = f - np.median(f) + 1.0
         sec_flat = time.monotonic() - t_flat
 
+        # Matched filter (5.8, M13/M14/M15). Under "mf" the BLS
+        # searches the WHITENED curve (f_search); the unwhitened
+        # (t, f) is kept for everything downstream (vetoes,
+        # rescore, tiering — §2.4). Under "bls" (default)
+        # f_search IS f, so flag-off output is byte-identical.
+        # A whitening failure falls back to the unwhitened curve
+        # for that screen (M15) and is recorded — it never kills
+        # the target (hunter.py pattern).
+        f_search = f
+        _mf_seconds = None
+        _mf_info = None
+        _mf_failed = False
+        if search == _mf.SEARCH_MF:
+            _t_mf = time.monotonic()
+            try:
+                f_search, _mf_info = _mf.whiten_curve(t, f)
+            except Exception:  # noqa: BLE001 — M15 fallback
+                f_search = f
+                _mf_info = None
+                _mf_failed = True
+            _mf_seconds = time.monotonic() - _t_mf
+
         # Layer 2 provenance (A-2): the exact arrays entering BLS,
         # hashed so a result can be traced to the data it was
         # computed from — not just the code that ran. In-memory
         # and cheap; attached to every record that reaches BLS.
         # F-4 tripwire: BLS must never see a float32 array.
-        _ingest.assert_float64(t, f, "BLS entry (_screen_one)")
-        bls_hash = _prov.bls_input_hash(t, f)
+        _ingest.assert_float64(t, f_search, "BLS entry (_screen_one)")
+        bls_hash = _prov.bls_input_hash(t, f_search)
         periods = 1.0 / np.linspace(1.0 / MAX_PERIOD_D, 1.0 / MIN_PERIOD_D,
                                     BLS_GRID_POINTS)
-        bls = BoxLeastSquares(t, f)
+        bls = BoxLeastSquares(t, f_search)
         res = bls.power(periods, list(BLS_DURATIONS_D))
         pv = np.asarray(res.period, dtype=float)
         pw = np.asarray(res.power, dtype=float)
@@ -1714,6 +1754,19 @@ def _screen_one(args):
                         product_ids=[Path(path).name],
                         sectors=[int(sector)], author=PRODUCT,
                         bls_input_hash=bls_hash)})
+        if search == _mf.SEARCH_MF:
+            # MF diagnostics (M16) — attached here so below-floor
+            # and search-invalid MF records carry them too. The
+            # unwhitened depth (mf_unwhitened_depth_percent) is
+            # attached with depth_judge below, after the v7 block.
+            rec["search"] = _mf.SEARCH_MF
+            rec["mf_seconds"] = round(_mf_seconds, 4)
+            if _mf_failed:
+                rec["mf_whiten_failed"] = True
+            if _mf_info is not None:
+                rec["mf_unwhitened_cadence_frac"] = (
+                    _mf_info["unwhitened_cadence_frac"])
+                rec["mf_psd_floor_ratio"] = _mf_info["psd_floor_ratio"]
         # --- 5.7 second pass (D-mask) --------------------------------
         # Runs only under detrend "v7" and only when pass 1 found
         # something above the record floor (D7: no headline, no
@@ -1771,11 +1824,23 @@ def _screen_one(args):
                         # Second BLS — the identical search (same
                         # grid, same durations, same robust SDE)
                         # on the re-flattened curve. Keep in sync
-                        # with the pass-1 BLS above.
+                        # with the pass-1 BLS above. Under "mf"
+                        # the second BLS searches the whitened
+                        # re-flattened curve (M13: every search in
+                        # _screen_one is whitened); the unwhitened
+                        # _f2 is what adoption rebinds f to.
+                        _f2_search = _f2
+                        if search == _mf.SEARCH_MF:
+                            try:
+                                _f2_search, _ = _mf.whiten_curve(
+                                    t, _f2)
+                            except Exception:  # noqa: BLE001 — M15
+                                _f2_search = _f2
+                                rec["mf_whiten_failed"] = True
                         _t_b2 = time.monotonic()
                         _ingest.assert_float64(
-                            t, _f2, "BLS entry (_screen_one p2)")
-                        _bls2 = BoxLeastSquares(t, _f2)
+                            t, _f2_search, "BLS entry (_screen_one p2)")
+                        _bls2 = BoxLeastSquares(t, _f2_search)
                         _res2 = _bls2.power(
                             periods, list(BLS_DURATIONS_D))
                         _pv2 = np.asarray(_res2.period,
@@ -1839,7 +1904,10 @@ def _screen_one(args):
                             sde_all, i = _sde2_all, _i2
                             med_p, scale = _med2, _scale2
                             f = _f2
-                            bls_hash = _prov.bls_input_hash(t, f)
+                            # Provenance: the arrays the ADOPTED
+                            # BLS saw — _f2_search (== _f2 under
+                            # flag-off, the whitened curve under mf).
+                            bls_hash = _prov.bls_input_hash(t, _f2_search)
                             rec.update({
                                 "period_days": period,
                                 "t0_btjd": t0,
@@ -1875,6 +1943,25 @@ def _screen_one(args):
                     rec["detrend_pass2_failed"] = (
                         f"{type(_e).__name__}: {_e}")
             rec["detrend_seconds"] = _dt_sec
+        # --- 5.8 depth judge (R6) --------------------------------------
+        # The JUDGED depth is the unwhitened fold depth at the
+        # found ephemeris — whitening never touches depth (§2.4).
+        # Under flag-off, depth_judge IS the BLS depth, so the
+        # vetoes and the tier-B cap read exactly what they read
+        # today (byte-identical). Under MF it is the fold depth
+        # on the unwhitened flattened curve at the MF ephemeris —
+        # the whitened BLS depth_percent is a search statistic
+        # only, and no depth gate may ingest it (the depth-gate
+        # isolation test fails the build if one does). Computed
+        # here, after the v7 block, so the adopted ephemeris is
+        # final and below-floor / search-invalid MF records also
+        # carry mf_unwhitened_depth_percent.
+        if search == _mf.SEARCH_MF:
+            _dj, _, _ = _fold_depth(t, f, period, t0, duration)
+            depth_judge = float(_dj)
+            rec["mf_unwhitened_depth_percent"] = depth_judge * 100.0
+        else:
+            depth_judge = depth
         # P3-1 (DF-20): periodogram health check. A degenerate
         # search records SEARCH_INVALID and returns here — it is
         # never a survivor, never a "below_floor" valid search,
@@ -1940,15 +2027,18 @@ def _screen_one(args):
         sec_depth, _, sec_noise = _fold_depth(t, f, period, t0, duration,
                                               phase_center=0.5)
         rec["secondary_depth_percent"] = sec_depth * 100.0
-        if depth > 0 and sec_depth >= 0.8 * depth and \
+        # 5.8 (R6): every depth comparison below reads depth_judge
+        # (the unwhitened fold depth under MF, the BLS depth under
+        # flag-off) — never the whitened BLS depth.
+        if depth_judge > 0 and sec_depth >= 0.8 * depth_judge and \
                 (sec_depth / sec_noise if np.isfinite(sec_noise) else 0) \
                 >= 3.0:
             flags.append("SECONDARY_EB")
         if duration > 0.35 * period:
             flags.append("DURATION_EB")
-        if depth * 100.0 > DEPTH_EB_PCT:
+        if depth_judge * 100.0 > DEPTH_EB_PCT:
             flags.append("DEPTH_EB")
-        if depth * 100.0 < DEPTH_MIN_PCT:
+        if depth_judge * 100.0 < DEPTH_MIN_PCT:
             flags.append("DEPTH_TOO_SHALLOW")
         # sub-floor harmonic check (TIC 29780280 lesson): if P/2 or P/3
         # falls below the search floor, BLS could not have seen the true
@@ -1957,7 +2047,7 @@ def _screen_one(args):
             psub = period / k
             if psub < MIN_PERIOD_D + 0.05:
                 dsub, _, _ = _fold_depth(t, f, psub, t0, duration / k)
-                if depth > 0 and dsub >= 0.8 * depth:
+                if depth_judge > 0 and dsub >= 0.8 * depth_judge:
                     flags.append(f"HARMONIC_P{k}_SUSPECT")
         rec["flags"] = flags
         demote = [x for x in flags if x.endswith("_EB")
@@ -1976,7 +2066,7 @@ def _screen_one(args):
                 tier = "A"
             elif rs["n_events"] < TIER_A_MIN_EVENTS and \
                     rs["max_event_snr"] >= TIER_B_EVENT_SNR and \
-                    depth * 100.0 <= TIER_B_MAX_DEPTH_PCT:
+                    depth_judge * 100.0 <= TIER_B_MAX_DEPTH_PCT:
                 tier = "B"
         rec["tier"] = tier
         # P3-15 (bulk_v4): TWO-COMBINED — a 2-event tier-B row

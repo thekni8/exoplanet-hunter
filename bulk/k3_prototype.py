@@ -47,6 +47,7 @@ import numpy as np
 import bulk_screen as bs
 
 from bulk import k2_prototype as k2
+from bulk import matched_filter as _mf  # 5.8: gate_depth_pct (standalone)
 
 # --------------------------------------------------------------------------
 # Pre-registered constants (P4-1b). Do not tune on outcomes.
@@ -182,7 +183,10 @@ def pass3_eligible(p2, veto, p2_rescued):
         return False, "no-pass2-period"
     if (veto or {}).get("vetoed"):
         return False, "alias-leakage"
-    depth = p2.get("depth_percent")
+    # 5.8 (R6): the eligibility depth is the JUDGED depth — the
+    # unwhitened fold depth on an MF pass-2 record, never the
+    # whitened BLS depth_percent.
+    depth = _mf.gate_depth_pct(p2)
     status = p2.get("status")
     if status == "survivor":
         return True, "eligible-survivor"

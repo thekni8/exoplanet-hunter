@@ -99,6 +99,7 @@ import numpy as np  # noqa: E402
 import bulk_screen as bs  # noqa: E402
 import injection_harness as ih  # noqa: E402
 from bulk import detrend as _detrend  # noqa: E402  (5.7: standalone)
+from bulk import matched_filter as _mf  # noqa: E402  (5.8: standalone)
 from bulk.inject_campaign import (ALT_HARMONIC_RATIOS,  # noqa: E402
                                 check_recovery, inject_trial)
 from bulk.inject_real_s96 import (load_real_fits,  # noqa: E402
@@ -333,6 +334,13 @@ def _subset(rec):
     # keys, so flag-off subsets are byte-identical). The null
     # scorer reads SDE1/SDE2 + the gate outcome from here.
     for k in _detrend.DETREND_RECORD_KEYS:
+        if k in rec:
+            out[k] = rec[k]
+    # 5.8 (M16): MF diagnostics ride along when present (same
+    # flag-on-only rule — flag-off subsets stay byte-identical).
+    # The depth-gate helper reads mf_unwhitened_depth_percent
+    # from the subset, so the subset MUST carry it.
+    for k in _mf.MF_RECORD_KEYS:
         if k in rec:
             out[k] = rec[k]
     return out

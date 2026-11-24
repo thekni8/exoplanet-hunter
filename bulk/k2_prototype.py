@@ -70,6 +70,7 @@ import numpy as np
 
 import bulk_screen as bs
 
+from bulk import matched_filter as _mf  # 5.8: gate_depth_pct (standalone)
 from bulk.oracle_run import is_eb_flag, mask_half_width
 
 # --------------------------------------------------------------------------
@@ -176,7 +177,10 @@ def mask_gate_allows(record):
         return True
     if any(is_eb_flag(f) for f in (record.get("flags") or [])):
         return True
-    depth = record.get("depth_percent")
+    # 5.8 (R6): the gate depth is the JUDGED depth — the
+    # unwhitened fold depth on an MF record, never the whitened
+    # BLS depth_percent.
+    depth = _mf.gate_depth_pct(record)
     gate_depth = getattr(bs, "MASK_GATE_DEPTH_PCT", 1.0)
     if depth is not None and depth > gate_depth:
         return True
@@ -227,7 +231,10 @@ def mask_eligibility(record):
     """
     if record is None:
         return False, None
-    depth = record.get("depth_percent")
+    # 5.8 (R6): the eligibility depth is the JUDGED depth —
+    # the unwhitened fold depth on an MF record, never the
+    # whitened BLS depth_percent.
+    depth = _mf.gate_depth_pct(record)
     if depth is not None and depth > 1.0:
         return True, "depth"
     if record.get("status") == "survivor":
@@ -478,7 +485,11 @@ def build_k2_mask(t, f, q, ephemeris, recorded_depth_pct, secondary=None,
 
     t, f, q are the RAW arrays (pre-quality-mask). ephemeris is the dict
     from estimate_ephemeris. recorded_depth_pct is the frozen recorded
-    pass-1 depth (percent). secondary is the (phase, depth, snr) tuple from
+    pass-1 depth (percent) — or, under the 5.8 matched filter, the
+    JUDGED (unwhitened fold) depth the caller read via
+    matched_filter.gate_depth_pct: the BUFFER widening and the
+    co-mask trigger are depth gates and must never see the whitened
+    BLS depth (R6). secondary is the (phase, depth, snr) tuple from
     scan_secondary, or None if the scan was not run.
 
     P4-1b extension (optional parameters; defaults preserve P4-1a

@@ -61,6 +61,7 @@ import numpy as np  # noqa: E402
 import bulk_screen as bs  # noqa: E402
 from bulk import k2_prototype as k2  # noqa: E402
 from bulk import k3_prototype as k3  # noqa: E402
+from bulk import matched_filter as _mf  # noqa: E402  # 5.8: gate_depth_pct
 from bulk import oracle_run as orc  # noqa: E402
 from bulk import pass1_carry as p1c  # noqa: E402
 from bulk.inject_campaign import check_recovery, inject_trial  # noqa: E402
@@ -81,15 +82,16 @@ NULL_P1_SURVIVORS = 4  # P4-1a null leg — must reproduce
 
 
 def _screen(path, tic, sector, return_periodogram=False,
-            detrend="v6"):
+            detrend="v6", search="bls"):
     # Calibration is global (set by _init_worker / the serial
     # path via bs.set_calibration); screen_job takes no
     # calibration argument. return_periodogram threads the 5.6
     # periodogram exposure through (default off); detrend threads
-    # the 5.7 detrend selection through (default "v6").
+    # the 5.7 detrend selection through (default "v6"); search
+    # threads the 5.8 search selection through (default "bls").
     return bs._screen_one(screen_job(
         path, tic, sector, return_periodogram=return_periodogram,
-        detrend=detrend))
+        detrend=detrend, search=search))
 
 
 def _load_spans(path):
@@ -131,7 +133,7 @@ def _est_error(ephemeris, p1):
 
 def _run_pass2(t, f_inj, q, fcol, base, tic, sector, ephemeris,
                secondary, recorded_depth_pct, arm, spans, keep_fits,
-               detrend="v6"):
+               detrend="v6", search="bls"):
     """Build the K=2 (+ artifact, combined arm) mask and run pass 2.
 
     Returns (keep2, mstats, p2_or_None, mask_path_or_None). The mask
@@ -172,7 +174,7 @@ def _run_pass2(t, f_inj, q, fcol, base, tic, sector, ephemeris,
         [(t[keep2], f_inj[keep2], q[keep2])])
     mask_path = str(base) + "_k2masked.fits"
     write_injected_fits(mask_path, t_s, f_s, q_s, fcol)
-    p2 = _screen(mask_path, tic, sector, detrend=detrend)
+    p2 = _screen(mask_path, tic, sector, detrend=detrend, search=search)
     if not keep_fits:
         os.remove(mask_path)
     return keep2, mstats, p2, mask_path
@@ -180,7 +182,8 @@ def _run_pass2(t, f_inj, q, fcol, base, tic, sector, ephemeris,
 
 def _run_pass3(t, f_inj, q, fcol, base, tic, sector, keep2, p2,
                ephemeris1, mstats1, arm, period_inj, epoch_inj,
-               duration_inj, keep_fits, flagged=None, detrend="v6"):
+               duration_inj, keep_fits, flagged=None, detrend="v6",
+               search="bls"):
     """Build the pass-3 mask from the pass-2 peak and run pass 3.
 
     Assumes pass 2 did not rescue and the peak is eligible
@@ -216,8 +219,11 @@ def _run_pass3(t, f_inj, q, fcol, base, tic, sector, keep2, p2,
     cap = k3.trial_cap(arm, ephemeris1["period_ref_d"])
     depth_trigger = arm != "no-depth-trigger"
     # Bypass the internal cap; the cap applies to the UNION mask.
+    # 5.8 (R6): the mask depth is the JUDGED depth — the
+    # unwhitened fold depth on an MF pass-2 record, never the
+    # whitened BLS depth_percent.
     keep3_raw, mstats3 = k2.build_k2_mask(
-        t, f_inj, q, eph2, p2.get("depth_percent"), secondary=sec2,
+        t, f_inj, q, eph2, _mf.gate_depth_pct(p2), secondary=sec2,
         duty_cap=1.0, depth_trigger=depth_trigger)
     keep_union, duty_u, stopped_u = k3.apply_union_cap(
         t, f_inj, q, keep2, keep3_raw, cap)
@@ -239,7 +245,7 @@ def _run_pass3(t, f_inj, q, fcol, base, tic, sector, keep2, p2,
         [(t[keep_union], f_inj[keep_union], q[keep_union])])
     mask3_path = str(base) + "_k3masked.fits"
     write_injected_fits(mask3_path, t_s3, f_s3, q_s3, fcol)
-    p3 = _screen(mask3_path, tic, sector, detrend=detrend)
+    p3 = _screen(mask3_path, tic, sector, detrend=detrend, search=search)
     if not keep_fits:
         os.remove(mask3_path)
     # F-2 (bulk_v6): re-raise a flagged pass-1 signal's EB
@@ -310,8 +316,10 @@ def run_host_campaign_k3(job):
     keep_fits = job.get("keep_fits", False)
     # 5.7 detrend (D9): the single leg's screens change too, so the
     # flag is part of the resume check (a v6 host file is never
-    # resumed by a v7 run, and vice versa).
+    # resumed by a v7 run, and vice versa). 5.8 search (M14):
+    # same rule for the search flag.
     detrend = job.get("detrend", "v6")
+    search = job.get("search", "bls")
     out_path = out_dir / "hosts" / f"{tic}_s{sector:04d}.json"
     if out_path.exists():
         try:
@@ -322,7 +330,8 @@ def run_host_campaign_k3(job):
                 and prev.get("manifest_sha") == manifest_sha
                 and prev.get("arm") == arm
                 and prev.get("mes_gate") == job.get("mes_gate")
-                and prev.get("detrend", "v6") == detrend):
+                and prev.get("detrend", "v6") == detrend
+                and prev.get("search", "bls") == search):
             return {"status": "skipped", "tic": tic, "sector": sector}
     t_start = time.time()
     try:
@@ -354,7 +363,8 @@ def run_host_campaign_k3(job):
             # --- fresh pass 1: VALIDATION ONLY (never an input to
             # the estimation). Same reproduction check as the oracle.
             t_p1 = time.time()
-            p1 = _screen(inj_path, tic, sector, detrend=detrend)
+            p1 = _screen(inj_path, tic, sector, detrend=detrend,
+                         search=search)
             r["seconds_pass1"] = round(time.time() - t_p1, 2)
             r["pass1"] = orc._subset(p1)
             # PIPE50-9b (bulk_v6): the pass-1 epoch delta the
@@ -417,7 +427,7 @@ def run_host_campaign_k3(job):
                 keep2, mstats, p2, _ = _run_pass2(
                     t, f_inj, q, fcol, base, tic, sector, ephemeris,
                     secondary, rec.get("depth_percent"), arm, spans,
-                    keep_fits, detrend=detrend)
+                    keep_fits, detrend=detrend, search=search)
                 carried_from_pass1 = False
             else:
                 keep2 = np.ones(len(t), dtype=bool)
@@ -543,7 +553,7 @@ def run_host_campaign_k3(job):
                         p2, ephemeris, mstats, arm, tr["period_d"],
                         tr["epoch_btjd"], tr["duration_d"],
                         keep_fits, flagged=flagged,
-                        detrend=detrend)
+                        detrend=detrend, search=search)
                     r["pass3_eligibility"] = elig
                     r.update(rec3)
                 # 5.1 design (A) §4.4: preserve the pass-1
@@ -590,6 +600,9 @@ def run_host_campaign_k3(job):
     if detrend != "v6":
         # Flag-on runs only, so flag-off records stay byte-identical.
         rec["detrend"] = detrend
+    if search != "bls":
+        # Flag-on runs only, so flag-off records stay byte-identical.
+        rec["search"] = search
     tmp = out_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(rec))
     tmp.replace(out_path)
@@ -610,8 +623,10 @@ def run_host_null_k3(job):
     workdir = Path(job["workdir"])
     calibration = job["calibration"]
     keep_fits = job.get("keep_fits", False)
-    # 5.7 detrend (D9): as in the campaign leg.
+    # 5.7 detrend (D9): as in the campaign leg. 5.8 search (M14):
+    # same rule for the search flag.
     detrend = job.get("detrend", "v6")
+    search = job.get("search", "bls")
     out_path = out_dir / "null_hosts" / f"{tic}_s{sector:04d}.json"
     if out_path.exists():
         try:
@@ -621,7 +636,8 @@ def run_host_null_k3(job):
         if (prev.get("complete") is True
                 and prev.get("arm") == arm
                 and prev.get("mes_gate") == job.get("mes_gate")
-                and prev.get("detrend", "v6") == detrend):
+                and prev.get("detrend", "v6") == detrend
+                and prev.get("search", "bls") == search):
             return {"status": "skipped", "tic": tic, "sector": sector}
     t_start = time.time()
     r = {"tic": tic, "sector": sector, "arm": arm,
@@ -635,7 +651,8 @@ def run_host_null_k3(job):
         base = workdir / f"{tic}_s{sector:04d}_null"
         raw_path = str(base) + ".fits"
         write_injected_fits(raw_path, t, f, q, fcol)
-        p1 = _screen(raw_path, tic, sector, detrend=detrend)
+        p1 = _screen(raw_path, tic, sector, detrend=detrend,
+                     search=search)
         r["pass1"] = orc._subset(p1)
         r["pass1_survivor"] = bool(p1.get("status") == "survivor")
         # F-2 source for the leg (pass-2 and the 5.1 carried row
@@ -669,10 +686,13 @@ def run_host_null_k3(job):
             # fresh pass-1 record forward; pass 3 does not run.
             gate_allows = k2.mask_gate_allows(p1)
             if gate_allows:
+                # 5.8 (R6): the mask depth is the JUDGED depth —
+                # the unwhitened fold depth on an MF pass-1
+                # record, never the whitened BLS depth_percent.
                 keep2, mstats, p2, _ = _run_pass2(
                     t, f, q, fcol, base, tic, sector, ephemeris,
-                    secondary, p1.get("depth_percent"), arm, spans,
-                    keep_fits, detrend=detrend)
+                    secondary, _mf.gate_depth_pct(p1), arm, spans,
+                    keep_fits, detrend=detrend, search=search)
                 carried_from_pass1 = False
             else:
                 keep2 = np.ones(len(t), dtype=bool)
@@ -738,7 +758,8 @@ def run_host_null_k3(job):
                             p2, ephemeris, mstats, arm,
                             period_inj=None, epoch_inj=None,
                             duration_inj=None, keep_fits=keep_fits,
-                            flagged=flagged, detrend=detrend)
+                            flagged=flagged, detrend=detrend,
+                            search=search)
                         # _run_pass3 needs an injected period for the
                         # recovery verdict — the null leg has none, so
                         # use the pass-3 record's screen fields only.
@@ -783,6 +804,9 @@ def run_host_null_k3(job):
     if detrend != "v6":
         # Flag-on runs only, so flag-off records stay byte-identical.
         r["detrend"] = detrend
+    if search != "bls":
+        # Flag-on runs only, so flag-off records stay byte-identical.
+        r["search"] = search
     r["seconds"] = round(time.time() - t_start, 1)
     tmp = out_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(r))
