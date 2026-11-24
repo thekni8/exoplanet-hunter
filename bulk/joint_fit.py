@@ -404,6 +404,21 @@ def _period_match(periods, period_inj):
     return best_rank is not None, best_rank
 
 
+def period_in_top15(periodogram, period_inj):
+    """B1 check (5.6/5.7): is period_inj within 1% of any of the
+    top-15 coarse peaks (extract_peaks: top-15 by SDE with
+    subharmonic masking)? Returns (found, rank_or_None). 5.7's
+    D21 freezes this definition at stitched pass 2 AND per-sector
+    pass 1 (a host counts as found iff >=1 sector contains it);
+    the campaign driver (p43_run) computes it in-process from the
+    periodogram and records the boolean — the periodogram itself
+    is never serialised."""
+    if periodogram is None or period_inj is None:
+        return False, None
+    coarse = extract_peaks(periodogram)
+    return _period_match([c["period"] for c in coarse], period_inj)
+
+
 def run_joint_fit(periodogram, t_stitched, f_stitched, sectors,
                   period_inj=None, durations=None):
     """Run the full joint fit for one trial (J1 + J2 + selection).

@@ -97,13 +97,19 @@ def make_qlp_fits(path, *, n_points=1296, cadence_min=30.0,
 
 
 def screen_job(path, tic="999999999", sector=1, meta=None,
-               return_periodogram=False):
+               return_periodogram=False, detrend="v6"):
     """The _screen_one job tuple for a synthetic FITS.
 
     return_periodogram=True appends the 5th tuple element _screen_one
     reads for the 5.6 periodogram exposure (default False: the tuple
-    stays the 4-tuple every existing caller passes)."""
+    stays the 4-tuple every existing caller passes). detrend != "v6"
+    appends the 5th AND 6th elements (return_periodogram, detrend)
+    for the 5.7 detrend selection — the 5-tuple shape for
+    return_periodogram-only is preserved.
+    """
     job = (str(tic), str(path), sector, dict(meta or DEFAULT_META))
-    if return_periodogram:
+    if detrend != "v6":
+        job = job + (bool(return_periodogram), detrend)
+    elif return_periodogram:
         job = job + (True,)
     return job

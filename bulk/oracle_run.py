@@ -98,6 +98,7 @@ import numpy as np  # noqa: E402
 
 import bulk_screen as bs  # noqa: E402
 import injection_harness as ih  # noqa: E402
+from bulk import detrend as _detrend  # noqa: E402  (5.7: standalone)
 from bulk.inject_campaign import (ALT_HARMONIC_RATIOS,  # noqa: E402
                                 check_recovery, inject_trial)
 from bulk.inject_real_s96 import (load_real_fits,  # noqa: E402
@@ -131,10 +132,26 @@ ORACLE_GROUPS = ("lockon_207", "depth_148", "wrong165_96")
 # Preprocessing replication (must match _screen_one's front end exactly)
 # ---------------------------------------------------------------------------
 
-def preprocess_arrays(t, f, q):
+def preprocess_arrays(t, f, q, detrend="v6"):
     """Replicate _screen_one's preprocessing: quality mask ->
     normalise -> MAD clip -> savgol flatten. Returns (t, f) as
-    they enter BLS. Uses the live calibration constants."""
+    they enter BLS. Uses the live calibration constants.
+
+    5.7 (R3): under detrend "v7" the SavGol flatten is NOT
+    applied here — the returned arrays are PRE-SavGol
+    (quality-masked, median-normalised, MAD-clipped) and the
+    stitched curve is built from them; _screen_one applies the
+    1.0 d SavGol itself (pass 1 unmasked, pass 2 masked). The
+    unmasked 1.0 d flatten this function used to apply absorbed
+    transit depth BEFORE the D-mask ever saw the curve (Gemini
+    Blocker 1) — masking downstream cannot restore depth already
+    eaten. No re-centre under v7 either: the median is already
+    exactly 1.0 by construction (f/med), so the re-centre would
+    be a no-op. Under "v6" (default) this function is verbatim
+    the old behaviour.
+    """
+    if detrend not in (_detrend.DETREND_V6, _detrend.DETREND_V7):
+        raise ValueError(f"unknown detrend {detrend!r}")
     from scipy.signal import savgol_filter
     t = np.asarray(t, dtype=float)
     f = np.asarray(f, dtype=float)
@@ -147,6 +164,8 @@ def preprocess_arrays(t, f, q):
     f = f / med
     keep = bs._mad_clip_mask(f, bs.CLIP_OPTION)
     t, f = t[keep], f[keep]
+    if detrend == _detrend.DETREND_V7:
+        return t, f
     dt = float(np.median(np.diff(t))) if len(t) > 1 else 0.0
     win = int(round(2.0 / dt)) if dt > 0 else 97
     win += (win % 2 == 0)
@@ -308,7 +327,15 @@ _KEEP_KEYS = ("status", "tier", "period_days", "t0_btjd",
 
 
 def _subset(rec):
-    return {k: rec.get(k) for k in _KEEP_KEYS}
+    out = {k: rec.get(k) for k in _KEEP_KEYS}
+    # 5.7 (D6/R14): detrend diagnostics ride along when present
+    # (flag-on records only — flag-off records never carry these
+    # keys, so flag-off subsets are byte-identical). The null
+    # scorer reads SDE1/SDE2 + the gate outcome from here.
+    for k in _detrend.DETREND_RECORD_KEYS:
+        if k in rec:
+            out[k] = rec[k]
+    return out
 
 
 def _init_worker(calibration):

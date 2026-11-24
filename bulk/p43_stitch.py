@@ -48,6 +48,7 @@ import numpy as np
 
 import bulk_screen as bs
 
+from bulk import detrend as _detrend
 from bulk import k3_prototype as k3
 from bulk import oracle_run as orc
 
@@ -181,12 +182,24 @@ def sector_consistency(t_s, f_s, q_s, bounds, period, t0, duration):
     return out
 
 
-def preprocess_sector(t, f, q):
+def preprocess_sector(t, f, q, detrend="v6"):
     """Preprocess one sector's (raw, injected) curve + its sigma.
 
     Returns (t_p, f_p, sigma): the arrays as they enter BLS
     (orc.preprocess_arrays) and the robust sigma of the flattened
     flux. The sigma is the inverse-variance weight input.
+
+    5.7 (R3): under detrend "v7" the returned arrays are
+    PRE-SavGol (no flatten — _screen_one flattens the stitched
+    curve at 1.0 d) and the sigma is computed from a TEMPORARY
+    1.0 d flattened copy of the pre-SavGol arrays. The flattened
+    copy is used ONLY for the sigma, never stitched.
     """
-    t_p, f_p = orc.preprocess_arrays(t, f, q)
+    t_p, f_p = orc.preprocess_arrays(t, f, q, detrend=detrend)
+    if detrend == _detrend.DETREND_V7:
+        trend = _detrend.savgol_trend(t_p, f_p,
+                                      _detrend.WINDOW_V7_D)
+        f_flat = f_p / trend
+        f_flat = f_flat - np.median(f_flat) + 1.0
+        return t_p, f_p, sector_sigma(t_p, f_flat)
     return t_p, f_p, sector_sigma(t_p, f_p)

@@ -441,7 +441,8 @@ def _mask_seed_and_eligibility(t_p, f_p, trial, p1, seed_mode,
 
 def _process_sector(t, f, q, fcol, trial, base, tic, sector,
                     keep_fits, seed_mode="fresh",
-                    agreement_only=False, frozen_epoch_ref=None):
+                    agreement_only=False, frozen_epoch_ref=None,
+                    detrend="v6", return_periodogram=False):
     """One sector of one trial: inject, fresh pass 1, estimate,
     pre-mask if a confirmed contaminant.
 
@@ -478,11 +479,14 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
     inj_path = str(base) + f"_s{sector:04d}.fits"
     write_injected_fits(inj_path, t, f_inj, q, fcol)
     t_p1 = time.time()
-    p1 = k3_run._screen(inj_path, tic, sector)
+    p1 = k3_run._screen(inj_path, tic, sector,
+                        return_periodogram=return_periodogram,
+                        detrend=detrend)
     sec_p1 = round(time.time() - t_p1, 2)
     if not keep_fits:
         os.remove(inj_path)
-    t_p, f_p, sigma = p43.preprocess_sector(t, f_inj, q)
+    t_p, f_p, sigma = p43.preprocess_sector(t, f_inj, q,
+                                            detrend=detrend)
     rec = {"sector": sector, "fcol": fcol,
            # The epoch actually passed to inject_transit, minus the
            # manifest epoch -- a measurement, not a hardcoded 0.0.
@@ -490,6 +494,13 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
            "inj_check_depth": inj_depth, "inj_check_ok": inj_ok,
            "pass1": orc._subset(p1), "sigma": sigma,
            "seconds_pass1": sec_p1, "n_cadences": int(len(t))}
+    if return_periodogram and p1.get("periodogram") is not None:
+        # 5.7 B1 (D21): per-sector pass-1 top-15 inclusion,
+        # computed in-process from the periodogram (never
+        # serialised). The scorer aggregates per host (>=1 sector
+        # contains it).
+        rec["b1_pass1_in_top15"] = jf.period_in_top15(
+            p1["periodogram"], trial["period_d"])[0]
     t_e = time.time()
     seed = _mask_seed_and_eligibility(t_p, f_p, trial, p1,
                                       seed_mode,
@@ -546,7 +557,8 @@ def _process_sector(t, f, q, fcol, trial, base, tic, sector,
     return rec, (t, f_inj, q, keep, sigma)
 
 
-def _mask_seed_diagnostic(t, f_inj, q, trial, fresh_rec, keep_fresh):
+def _mask_seed_diagnostic(t, f_inj, q, trial, fresh_rec, keep_fresh,
+                          detrend="v6"):
     """Mask-seed diagnostic (original sector only, pre-registered):
     build a second mask seeded from the FROZEN recorded period and
     compare it with the fresh-peak mask. The paired comparison
@@ -572,7 +584,7 @@ def _mask_seed_diagnostic(t, f_inj, q, trial, fresh_rec, keep_fresh):
             100.0 * abs(p_fresh - p_rec) / p_rec),
             "duty_fresh": None, "duty_recorded": None,
             "jaccard_dropped": None, "note": "fresh-not-masked"}
-    t_p, f_p = orc.preprocess_arrays(t, f_inj, q)
+    t_p, f_p = orc.preprocess_arrays(t, f_inj, q, detrend=detrend)
     eph_rec = k2.estimate_ephemeris(t_p, f_p, p_rec)
     sec_rec = k2.scan_secondary(
         t_p, f_p, eph_rec["period_ref_d"], eph_rec["t0_est_btjd"],
@@ -606,14 +618,17 @@ def _contaminant_dict(ephemeris, mstats):
 
 
 def _stitched_pass2(t_s, f_s, q_s, fcol, base, tic, sector,
-                    keep_fits, return_periodogram=False):
+                    keep_fits, return_periodogram=False,
+                    detrend="v6"):
     """Screen the stitched curve (pass 2). Returns the subset + the
     full record (the full record carries the periodogram when
-    return_periodogram is True -- the 5.6 joint fit's J1 input)."""
+    return_periodogram is True -- the 5.6 joint fit's J1 input and
+    the 5.7 B1 diagnostic's input)."""
     path = str(base) + "_stitched.fits"
     write_injected_fits(path, t_s, f_s, q_s, fcol)
     p2 = k3_run._screen(path, tic, sector,
-                        return_periodogram=return_periodogram)
+                        return_periodogram=return_periodogram,
+                        detrend=detrend)
     if not keep_fits:
         os.remove(path)
     return orc._subset(p2), p2
@@ -724,7 +739,7 @@ def _joint_fit_pass2(p2, p2_raw, t_s, f_s, q_s, masked, sigmas,
 
 def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
                     p2, contaminants, trial, keep_fits,
-                    flagged=None):
+                    flagged=None, detrend="v6"):
     """Pass 3 on the stitched curve: estimate the pass-2 peak's
     ephemeris from the stitched masked curve, build the mask,
     union with the stitched keep mask, cap at 25%, screen.
@@ -747,7 +762,7 @@ def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
         return out, {"pass3": None, "p3_recovered": False,
                      "p3_genuine": False}
     t_p2, f_p2 = orc.preprocess_arrays(t_s[keep], f_s[keep],
-                                       q_s[keep])
+                                       q_s[keep], detrend=detrend)
     eph2 = k2.estimate_ephemeris(t_p2, f_p2, p2.get("period_days"))
     sec2 = k2.scan_secondary(t_p2, f_p2, eph2["period_ref_d"],
                              eph2["t0_est_btjd"],
@@ -780,7 +795,7 @@ def _stitched_pass3(t_s, f_s, q_s, fcol, base, tic, sector, keep,
     path = str(base) + "_stitched_k3.fits"
     write_injected_fits(path, t_s[keep_union], f_s[keep_union],
                         q_s[keep_union], fcol)
-    p3 = k3_run._screen(path, tic, sector)
+    p3 = k3_run._screen(path, tic, sector, detrend=detrend)
     if not keep_fits:
         os.remove(path)
     # F-2 (bulk_v6): as in k3_run._run_pass3 — re-raise a
@@ -864,6 +879,15 @@ def run_host_campaign_p43(job):
     # the same trial list twice -- once with the flag off
     # (baseline leg), once with it on (joint leg).
     joint_fit = bool(job.get("joint_fit", False))
+    # 5.7 detrend (D9): the new detrend applies at EVERY
+    # _screen_one call (per-sector pass 1, stitched pass 2/3,
+    # single leg), so the flag is part of the resume check (the
+    # joint-fit precedent). b1_periodogram (D21/R13) requests the
+    # periodogram at per-sector pass 1 AND stitched pass 2 for
+    # the B1 diagnostic; it is orthogonal to the detrend (the B1
+    # comparison is paired, so BOTH legs request it).
+    detrend = job.get("detrend", "v6")
+    b1_periodogram = bool(job.get("b1_periodogram", False))
     # PIPE50-9c (4.1-3): record the stitched pass-1 screen per
     # trial (the unmasked stitch screen). Flag-gated (the
     # P4-3c precedent): flag-off records stay byte-identical to
@@ -891,6 +915,9 @@ def run_host_campaign_p43(job):
                 and prev.get("seed_fix") == seed_fix
                 and prev.get("mes_gate") == job.get("mes_gate")
                 and prev.get("joint_fit", False) == joint_fit
+                and prev.get("detrend", "v6") == detrend
+                and prev.get("b1_periodogram", False)
+                == b1_periodogram
                 and prev.get("pass1_stitched", False)
                 == record_pass1
                 and not any("error" in tr
@@ -956,7 +983,9 @@ def run_host_campaign_p43(job):
                     seed_mode=("fresh" if sec == tr["sector"]
                                else seed_mode),
                     agreement_only=agreement_only,
-                    frozen_epoch_ref=frozen_epoch_ref)
+                    frozen_epoch_ref=frozen_epoch_ref,
+                    detrend=detrend,
+                    return_periodogram=b1_periodogram)
                 if sec == orig_sec:
                     frozen_epoch_ref = (rec.get("pass1") or {}).get(
                         "t0_btjd")
@@ -1045,7 +1074,9 @@ def run_host_campaign_p43(job):
                 p1s, p1s_raw = _stitched_pass2(
                     t_u, f_u, q_u, unmasked[0]["fcol"], base_u,
                     tic, tr["sector"], keep_fits,
-                    return_periodogram=joint_fit)
+                    return_periodogram=(joint_fit
+                                        or b1_periodogram),
+                    detrend=detrend)
                 r["pass1"] = p1s
                 delta1 = k2.epoch_delta(
                     p1s.get("t0_btjd"), tr["epoch_btjd"],
@@ -1064,7 +1095,8 @@ def run_host_campaign_p43(job):
                     "ephemeris") is not None:
                 t_o, f_o, q_o, keep_o = sector_inj[orig]
                 r["mask_seed_diagnostic"] = _mask_seed_diagnostic(
-                    t_o, f_o, q_o, tr, per_sector[orig], keep_o)
+                    t_o, f_o, q_o, tr, per_sector[orig], keep_o,
+                    detrend=detrend)
             else:
                 r["mask_seed_diagnostic"] = None
             if not masked:
@@ -1142,7 +1174,9 @@ def run_host_campaign_p43(job):
                 p2, p2_raw = _stitched_pass2(
                     t_s, f_s, q_s, masked[0]["fcol"], base, tic,
                     orig, keep_fits,
-                    return_periodogram=joint_fit)
+                    return_periodogram=(joint_fit
+                                        or b1_periodogram),
+                    detrend=detrend)
                 carried_from_pass1 = False
             # The stitched pass-2 record IS the subset
             # (_stitched_pass2 returns it), so the carry
@@ -1169,6 +1203,14 @@ def run_host_campaign_p43(job):
                 r["joint_fit"] = jf_res
             sec_p2 = round(time.time() - t_p2s, 2)
             r["pass2"] = p2
+            if b1_periodogram and (p2_raw or {}).get(
+                    "periodogram") is not None:
+                # 5.7 B1 (D21): stitched pass-2 top-15 inclusion.
+                # In the carry-forward branch p2_raw is the
+                # pass-1 screen's raw record — pass 2 IS pass 1
+                # there, so the same periodogram is the right one.
+                r["b1_pass2_in_top15"] = jf.period_in_top15(
+                    p2_raw["periodogram"], tr["period_d"])[0]
             r["pass2_match"] = orc.period_match_class(
                 p2.get("period_days"), tr["period_d"])
             veto2 = k3.pass3_veto(p2.get("period_days"),
@@ -1202,7 +1244,7 @@ def run_host_campaign_p43(job):
                 r["p3_recovered"] = False
                 r["p3_genuine"] = False
                 r["sector_consistency"] = _consistency_at(
-                    t_s, f_s, q_s, bounds, p2)
+                    t_s, f_s, q_s, bounds, p2, detrend=detrend)
             elif r["p2_recovered"]:
                 r["pass3_eligibility"] = {
                     "eligible": False, "reason": "pass2-rescued"}
@@ -1210,23 +1252,25 @@ def run_host_campaign_p43(job):
                 r["p3_recovered"] = False
                 r["p3_genuine"] = False
                 r["sector_consistency"] = _consistency_at(
-                    t_s, f_s, q_s, bounds, p2)
+                    t_s, f_s, q_s, bounds, p2, detrend=detrend)
             else:
                 t_p3s = time.time()
                 elig, rec3 = _stitched_pass3(
                     t_s, f_s, q_s, masked[0]["fcol"], base, tic,
                     orig, keep_stitched, p2, contaminants, tr,
-                    keep_fits, flagged=flagged)
+                    keep_fits, flagged=flagged, detrend=detrend)
                 sec_p3 = round(time.time() - t_p3s, 2)
                 r["pass3_eligibility"] = elig
                 r.update(rec3)
                 r["seconds_pass3"] = sec_p3
                 if rec3.get("pass3") is not None:
                     r["sector_consistency"] = _consistency_at(
-                        t_s, f_s, q_s, bounds, rec3["pass3"])
+                        t_s, f_s, q_s, bounds, rec3["pass3"],
+                        detrend=detrend)
                 else:
                     r["sector_consistency"] = _consistency_at(
-                        t_s, f_s, q_s, bounds, p2)
+                        t_s, f_s, q_s, bounds, p2,
+                        detrend=detrend)
             # 5.1 design (A) §4.4: preserve the stitched pass-1
             # survivor as a carried final row. The alias-veto
             # references are the masked contaminants, with
@@ -1297,6 +1341,11 @@ def run_host_campaign_p43(job):
     if joint_fit:
         # 5.6: flag-on runs only (same precedent).
         rec["joint_fit"] = True
+    if detrend != "v6":
+        # 5.7: flag-on runs only (same precedent).
+        rec["detrend"] = detrend
+    if b1_periodogram:
+        rec["b1_periodogram"] = True
     tmp = out_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(_json_safe(rec)))
     tmp.replace(out_path)
@@ -1327,7 +1376,7 @@ def _sector_record(rec):
     return {k: v for k, v in rec.items()}
 
 
-def _consistency_at(t_s, f_s, q_s, bounds, found):
+def _consistency_at(t_s, f_s, q_s, bounds, found, detrend="v6"):
     """Per-sector transit-consistency record at a found ephemeris
     (pre-registered diagnostic). Runs on the preprocessed stitched
     curve."""
@@ -1337,7 +1386,7 @@ def _consistency_at(t_s, f_s, q_s, bounds, found):
     if period is None or t0 is None or duration_h is None:
         return None
     duration = duration_h / 24.0
-    t_p, f_p = orc.preprocess_arrays(t_s, f_s, q_s)
+    t_p, f_p = orc.preprocess_arrays(t_s, f_s, q_s, detrend=detrend)
     return p43.sector_consistency(t_p, f_p, q_s, bounds, period,
                                   t0, duration)
 
@@ -1361,6 +1410,9 @@ def run_host_null_p43(job):
     # stitched null leg runs the joint fit; the single leg is
     # unchanged; flag-off records stay byte-identical).
     joint_fit = bool(job.get("joint_fit", False))
+    # 5.7 detrend (D9): as in the campaign leg (no B1 here — no
+    # injected period on the null leg).
+    detrend = job.get("detrend", "v6")
     out_path = out_dir / "null-p43" / f"{tic}_p43.json"
     if out_path.exists():
         try:
@@ -1373,6 +1425,7 @@ def run_host_null_p43(job):
                 and prev.get("calibration") == calibration
                 and prev.get("mes_gate") == job.get("mes_gate")
                 and prev.get("joint_fit", False) == joint_fit
+                and prev.get("detrend", "v6") == detrend
                 and "error" not in prev):
             return {"status": "skipped", "tic": tic}
     t_start = time.time()
@@ -1390,11 +1443,14 @@ def run_host_null_p43(job):
             t, f, q, fcol, _meta = load_real_fits(paths[str(sec)])
             raw_path = str(base) + f"_s{sec:04d}.fits"
             write_injected_fits(raw_path, t, f, q, fcol)
-            p1 = k3_run._screen(raw_path, tic, sec)
+            p1 = k3_run._screen(raw_path, tic, sec, detrend=detrend)
             if not keep_fits:
                 os.remove(raw_path)
-            t_p, f_p = orc.preprocess_arrays(t, f, q)
-            sigma = p43.sector_sigma(t_p, f_p)
+            # preprocess_sector == preprocess_arrays + sector_sigma
+            # under v6 (identical); under v7 the sigma comes from
+            # the temporary 1.0 d flattened copy (R3).
+            t_p, f_p, sigma = p43.preprocess_sector(
+                t, f, q, detrend=detrend)
             sigmas[sec] = sigma
             rec = {"sector": sec, "fcol": fcol, "sigma": sigma,
                    "pass1": orc._subset(p1),
@@ -1477,7 +1533,7 @@ def run_host_null_p43(job):
         p1s, p1s_raw = _stitched_pass2(
             t_u, f_u, q_u, unmasked[0]["fcol"],
             base_u, tic, sectors[0], keep_fits,
-            return_periodogram=joint_fit)
+            return_periodogram=joint_fit, detrend=detrend)
         r["pass1"] = p1s
         r["pass1_survivor"] = bool(p1s.get("status") == "survivor")
         r["stitch_unmasked"] = tr_u
@@ -1545,7 +1601,7 @@ def run_host_null_p43(job):
                 p2, p2_raw = _stitched_pass2(
                     t_s, f_s, q_s, masked[0]["fcol"], base, tic,
                     sectors[0], keep_fits,
-                    return_periodogram=joint_fit)
+                    return_periodogram=joint_fit, detrend=detrend)
                 carried_from_pass1 = False
             carried = orc.carried_eb_flags(
                 p2.get("period_days"), flagged)
@@ -1594,7 +1650,7 @@ def run_host_null_p43(job):
                     t_s, f_s, q_s, masked[0]["fcol"], base, tic,
                     sectors[0], np.ones(len(t_s), dtype=bool), p2,
                     contaminants, trial_none, keep_fits,
-                    flagged=flagged)
+                    flagged=flagged, detrend=detrend)
                 r["pass3_eligibility"] = elig
                 r["k3_mask"] = rec3.get("k3_mask")
                 r["k3_ephemeris"] = rec3.get("k3_ephemeris")
@@ -1639,6 +1695,9 @@ def run_host_null_p43(job):
         # 5.6: flag-on runs only (same precedent as the campaign
         # leg -- flag-off records stay byte-identical).
         r["joint_fit"] = True
+    if detrend != "v6":
+        # 5.7: flag-on runs only (same precedent).
+        r["detrend"] = detrend
     r["seconds"] = round(time.time() - t_start, 1)
     tmp = out_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(_json_safe(r)))
@@ -2639,7 +2698,8 @@ def merge_null_p43(out_dir, vsx_query_fn=None, vsx_coords=None,
 def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
                 workdir_single, keep_fits, calibration, tics=None,
                 limit_hosts=None, agreement_only=False,
-                seed_mode="frozen", mes_gate=None, joint_fit=False):
+                seed_mode="frozen", mes_gate=None, joint_fit=False,
+                detrend="v6", b1_periodogram=False):
     """Build the paired job lists (single + stitched) for the
     manifest's TICs. Returns (single_jobs, stitched_jobs,
     missing). A missing sector FITS skips the TIC ENTIRELY (no
@@ -2664,7 +2724,14 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
     unaffected. The trial's original sector must be in the
     host's list. mes_gate (None = profile bar) is carried on
     every job: the leg functions record it and refuse to resume
-    a host file written at a different gate (tiers differ)."""
+    a host file written at a different gate (tiers differ).
+    detrend (5.7, D9) is carried on EVERY job (single + stitched,
+    campaign + null): the new detrend applies at every
+    _screen_one call. b1_periodogram (5.7, D21/R13) is carried
+    on the stitched campaign jobs only -- the B1 diagnostic
+    needs the periodogram at per-sector pass 1 and stitched
+    pass 2; the single leg and the null leg never read it (no
+    injected period on the null leg)."""
     hosts = {}
     for tr in manifest["trials"]:
         hosts.setdefault(tr["tic"], {"sector": tr["sector"],
@@ -2703,6 +2770,7 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
              "calibration": calibration,
              "keep_fits": keep_fits, "arm": ARM, "spans": None,
              "manifest_sha": manifest["_sha256"],
+             "detrend": detrend,
              "mes_gate": mes_gate})
         stitched_jobs.append(
             {"tic": tic, "sectors": list(host_sectors), "paths": paths,
@@ -2714,6 +2782,8 @@ def _build_jobs(manifest, cache_dir, out_dir, workdir_p43,
              "agreement_only": agreement_only,
              "seed_mode": seed_mode,
              "joint_fit": joint_fit,
+             "detrend": detrend,
+             "b1_periodogram": b1_periodogram,
              "manifest_sha": manifest["_sha256"],
              "mes_gate": mes_gate})
     if limit_hosts is not None:
@@ -2782,6 +2852,29 @@ def main(argv=None):
                          "campaign runs the same trial list twice "
                          "-- once without this flag (baseline "
                          "leg), once with it (joint leg).")
+    ap.add_argument("--detrend", choices=("v6", "v7"),
+                    default="v6",
+                    help="5.7 detrend (DESIGN_5_7.md): v7 runs "
+                         "the two-pass transit-masked SavGol "
+                         "detrend (1.0 d window) at EVERY "
+                         "_screen_one call (per-sector pass 1, "
+                         "stitched pass 2/3, single leg) and "
+                         "stitches pre-SavGol arrays. v6 "
+                         "(default) is the current behaviour. "
+                         "The paired A/B campaign runs the same "
+                         "trial list twice -- once with v6 "
+                         "(baseline leg), once with v7 (5.7 "
+                         "leg).")
+    ap.add_argument("--b1-periodogram", action="store_true",
+                    help="5.7 B1 diagnostic (DESIGN_5_7.md "
+                         "D21/R13): request the BLS periodogram "
+                         "at per-sector pass 1 AND stitched pass "
+                         "2 and record whether the injected "
+                         "period is in the top 15. Orthogonal "
+                         "to --detrend (the B1 comparison is "
+                         "paired, so BOTH legs pass this flag). "
+                         "Campaign mode only; the null leg "
+                         "ignores it (no injected period).")
     args = ap.parse_args(argv)
     if args.agreement_only and args.seed_mode != "frozen":
         ap.error("--agreement-only requires --seed-mode frozen")
@@ -2806,13 +2899,18 @@ def main(argv=None):
             out_dir / "injected", args.keep_fits,
             args.calibration, args.tics, args.limit_hosts,
             agreement_only=args.agreement_only,
-            seed_mode=args.seed_mode, joint_fit=args.joint_fit)
+            seed_mode=args.seed_mode, joint_fit=args.joint_fit,
+            detrend=args.detrend,
+            b1_periodogram=args.b1_periodogram)
         print(f"[p43] campaign: {len(single_jobs)} single jobs, "
               f"{len(stitched_jobs)} stitched jobs, "
               f"{len(missing)} missing FITS; "
               f"agreement_only={args.agreement_only} "
               f"seed_mode={args.seed_mode} "
-              f"joint_fit={args.joint_fit}", flush=True)
+              f"joint_fit={args.joint_fit} "
+              f"detrend={args.detrend} "
+              f"b1_periodogram={args.b1_periodogram}",
+              flush=True)
         if args.dry_run:
             return 0
         (out_dir / "hosts").mkdir(parents=True, exist_ok=True)
@@ -2899,7 +2997,7 @@ def main(argv=None):
         manifest, cache, out_dir, out_dir / "null_injected-p43",
         out_dir / "null_injected", args.keep_fits,
         args.calibration, args.tics, args.limit_hosts,
-        joint_fit=args.joint_fit)
+        joint_fit=args.joint_fit, detrend=args.detrend)
     # Null jobs carry no trials -- strip them (same job shape minus
     # the trial list).
     for j in single_jobs:
@@ -2909,7 +3007,8 @@ def main(argv=None):
     print(f"[p43] null: {len(single_jobs)} single jobs, "
           f"{len(stitched_jobs)} stitched jobs, "
           f"{len(missing)} missing FITS; "
-          f"joint_fit={args.joint_fit}", flush=True)
+          f"joint_fit={args.joint_fit} "
+          f"detrend={args.detrend}", flush=True)
     if args.dry_run:
         return 0
     (out_dir / "null_hosts").mkdir(parents=True, exist_ok=True)

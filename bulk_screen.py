@@ -170,6 +170,7 @@ from bulk.grid_edge import disposition_grid_edge as _disposition_grid_edge
 from bulk.replay_matrix import CLUSTER_MIN_SIZE as _RM_CLUSTER_MIN_SIZE
 from bulk.replay_matrix import CLUSTER_TOL_P as _RM_CLUSTER_TOL_P
 from bulk.replay_matrix import CLUSTER_TOL_T0_D as _RM_CLUSTER_TOL_T0_D
+from bulk import detrend as _detrend  # 5.7: no cycle (detrend is standalone)
 from bulk.replay_matrix import (T0_CLUSTER_MAX_EVENTS as
                                 _RM_T0_CLUSTER_MAX_EVENTS)
 from bulk.replay_matrix import (T0_CLUSTER_MIN_SIZE as
@@ -1549,7 +1550,20 @@ def _screen_one(args):
     joint fit is forbidden). Default-off: attaching 12,000-point
     arrays to every record would bloat the pool IPC for the sector
     screens, which never need them. The exposure does not alter any
-    other output (A8 regression test: tests/test_joint_fit.py)."""
+    other output (A8 regression test: tests/test_joint_fit.py).
+
+    An optional 6th element selects the detrend (5.7, D9/D10):
+    "v6" (default) is the current behaviour; "v7" is the two-pass
+    transit-masked SavGol at a 1.0 d window (DESIGN_5_7.md). Under
+    "v7" the record carries the detrend diagnostics (both passes'
+    metrics, the adoption-gate outcome, the SDE-jump flag — see
+    bulk.detrend.DETREND_RECORD_KEYS, none in _EMIT_KEYS); under
+    "v6" no detrend key is attached at all, so flag-off output is
+    byte-identical (D10 regression test: tests/test_detrend_57.py).
+    When the second pass is adopted, "periodogram" (if requested)
+    is the ADOPTED pass's periodogram — the search behind the
+    reported headline, which is what the 5.7 B1 diagnostic reads.
+    """
     tic, path, sector, star = args[:4]
     return_periodogram = len(args) > 4 and bool(args[4])
     rec = {"tic": tic, "sector": int(sector), "product": PRODUCT,
@@ -1557,6 +1571,11 @@ def _screen_one(args):
            "tmag": star.get("tmag"), "radius_rsun": star.get("radius"),
            "status": "searched"}
     try:
+        detrend = (args[5] if len(args) > 5
+                   else _detrend.DETREND_V6)
+        if detrend not in (_detrend.DETREND_V6,
+                           _detrend.DETREND_V7):
+            raise ValueError(f"unknown detrend {detrend!r}")
         from astropy.io import fits
         from astropy.timeseries import BoxLeastSquares
         with fits.open(path, memmap=True) as hdul:
@@ -1616,20 +1635,38 @@ def _screen_one(args):
         f = f / med
         keep = _mad_clip_mask(f, CLIP_OPTION)
         t, f = t[keep], f[keep]
-        # light flatten at the deep pipeline's ~2 d scale (Savitzky-Golay)
+        # Detrend (5.7, D9/D10). "v6" (default) is the current
+        # behaviour VERBATIM — the inline block below is untouched,
+        # so flag-off output is byte-identical. "v7" is the 5.7
+        # front end: a segment-wise 1.0 d SavGol flatten here
+        # (pass 1), with the masked re-flatten + second BLS after
+        # the first BLS below (D-mask). f_pre is the pre-SavGol
+        # flux (quality-masked, median-normalised, MAD-clipped)
+        # the second pass re-flattens — and the raw-flux gate
+        # reads. It is kept only under v7 (no flag-off cost).
         from scipy.signal import savgol_filter
         # F-4 tripwire: the detrend must never see a float32
         # array — a path that bypassed ingest fails here.
         _ingest.assert_float64(t, f, "detrend entry (_screen_one)")
-        dt = float(np.median(np.diff(t)))
-        win = int(round(2.0 / dt)) if dt > 0 else 97
-        win += (win % 2 == 0)
-        win = int(min(max(win, 31), len(t) // 2 * 2 - 1))
-        if win >= 31:
-            trend = savgol_filter(f, win, 2)
-            trend[trend == 0] = 1.0
+        f_pre = f.copy() if detrend == _detrend.DETREND_V7 else None
+        t_flat = time.monotonic()
+        if detrend == _detrend.DETREND_V7:
+            trend = _detrend.savgol_trend(
+                t, f, _detrend.WINDOW_V7_D)
             f = f / trend
+        else:
+            # light flatten at the deep pipeline's ~2 d scale
+            # (Savitzky-Golay) — v6, verbatim.
+            dt = float(np.median(np.diff(t)))
+            win = int(round(2.0 / dt)) if dt > 0 else 97
+            win += (win % 2 == 0)
+            win = int(min(max(win, 31), len(t) // 2 * 2 - 1))
+            if win >= 31:
+                trend = savgol_filter(f, win, 2)
+                trend[trend == 0] = 1.0
+                f = f / trend
         f = f - np.median(f) + 1.0
+        sec_flat = time.monotonic() - t_flat
 
         # Layer 2 provenance (A-2): the exact arrays entering BLS,
         # hashed so a result can be traced to the data it was
@@ -1677,6 +1714,167 @@ def _screen_one(args):
                         product_ids=[Path(path).name],
                         sectors=[int(sector)], author=PRODUCT,
                         bls_input_hash=bls_hash)})
+        # --- 5.7 second pass (D-mask) --------------------------------
+        # Runs only under detrend "v7" and only when pass 1 found
+        # something above the record floor (D7: no headline, no
+        # mask). Refine-for-mask (D3) -> transit mask (D5) ->
+        # masked re-flatten -> second BLS -> raw-flux adoption
+        # gate (D6). An adopted pass 2 REPLACES the headline, the
+        # periodogram state, and the (t, f) arrays, so everything
+        # downstream (health, alt peaks, vetoes, rescore, tiering)
+        # sees the adopted result — hunter.py rebinds t/f on
+        # adoption the same way. Any failure falls back to pass 1
+        # with the failure recorded (D8). Stage timings feed the
+        # profile-first measurement (D20).
+        if detrend == _detrend.DETREND_V7:
+            # Lazy import: joint_fit imports bulk_screen, so a
+            # top-level import here would be circular.
+            from bulk import joint_fit as _jf
+            rec["detrend"] = _detrend.DETREND_V7
+            _dt_sec = {"flatten": round(sec_flat, 4)}
+            if sde < RECORD_FLOOR_SDE:
+                rec["detrend_pass2_skip_reason"] = "below_floor"
+            else:
+                try:
+                    _t_ref = time.monotonic()
+                    _ref = _jf.refine_peak(
+                        bls,
+                        {"period": period, "sde": sde,
+                         "depth": depth, "duration": duration,
+                         "t0": t0},
+                        med_p, scale, BLS_DURATIONS_D)
+                    _dt_sec["refine"] = round(
+                        time.monotonic() - _t_ref, 4)
+                    _mask = _detrend.transit_mask(
+                        t, _ref["period"], _ref["t0"],
+                        _ref["duration"])
+                    _mask_frac = float(_mask.mean())
+                    rec["detrend_mask_fraction"] = _mask_frac
+                    rec["detrend_refined_period_days"] = float(
+                        _ref["period"])
+                    rec["detrend_refined_t0_btjd"] = float(
+                        _ref["t0"])
+                    rec["detrend_refined_duration_hours"] = (
+                        float(_ref["duration"]) * 24.0)
+                    if _mask_frac > _detrend.MASK_MAX_FRAC:
+                        rec["detrend_pass2_skip_reason"] = (
+                            "mask_fraction_gt_50pct")
+                    else:
+                        _t_rf = time.monotonic()
+                        _trend2 = _detrend.masked_savgol_trend(
+                            t, f_pre, _mask,
+                            _detrend.WINDOW_V7_D)
+                        _f2 = f_pre / _trend2
+                        _f2 = _f2 - np.median(_f2) + 1.0
+                        _dt_sec["reflatten"] = round(
+                            time.monotonic() - _t_rf, 4)
+                        # Second BLS — the identical search (same
+                        # grid, same durations, same robust SDE)
+                        # on the re-flattened curve. Keep in sync
+                        # with the pass-1 BLS above.
+                        _t_b2 = time.monotonic()
+                        _ingest.assert_float64(
+                            t, _f2, "BLS entry (_screen_one p2)")
+                        _bls2 = BoxLeastSquares(t, _f2)
+                        _res2 = _bls2.power(
+                            periods, list(BLS_DURATIONS_D))
+                        _pv2 = np.asarray(_res2.period,
+                                          dtype=float)
+                        _pw2 = np.asarray(_res2.power,
+                                          dtype=float)
+                        _med2, _scale2 = _robust_sde(_pw2, _pv2)
+                        _sde2_all = (_pw2 - _med2) / _scale2
+                        _i2 = int(np.argmax(_sde2_all))
+                        _per2 = float(_pv2[_i2])
+                        _sde2 = float(_sde2_all[_i2])
+                        _dep2 = float(_res2.depth[_i2])
+                        _dur2 = float(_res2.duration[_i2])
+                        _t02 = float(_res2.transit_time[_i2])
+                        _dt_sec["bls2"] = round(
+                            time.monotonic() - _t_b2, 4)
+                        # D6 adoption gate: SDE within 1.0 of pass
+                        # 1 AND the raw-flux gate (depth > 0 and
+                        # significance >= hunter.py's 3.0) on the
+                        # PRE-SavGol flux at the pass-2 ephemeris.
+                        _raw_d, _raw_s = (
+                            _detrend.raw_fold_depth(
+                                t, f_pre, _per2, _t02, _dur2))
+                        _gate = bool(
+                            _raw_d > 0.0
+                            and _raw_s
+                            >= _detrend.PASS2_GATE_MIN_SIGNIF)
+                        _sde_ok = bool(
+                            _sde2
+                            >= sde - _detrend.ADOPT_SDE_DROP)
+                        _adopt = bool(_gate and _sde_ok)
+                        rec["detrend_pass1_period_days"] = period
+                        rec["detrend_pass1_sde"] = sde
+                        rec["detrend_pass1_depth_percent"] = (
+                            depth * 100.0)
+                        rec["detrend_pass1_duration_hours"] = (
+                            duration * 24.0)
+                        rec["detrend_pass1_t0_btjd"] = t0
+                        rec["detrend_pass2_period_days"] = _per2
+                        rec["detrend_pass2_sde"] = _sde2
+                        rec["detrend_pass2_depth_percent"] = (
+                            _dep2 * 100.0)
+                        rec["detrend_pass2_duration_hours"] = (
+                            _dur2 * 24.0)
+                        rec["detrend_pass2_t0_btjd"] = _t02
+                        rec["detrend_adopted"] = _adopt
+                        rec["detrend_gate_passed"] = _gate
+                        rec["detrend_gate_raw_depth_pct"] = _raw_d
+                        rec["detrend_gate_raw_signif"] = _raw_s
+                        rec["detrend_sde_jump"] = bool(
+                            _sde2 >= 2.0 * sde)
+                        if _adopt:
+                            # Adopt: rebind everything the record
+                            # and the downstream stages read
+                            # (headline, periodogram state, BLS
+                            # arrays, provenance hash).
+                            period, sde = _per2, _sde2
+                            depth, duration = _dep2, _dur2
+                            t0 = _t02
+                            pv, pw = _pv2, _pw2
+                            sde_all, i = _sde2_all, _i2
+                            med_p, scale = _med2, _scale2
+                            f = _f2
+                            bls_hash = _prov.bls_input_hash(t, f)
+                            rec.update({
+                                "period_days": period,
+                                "t0_btjd": t0,
+                                "duration_hours":
+                                    duration * 24.0,
+                                "depth_percent": depth * 100.0,
+                                "sde": sde,
+                                "near_systematic":
+                                    _near_systematic(period,
+                                                     sector),
+                                "input_identity":
+                                    _prov.input_identity(
+                                        product_ids=[Path(path).name],
+                                        sectors=[int(sector)],
+                                        author=PRODUCT,
+                                        bls_input_hash=bls_hash)})
+                            if return_periodogram:
+                                rec["periodogram"] = {
+                                    "periods": pv,
+                                    "powers": pw,
+                                    "depths": np.asarray(
+                                        _res2.depth, dtype=float),
+                                    "durations": np.asarray(
+                                        _res2.duration,
+                                        dtype=float),
+                                    "transit_times": np.asarray(
+                                        _res2.transit_time,
+                                        dtype=float),
+                                    "med": med_p,
+                                    "scale": scale,
+                                }
+                except Exception as _e:  # noqa: BLE001
+                    rec["detrend_pass2_failed"] = (
+                        f"{type(_e).__name__}: {_e}")
+            rec["detrend_seconds"] = _dt_sec
         # P3-1 (DF-20): periodogram health check. A degenerate
         # search records SEARCH_INVALID and returns here — it is
         # never a survivor, never a "below_floor" valid search,
